@@ -29,8 +29,8 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 - [ ] Configure Linux USB permissions (udev rules)
 - [ ] Configure Windows USB driver requirements
 - [ ] Configure macOS USB permissions (if needed)
-- [ ] Add Android USB Host API integration (if targeting Android)
-- [ ] Document platform-specific setup in README
+- [x] Add Android USB Host API integration (if targeting Android)
+- [x] Document platform-specific setup in README
 
 ---
 

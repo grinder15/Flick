@@ -413,27 +413,38 @@ class MainActivity: FlutterActivity() {
             return uac2DeviceCache!!
         }
         
-        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return emptyList()
+        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager
+        if (usbManager == null) {
+            android.util.Log.e("UAC2", "USB service unavailable")
+            return emptyList()
+        }
+        
         val deviceList = usbManager.deviceList ?: return emptyList()
         val result = mutableListOf<Map<String, Any?>>()
         
         for (device in deviceList.values) {
-            if (!isUac2Device(device)) continue
-            val hasPermission = usbManager.hasPermission(device)
-            
-            // Extract strings (available without opening device on API 21+)
-            val productName = device.productName ?: "USB Audio Device"
-            val manufacturer = device.manufacturerName ?: ""
-            val serial = device.serialNumber ?: device.deviceName
-            
-            result.add(mapOf(
-                "deviceName" to device.deviceName,
-                "vendorId" to device.vendorId,
-                "productId" to device.productId,
-                "productName" to (productName ?: "USB Audio Device"),
-                "manufacturer" to (manufacturer ?: ""),
-                "serial" to (serial ?: device.deviceName),
-            ))
+            try {
+                if (!isUac2Device(device)) continue
+                
+                val hasPermission = usbManager.hasPermission(device)
+                
+                // Extract strings (available without opening device on API 21+)
+                val productName = device.productName ?: "USB Audio Device"
+                val manufacturer = device.manufacturerName ?: ""
+                val serial = device.serialNumber ?: device.deviceName
+                
+                result.add(mapOf(
+                    "deviceName" to device.deviceName,
+                    "vendorId" to device.vendorId,
+                    "productId" to device.productId,
+                    "productName" to productName,
+                    "manufacturer" to manufacturer,
+                    "serial" to serial,
+                ))
+            } catch (e: Exception) {
+                android.util.Log.w("UAC2", "Failed to process device ${device.deviceName}: ${e.message}")
+                // Continue with other devices
+            }
         }
         
         uac2DeviceCache = result
@@ -441,64 +452,95 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun isUac2Device(device: UsbDevice): Boolean {
-        for (i in 0 until device.interfaceCount) {
-            val iface = device.getInterface(i)
-            // UAC 2.0: Class 0x01 (Audio), Subclass 0x02 (UAC2), Protocol 0x20 (UAC2)
-            if (iface.interfaceClass == UsbConstants.USB_CLASS_AUDIO &&
-                iface.interfaceSubclass == 0x02 &&
-                iface.interfaceProtocol == 0x20
-            ) {
-                return true
+        return try {
+            for (i in 0 until device.interfaceCount) {
+                val iface = device.getInterface(i)
+                // UAC 2.0: Class 0x01 (Audio), Subclass 0x02 (UAC2), Protocol 0x20 (UAC2)
+                if (iface.interfaceClass == UsbConstants.USB_CLASS_AUDIO &&
+                    iface.interfaceSubclass == 0x02 &&
+                    iface.interfaceProtocol == 0x20
+                ) {
+                    return true
+                }
             }
+            false
+        } catch (e: Exception) {
+            android.util.Log.w("UAC2", "Error checking device: ${e.message}")
+            false
         }
-        return false
     }
 
     private fun hasUac2Permission(deviceName: String): Boolean {
-        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
-        val device = usbManager.deviceList?.get(deviceName) ?: return false
-        return usbManager.hasPermission(device)
+        return try {
+            val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
+            val device = usbManager.deviceList?.get(deviceName) ?: return false
+            usbManager.hasPermission(device)
+        } catch (e: Exception) {
+            android.util.Log.e("UAC2", "Error checking permission: ${e.message}")
+            false
+        }
     }
 
     private fun requestUac2Permission(deviceName: String, result: MethodChannel.Result) {
-        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager
-        if (usbManager == null) {
-            result.error("UAC2_ERROR", "USB service unavailable", null)
-            return
-        }
-        val device = usbManager.deviceList?.get(deviceName)
-        if (device == null) {
-            result.error("NOT_FOUND", "USB device not found: $deviceName", null)
-            return
-        }
-        if (usbManager.hasPermission(device)) {
-            result.success(true)
-            return
-        }
-        pendingUac2PermissionResult = result
-        val permissionIntent = PendingIntent.getBroadcast(
-            this,
-            REQUEST_USB_PERMISSION,
-            Intent(ACTION_USB_PERMISSION),
-            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
-        usbPermissionReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == ACTION_USB_PERMISSION) {
-                    val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
-                    unregisterReceiver(usbPermissionReceiver)
-                    usbPermissionReceiver = null
-                    pendingUac2PermissionResult?.success(granted)
-                    pendingUac2PermissionResult = null
+        try {
+            val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager
+            if (usbManager == null) {
+                result.error("UAC2_ERROR", "USB service unavailable", null)
+                return
+            }
+            
+            val device = usbManager.deviceList?.get(deviceName)
+            if (device == null) {
+                result.error("NOT_FOUND", "USB device not found: $deviceName", null)
+                return
+            }
+            
+            if (usbManager.hasPermission(device)) {
+                result.success(true)
+                return
+            }
+            
+            // Device might be busy if already opened elsewhere
+            pendingUac2PermissionResult = result
+            val permissionIntent = PendingIntent.getBroadcast(
+                this,
+                REQUEST_USB_PERMISSION,
+                Intent(ACTION_USB_PERMISSION),
+                PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            usbPermissionReceiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (intent?.action == ACTION_USB_PERMISSION) {
+                        val granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                        val device = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+                        unregisterReceiver(usbPermissionReceiver)
+                        usbPermissionReceiver = null
+                        
+                        if (granted && device != null) {
+                            // Invalidate cache when permission granted
+                            uac2DeviceCache = null
+                            pendingUac2PermissionResult?.success(true)
+                        } else {
+                            pendingUac2PermissionResult?.error(
+                                "PERMISSION_DENIED",
+                                "Permission denied for device: ${device?.deviceName ?: deviceName}",
+                                null
+                            )
+                        }
+                        pendingUac2PermissionResult = null
+                    }
                 }
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(usbPermissionReceiver, IntentFilter(ACTION_USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(usbPermissionReceiver, IntentFilter(ACTION_USB_PERMISSION))
+            }
+            usbManager.requestPermission(device, permissionIntent)
+        } catch (e: Exception) {
+            android.util.Log.e("UAC2", "Error requesting permission: ${e.message}")
+            result.error("UAC2_ERROR", "Failed to request permission: ${e.message}", null)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(usbPermissionReceiver, IntentFilter(ACTION_USB_PERMISSION), Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(usbPermissionReceiver, IntentFilter(ACTION_USB_PERMISSION))
-        }
-        usbManager.requestPermission(device, permissionIntent)
     }
 
     private fun registerUsbHotplugReceiver() {

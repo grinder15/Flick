@@ -9,6 +9,8 @@ import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.media.MediaMetadataRetriever
+import android.media.audiofx.Equalizer
+import android.media.audiofx.AudioEffect
 import android.net.Uri
 import android.os.Build
 import androidx.documentfile.provider.DocumentFile
@@ -26,6 +28,7 @@ class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.ultraelectronica.flick/storage"
     private val PLAYER_CHANNEL = "com.ultraelectronica.flick/player"
     private val UAC2_CHANNEL = "com.ultraelectronica.flick/uac2"
+    private val EQUALIZER_CHANNEL = "com.ultraelectronica.flick/equalizer"
     private val REQUEST_OPEN_DOCUMENT_TREE = 1001
     private val REQUEST_USB_PERMISSION = 1002
 
@@ -35,6 +38,7 @@ class MainActivity: FlutterActivity() {
     private var usbHotplugReceiver: BroadcastReceiver? = null
     private var uac2DeviceCache: List<Map<String, Any?>>? = null
     private var uac2Channel: MethodChannel? = null
+    private var equalizer: Equalizer? = null
     // Coroutine scope for background tasks
     private val mainScope = CoroutineScope(Dispatchers.Main)
 
@@ -245,9 +249,96 @@ class MainActivity: FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // Equalizer channel for Android native AudioEffect API
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, EQUALIZER_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setEqualizer" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val gainsDb = call.argument<List<Double>>("gainsDb")
+                    @Suppress("UNCHECKED_CAST")
+                    val audioSessionId = (call.arguments as? Map<String, Any?>)?.get("audioSessionId")?.let {
+                        when (it) {
+                            is Number -> it.toInt()
+                            else -> null
+                        }
+                    }
+                    if (gainsDb != null && gainsDb.size == 10) {
+                        setEqualizer(enabled, gainsDb, audioSessionId, result)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "gainsDb must be a list of 10 doubles", null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
         
         // Register USB hot-plug receiver
         registerUsbHotplugReceiver()
+    }
+
+    private fun setEqualizer(enabled: Boolean, gainsDb: List<Double>, audioSessionId: Int?, result: MethodChannel.Result) {
+        try {
+            // Release existing equalizer if any
+            equalizer?.release()
+            equalizer = null
+
+            if (!enabled) {
+                result.success(null)
+                return
+            }
+
+            // Must have audio session ID from just_audio (playback must have started at least once)
+            val sessionId = audioSessionId ?: run {
+                result.error("EQUALIZER_ERROR", "Audio session not ready. Start playback first.", null)
+                return
+            }
+
+            // Create equalizer effect attached to the same session as the player
+            equalizer = try {
+                Equalizer(0, sessionId)
+            } catch (e: Exception) {
+                android.util.Log.e("Equalizer", "Failed to create Equalizer: ${e.message}")
+                result.error("EQUALIZER_ERROR", "Equalizer not available: ${e.message}", null)
+                return
+            }
+
+            val eq = equalizer ?: run {
+                result.error("EQUALIZER_ERROR", "Failed to create equalizer", null)
+                return
+            }
+
+            // Enable the equalizer
+            eq.enabled = true
+
+            // Map 10-band graphic EQ to Android's equalizer bands
+            // Android Equalizer typically has 5 bands, so we'll map our 10 bands to 5
+            val numBands = eq.numberOfBands
+            val bandLevelRange = eq.bandLevelRange
+            val minLevel = bandLevelRange[0] / 100.0 // Convert from mB to dB
+            val maxLevel = bandLevelRange[1] / 100.0
+
+            // Map 10 bands to available bands (simple averaging)
+            for (i in 0 until numBands) {
+                val startIdx = (i * 10) / numBands
+                val endIdx = ((i + 1) * 10) / numBands
+                var avgGain = 0.0
+                for (j in startIdx until endIdx) {
+                    avgGain += gainsDb[j]
+                }
+                avgGain /= (endIdx - startIdx)
+
+                // Clamp gain to Android's range
+                val clampedGain = avgGain.coerceIn(minLevel, maxLevel)
+                val levelInMillibels = (clampedGain * 100).toInt()
+                eq.setBandLevel(i.toShort(), levelInMillibels.toShort())
+            }
+
+            result.success(null)
+        } catch (e: Exception) {
+            android.util.Log.e("Equalizer", "Error setting equalizer: ${e.message}")
+            result.error("EQUALIZER_ERROR", "Failed to set equalizer: ${e.message}", null)
+        }
     }
 
     private fun openDocumentTree() {

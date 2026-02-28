@@ -13,7 +13,6 @@ import 'package:flick/features/player/widgets/waveform_seek_bar.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/features/player/widgets/compact_player_info_layout.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:flick/widgets/navigation/flick_nav_bar.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
 
@@ -984,49 +983,70 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             ),
                           ),
 
-                          // Scrolling Waveform & Controls
-                          SizedBox(
-                            height: context.responsive(100.0, 160.0),
-                            child: Stack(
+                          // Waveform & Controls
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: Column(
                               children: [
-                                // Waveform Layer - extracted to separate widget
-                                Positioned.fill(
-                                  child: _WaveformLayer(
-                                    playerService: _playerService,
-                                    throttledPosition: _throttledPosition,
-                                    currentSong: song,
-                                  ),
+                                _WaveformLayer(
+                                  playerService: _playerService,
+                                  throttledPosition: _throttledPosition,
+                                  currentSong: song,
                                 ),
-
-                                // Controls Layer - extracted to separate widget
-                                Center(
-                                  child: _PlayerControls(
-                                    playerService: _playerService,
-                                    formatDuration: _formatDuration,
-                                    currentSong: song,
-                                  ),
+                                const SizedBox(height: 8),
+                                _PlayerControls(
+                                  playerService: _playerService,
+                                  formatDuration: _formatDuration,
+                                  currentSong: song,
                                 ),
                               ],
                             ),
                           ),
-                          SizedBox(height: context.responsive(60.0, 110.0)),
+                          SizedBox(height: context.responsive(16.0, 32.0)),
+                          // Bottom Directory Info
+                          if (song.filePath != null)
+                            Builder(
+                              builder: (context) {
+                                String dirText = '';
+                                final filePath = song.filePath!;
+                                final parts = filePath.split(RegExp(r'[/\\]'));
+                                if (parts.length > 1) {
+                                  parts.removeLast(); // remove the file name
+                                  final startIndex = parts.length > 2
+                                      ? parts.length - 2
+                                      : 0;
+                                  final folders = parts.sublist(startIndex);
+                                  dirText = folders.join('/');
+                                }
+                                if (dirText.isEmpty)
+                                  return const SizedBox.shrink();
+                                return Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      LucideIcons.folder,
+                                      size: 14,
+                                      color: AppColors.textTertiary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        dirText,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontFamily: 'ProductSans',
+                                          fontSize: 12,
+                                          color: AppColors.textTertiary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          SizedBox(height: context.responsive(16.0, 24.0)),
                         ],
-                      ),
-                    ),
-
-                    // Navigation Bar (without mini player)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: FlickNavBar(
-                        currentIndex:
-                            1, // Songs is always selected when in player
-                        onTap: (index) {
-                          // Pop the full player and pass the index to navigate to
-                          Navigator.of(context).pop(index);
-                        },
-                        showMiniPlayer: false,
                       ),
                     ),
                   ],
@@ -1067,44 +1087,16 @@ class _WaveformLayer extends StatelessWidget {
           return const SizedBox();
         }
 
-        final screenWidth = MediaQuery.of(context).size.width;
-        final waveWidth = screenWidth * 4;
-        final progress =
-            throttledPosition.inMilliseconds / duration.inMilliseconds;
-        // Center the playhead - clamp progress to avoid overflow
-        final clampedProgress = progress.clamp(0.0, 1.0);
-        final targetOffset = -(clampedProgress * waveWidth) + (screenWidth / 2);
-
-        // Use TweenAnimationBuilder to smoothly interpolate between position updates
-        // Duration slightly exceeds update interval (50ms) for seamless motion
-        return TweenAnimationBuilder<double>(
-          tween: Tween<double>(end: targetOffset),
-          duration: const Duration(milliseconds: 60),
-          curve: Curves.linear, // Linear for constant-speed audio playback
-          builder: (context, animatedOffset, child) {
-            return ClipRect(
-              child: OverflowBox(
-                maxWidth: waveWidth,
-                minWidth: waveWidth,
-                alignment: Alignment.centerLeft,
-                child: Transform.translate(
-                  offset: Offset(animatedOffset, 0),
-                  child: child,
-                ),
-              ),
-            );
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: RepaintBoundary(
-              child: WaveformSeekBar(
-                barCount: 80,
-                position: throttledPosition,
-                duration: duration,
-                onChanged: (newPos) {
-                  playerService.seek(newPos);
-                },
-              ),
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: RepaintBoundary(
+            child: WaveformSeekBar(
+              barCount: 60,
+              position: throttledPosition,
+              duration: duration,
+              onChanged: (newPos) {
+                playerService.seek(newPos);
+              },
             ),
           ),
         );
@@ -1139,84 +1131,71 @@ class _PlayerControls extends StatelessWidget {
                   ? engineDuration
                   : (currentSong?.duration ?? Duration.zero);
 
-              return Row(
+              return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Current Time
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF121212).withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      formatDuration(position),
-                      style: const TextStyle(
-                        fontFamily: 'ProductSans',
-                        fontSize: 12,
-                        color: AppColors.textPrimary,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        formatDuration(position),
+                        style: const TextStyle(
+                          fontFamily: 'ProductSans',
+                          fontSize: 12,
+                          color: AppColors.textTertiary,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
                       ),
-                    ),
+                      Text(
+                        formatDuration(duration),
+                        style: const TextStyle(
+                          fontFamily: 'ProductSans',
+                          fontSize: 12,
+                          color: AppColors.textTertiary,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 16),
-                  // Previous
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF121212).withValues(alpha: 0.6),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      onPressed: () => playerService.previous(),
-                      iconSize: 24,
-                      icon: Icon(
-                        LucideIcons.skipBack,
-                        color: context.adaptiveTextPrimary,
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // Previous
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF121212).withValues(alpha: 0.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          onPressed: () => playerService.previous(),
+                          iconSize: 24,
+                          icon: Icon(
+                            LucideIcons.skipBack,
+                            color: context.adaptiveTextPrimary,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 24),
-                  // Play/Pause - separate widget to minimize rebuilds
-                  _PlayPauseButton(playerService: playerService),
-                  const SizedBox(width: 24),
-                  // Next
-                  Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF121212).withValues(alpha: 0.6),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      onPressed: () => playerService.next(),
-                      iconSize: 24,
-                      icon: Icon(
-                        LucideIcons.skipForward,
-                        color: context.adaptiveTextPrimary,
+                      const SizedBox(width: 24),
+                      // Play/Pause - separate widget to minimize rebuilds
+                      _PlayPauseButton(playerService: playerService),
+                      const SizedBox(width: 24),
+                      // Next
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF121212).withValues(alpha: 0.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: IconButton(
+                          onPressed: () => playerService.next(),
+                          iconSize: 24,
+                          icon: Icon(
+                            LucideIcons.skipForward,
+                            color: context.adaptiveTextPrimary,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  // Total Duration
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF121212).withValues(alpha: 0.6),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      formatDuration(duration),
-                      style: const TextStyle(
-                        fontFamily: 'ProductSans',
-                        fontSize: 12,
-                        color: AppColors.textPrimary,
-                        fontFeatures: [FontFeature.tabularFigures()],
-                      ),
-                    ),
+                    ],
                   ),
                 ],
               );

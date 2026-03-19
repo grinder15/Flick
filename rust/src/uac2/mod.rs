@@ -19,9 +19,15 @@ mod device_enumeration;
 #[cfg(feature = "uac2")]
 mod device_info_extractor;
 #[cfg(feature = "uac2")]
+mod endpoint;
+#[cfg(feature = "uac2")]
 mod error;
 #[cfg(feature = "uac2")]
 mod registry;
+#[cfg(feature = "uac2")]
+mod stream_config;
+#[cfg(feature = "uac2")]
+mod stream_setup;
 
 #[cfg(feature = "uac2")]
 pub use audio_format::{
@@ -58,6 +64,12 @@ pub use device::{DeviceIdentification, DeviceInfo, DeviceMetadata, Uac2Device};
 #[cfg(feature = "uac2")]
 pub use device_enumeration::enumerate_uac2_devices;
 #[cfg(feature = "uac2")]
+pub use endpoint::{EndpointDescriptor, EndpointManager, EndpointSelector};
+#[cfg(feature = "uac2")]
 pub use error::Uac2Error;
 #[cfg(feature = "uac2")]
 pub use registry::{DeviceKey, DeviceRegistry};
+#[cfg(feature = "uac2")]
+pub use stream_config::{FormatSelector, StreamConfig, StreamConfigBuilder};
+#[cfg(feature = "uac2")]
+pub use stream_setup::{StreamActivator, StreamSetup, StreamSetupBuilder};

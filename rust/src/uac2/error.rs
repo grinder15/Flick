@@ -32,6 +32,22 @@ pub enum Uac2Error {
     /// Operation not supported
     #[error("Operation not supported: {0}")]
     NotSupported(String),
+
+    /// No supported audio formats found
+    #[error("No supported audio formats found")]
+    NoSupportedFormats,
+
+    /// Invalid stream configuration
+    #[error("Invalid stream configuration: {0}")]
+    InvalidConfiguration(String),
+
+    /// Audio endpoint not found
+    #[error("Audio endpoint not found")]
+    EndpointNotFound,
+
+    /// Invalid endpoint configuration
+    #[error("Invalid endpoint: {0}")]
+    InvalidEndpoint(String),
 }
 
 impl Uac2Error {
@@ -45,6 +61,10 @@ impl Uac2Error {
             Uac2Error::NoHandle => "Failed to open USB device".to_string(),
             Uac2Error::InvalidDescriptor(msg) => format!("Invalid device: {}", msg),
             Uac2Error::NotSupported(msg) => format!("Not supported: {}", msg),
+            Uac2Error::NoSupportedFormats => "No compatible audio formats found".to_string(),
+            Uac2Error::InvalidConfiguration(msg) => format!("Invalid configuration: {}", msg),
+            Uac2Error::EndpointNotFound => "Audio endpoint not found".to_string(),
+            Uac2Error::InvalidEndpoint(msg) => format!("Invalid endpoint: {}", msg),
         }
     }
 }

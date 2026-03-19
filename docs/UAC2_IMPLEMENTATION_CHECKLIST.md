@@ -148,12 +148,12 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 
 ### 5.1 Audio Stream Setup
 
-- [ ] Select optimal audio format (highest quality supported)
-- [ ] Configure sample rate (match source or device max)
-- [ ] Configure bit depth (match source or device max)
-- [ ] Configure channel layout
-- [ ] Set up isochronous transfer endpoints
-- [ ] Calculate packet size and interval
+- [X] Select optimal audio format (highest quality supported)
+- [X] Configure sample rate (match source or device max)
+- [X] Configure bit depth (match source or device max)
+- [X] Configure channel layout
+- [X] Set up isochronous transfer endpoints
+- [X] Calculate packet size and interval
 
 ### 5.2 Isochronous Transfer Management
 

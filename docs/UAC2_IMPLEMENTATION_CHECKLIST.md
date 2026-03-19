@@ -30,10 +30,7 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 
 ### 1.3 Platform-Specific Setup
 
-- [ ] Configure Linux USB permissions (udev rules)
-- [ ] Configure Windows USB driver requirements
-- [ ] Configure macOS USB permissions (if needed)
-- [X] Add Android USB Host API integration (if targeting Android)
+- [X] Add Android USB Host API integration
 - [X] Document platform-specific setup in README
 
 ---
@@ -311,30 +308,7 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 
 ## Phase 10: Platform-Specific Considerations
 
-### 10.1 Linux
-
-- [ ] Test with libusb backend
-- [ ] Handle udev rules for device access
-- [ ] Test with different USB controllers (USB 2.0, USB 3.0)
-- [ ] Handle USB device permissions
-- [ ] Test with ALSA/PulseAudio coexistence
-
-### 10.2 Windows
-
-- [ ] Test with WinUSB backend
-- [ ] Handle driver installation requirements
-- [ ] Test with different USB controllers
-- [ ] Handle Windows audio session management
-- [ ] Test exclusive mode audio
-
-### 10.3 macOS
-
-- [ ] Test with IOKit backend (if using native)
-- [ ] Handle macOS USB permissions
-- [ ] Test with Core Audio coexistence
-- [ ] Handle macOS audio session management
-
-### 10.4 Android (if applicable)
+### 10.1 Android
 
 - [ ] Integrate Android USB Host API
 - [ ] Handle USB device permissions on Android

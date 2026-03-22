@@ -394,119 +394,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showAudioOutputBottomSheet() {
-    GlassBottomSheet.show(
-      context: context,
-      title: 'Audio Output',
-      maxHeightRatio: 0.4,
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildOutputOption(
-            'System Default',
-            'Use system audio routing',
-            LucideIcons.smartphone,
-            true,
-          ),
-          _buildOutputOption(
-            'Speaker',
-            'Built-in device speaker',
-            LucideIcons.volume2,
-            false,
-          ),
-          _buildOutputOption(
-            'Bluetooth',
-            'Connected Bluetooth devices',
-            LucideIcons.bluetooth,
-            false,
-          ),
-          _buildOutputOption(
-            'Wired',
-            'Headphones or external DAC',
-            LucideIcons.headphones,
-            false,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOutputOption(
-    String title,
-    String subtitle,
-    IconData icon,
-    bool isSelected,
-  ) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => Navigator.pop(context),
-        borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.spacingMd,
-            vertical: AppConstants.spacingSm,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppColors.glassBackgroundStrong
-                      : AppColors.glassBackground,
-                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                ),
-                child: Icon(
-                  icon,
-                  color: isSelected
-                      ? AppColors.textPrimary
-                      : AppColors.textSecondary,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: AppConstants.spacingMd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontFamily: 'ProductSans',
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                        color: isSelected
-                            ? AppColors.textPrimary
-                            : AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontFamily: 'ProductSans',
-                        fontSize: 13,
-                        color: AppColors.textTertiary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (isSelected)
-                const Icon(
-                  LucideIcons.check,
-                  color: AppColors.textPrimary,
-                  size: 20,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _showAboutBottomSheet() {
     GlassBottomSheet.show(
       context: context,
@@ -711,14 +598,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                               );
                             },
-                          ),
-                          _buildDivider(),
-                          _buildNavigationSetting(
-                            context,
-                            icon: LucideIcons.volume2,
-                            title: 'Audio Output',
-                            subtitle: 'System default',
-                            onTap: _showAudioOutputBottomSheet,
                           ),
                         ],
                       ),

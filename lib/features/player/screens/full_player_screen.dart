@@ -831,7 +831,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                               ),
                                             ),
                                             const SizedBox(height: 12),
-                                            const Uac2PlayerStatus(compact: true),
+                                            const Uac2PlayerStatus(
+                                              compact: true,
+                                            ),
                                           ],
                                         ),
                                       ),
@@ -1147,7 +1149,7 @@ class _PlayerControls extends StatelessWidget {
                         style: const TextStyle(
                           fontFamily: 'ProductSans',
                           fontSize: 12,
-                          color: AppColors.textTertiary,
+                          color: AppColors.textPrimary,
                           fontFeatures: [FontFeature.tabularFigures()],
                         ),
                       ),
@@ -1156,7 +1158,7 @@ class _PlayerControls extends StatelessWidget {
                         style: const TextStyle(
                           fontFamily: 'ProductSans',
                           fontSize: 12,
-                          color: AppColors.textTertiary,
+                          color: AppColors.textPrimary,
                           fontFeatures: [FontFeature.tabularFigures()],
                         ),
                       ),

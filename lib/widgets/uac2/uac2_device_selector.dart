@@ -54,7 +54,7 @@ class Uac2DeviceSelector extends ConsumerWidget {
                 return Column(
                   children: [
                     DropdownButtonFormField<Uac2DeviceInfo>(
-                      value: selectedDevice,
+                      initialValue: selectedDevice,
                       decoration: const InputDecoration(
                         labelText: 'Select Device',
                         border: OutlineInputBorder(),

@@ -13,6 +13,7 @@ import 'package:flick/widgets/common/glass_dialog.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
 import 'package:flick/features/settings/screens/equalizer_screen.dart';
+import 'package:flick/features/settings/screens/uac2_settings_screen.dart';
 
 /// Settings screen matching the design language.
 class SettingsScreen extends StatefulWidget {
@@ -684,6 +685,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _buildSettingsCard(
                         context,
                         children: [
+                          _buildNavigationSetting(
+                            context,
+                            icon: LucideIcons.usb,
+                            title: 'USB Audio (UAC2)',
+                            subtitle: 'Configure USB DAC/AMP devices',
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const Uac2SettingsScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          _buildDivider(),
                           _buildNavigationSetting(
                             context,
                             icon: LucideIcons.slidersHorizontal,

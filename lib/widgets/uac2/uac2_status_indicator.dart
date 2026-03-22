@@ -19,7 +19,7 @@ class Uac2StatusIndicator extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: _getStatusColor(deviceStatus.state).withOpacity(0.2),
+        color: _getStatusColor(deviceStatus.state).withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: _getStatusColor(deviceStatus.state),
@@ -49,7 +49,7 @@ class Uac2StatusIndicator extends ConsumerWidget {
               '${deviceStatus.currentFormat!.sampleRate ~/ 1000}kHz/${deviceStatus.currentFormat!.bitDepth}bit',
               style: TextStyle(
                 fontSize: 10,
-                color: _getStatusColor(deviceStatus.state).withOpacity(0.8),
+                color: _getStatusColor(deviceStatus.state).withValues(alpha: 0.8),
               ),
             ),
           ],

@@ -248,13 +248,13 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 
 ### 8.1 Settings UI
 
-- [ ] Create UAC2 device selection screen
-- [ ] Display detected devices with capabilities
-- [ ] Show device status (connected/disconnected)
-- [ ] Display current audio format (sample rate, bit depth)
-- [ ] Add device refresh button
-- [ ] Add manual device selection option
-- [ ] Show bit-perfect indicator
+- [X] Create UAC2 device selection screen
+- [X] Display detected devices with capabilities
+- [X] Show device status (connected/disconnected)
+- [X] Display current audio format (sample rate, bit depth)
+- [X] Add device refresh button
+- [X] Add manual device selection option
+- [X] Show bit-perfect indicator
 
 ### 8.2 Status Indicators
 

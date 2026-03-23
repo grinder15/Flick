@@ -300,7 +300,7 @@ final class LastFmScrobbleNotifierProvider
         argument: null,
         retry: null,
         name: r'lastFmScrobbleProvider',
-        isAutoDispose: true,
+        isAutoDispose: false,
         dependencies: null,
         $allTransitiveDependencies: null,
       );
@@ -322,7 +322,7 @@ final class LastFmScrobbleNotifierProvider
 }
 
 String _$lastFmScrobbleNotifierHash() =>
-    r'b2655ed5ad08fc709f125c98c202a7d9b0c0a18e';
+    r'3ec46a417464b44215dfa967ce307ec5f59e9307';
 
 /// Handles Last.fm scrobbling lifecycle hooks from playback events.
 

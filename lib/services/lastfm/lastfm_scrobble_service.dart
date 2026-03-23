@@ -69,7 +69,7 @@ class LastFmScrobbleService {
     final session = await _auth.getSession();
     if (session == null) {
       debugPrint('[LastFm] scrobble skipped: no session');
-      return;
+      throw LastFmNoSessionException();
     }
 
     const maxBatch = 50;

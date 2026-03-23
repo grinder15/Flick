@@ -48,7 +48,7 @@ Future<LastFmSession?> lastFmSession(Ref ref) async {
 }
 
 /// Handles Last.fm scrobbling lifecycle hooks from playback events.
-@riverpod
+@Riverpod(keepAlive: true)
 class LastFmScrobbleNotifier extends _$LastFmScrobbleNotifier {
   DateTime? _playbackStart;
   ScrobbleEntry? _currentEntry;

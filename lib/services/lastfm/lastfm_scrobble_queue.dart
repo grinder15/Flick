@@ -53,9 +53,15 @@ class LastFmScrobbleQueue {
       await _service.scrobbleBatch(entries);
       await _clear();
       debugPrint('[LastFm] queue flush success; queue cleared');
+    } on LastFmNoSessionException {
+      // No active session — keep queue intact for later retry after login
+      debugPrint(
+        '[LastFm] queue flush skipped: no session; queue retained',
+      );
+      return;
     } on LastFmApiException catch (e) {
       if (e.code == 9) {
-        // Invalid session key — don't retain queue for retry, user must re-auth
+        // Invalid session key — keep queue; user must re-auth before retry
         debugPrint(
           '[LastFm] queue flush failed: session expired (code 9); queue retained until re-auth',
         );

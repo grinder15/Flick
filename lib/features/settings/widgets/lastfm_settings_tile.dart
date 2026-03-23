@@ -119,7 +119,8 @@ class _LastFmSettingsTileState extends ConsumerState<LastFmSettingsTile>
 
     if (!mounted) return;
 
-    showDialog(
+    try {
+    await showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Configure Last.fm Credentials'),
@@ -199,6 +200,10 @@ class _LastFmSettingsTileState extends ConsumerState<LastFmSettingsTile>
         ],
       ),
     );
+    } finally {
+      apiKeyController.dispose();
+      sharedSecretController.dispose();
+    }
   }
 
   void _showError(String message) {

@@ -136,10 +136,12 @@ class _MainShellState extends ConsumerState<MainShell>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      // Attempt to scrobble the current track before the app suspends
+      // Attempt to scrobble the current track before the app suspends.
+      // Only fire if playback is not active — audio apps often keep playing
+      // in the background, so treat this as a true "end" only when paused.
       final playerState = ref.read(playerProvider);
       final song = playerState.currentSong;
-      if (song != null) {
+      if (song != null && !playerState.isPlaying) {
         final notifier = ref.read(playerProvider.notifier);
         ref
             .read(lastFmScrobbleProvider.notifier)

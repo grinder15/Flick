@@ -29,6 +29,12 @@ class LastFmApiException implements Exception {
   String toString() => 'LastFmApiException($code): $message';
 }
 
+/// Thrown when a Last.fm operation requires a session but none is available.
+class LastFmNoSessionException implements Exception {
+  @override
+  String toString() => 'LastFmNoSessionException: no active session';
+}
+
 /// Low-level HTTP client for Last.fm API.
 /// Handles MD5 request signing required by all write endpoints.
 /// Uses user-provided API credentials if available.

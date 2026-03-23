@@ -211,15 +211,20 @@ class PlayerNotifier extends Notifier<PlayerState> {
   }
 
   void _handleTrackStarted(Song song) {
-    ref
-        .read(lastFmScrobbleProvider.notifier)
-        .onTrackStarted(
-          artist: song.artist,
-          track: song.title,
-          album: song.album,
-          albumArtist: null,
-          durationSeconds: song.duration.inSeconds,
-        );
+    unawaited(
+      ref
+          .read(lastFmScrobbleProvider.notifier)
+          .onTrackStarted(
+            artist: song.artist,
+            track: song.title,
+            album: song.album,
+            albumArtist: null,
+            durationSeconds: song.duration.inSeconds,
+          )
+          .catchError(
+            (e) => debugPrint('[LastFm] onTrackStarted error: $e'),
+          ),
+    );
   }
 
   void _handleTrackEnded({
@@ -227,16 +232,21 @@ class PlayerNotifier extends Notifier<PlayerState> {
     required int listenedSeconds,
     required int trackDurationSeconds,
   }) {
-    ref
-        .read(lastFmScrobbleProvider.notifier)
-        .onTrackEnded(
-          artist: endedSong.artist,
-          track: endedSong.title,
-          album: endedSong.album,
-          albumArtist: null,
-          listenedSeconds: listenedSeconds,
-          trackDurationSeconds: trackDurationSeconds,
-        );
+    unawaited(
+      ref
+          .read(lastFmScrobbleProvider.notifier)
+          .onTrackEnded(
+            artist: endedSong.artist,
+            track: endedSong.title,
+            album: endedSong.album,
+            albumArtist: null,
+            listenedSeconds: listenedSeconds,
+            trackDurationSeconds: trackDurationSeconds,
+          )
+          .catchError(
+            (e) => debugPrint('[LastFm] onTrackEnded error: $e'),
+          ),
+    );
   }
 
   /// Play a song, optionally with a playlist context.

@@ -17,10 +17,16 @@ class LastFmAuthService {
   /// Requires API key and shared secret to be set first.
   Future<void> getTokenAndLaunchAuth() async {
     final apiKey = await _credentials.getApiKey();
+    final sharedSecret = await _credentials.getSharedSecret();
 
     if (apiKey == null || apiKey.isEmpty) {
       throw Exception(
         'Last.fm API key not configured. Please set your API key in settings.',
+      );
+    }
+    if (sharedSecret == null || sharedSecret.isEmpty) {
+      throw Exception(
+        'Last.fm shared secret not configured. Please set your shared secret in settings.',
       );
     }
 

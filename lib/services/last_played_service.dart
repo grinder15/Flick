@@ -38,6 +38,10 @@ class LastPlayedService {
       if (currentIndex != null && currentIndex >= 0) {
         await prefs.setInt(_lastPlaylistIndexKey, currentIndex);
       }
+    } else {
+      // Clear stale playlist context when no playlist is active
+      await prefs.remove(_lastPlaylistSongIdsKey);
+      await prefs.remove(_lastPlaylistIndexKey);
     }
   }
 
@@ -80,7 +84,8 @@ class LastPlayedService {
               final storedIndex = prefs.getInt(_lastPlaylistIndexKey);
               if (storedIndex != null &&
                   storedIndex >= 0 &&
-                  storedIndex < mapped.length) {
+                  storedIndex < mapped.length &&
+                  mapped[storedIndex].id == song.id) {
                 restoredPlaylistIndex = storedIndex;
               } else {
                 final songIndex = mapped.indexWhere((s) => s.id == song.id);

@@ -858,155 +858,131 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                       ),
                                     ),
                                     SizedBox(height: context.responsive(3.0, 5.0, 4.0)),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Container(
-                                          padding: EdgeInsets.symmetric(
-                                            horizontal: context.responsive(4.0, 5.0, 6.0),
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: context.adaptiveTextTertiary
-                                                .withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(
-                                              3,
+                                    Padding(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: context.responsive(12.0, 16.0, 20.0),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          // Lyrics button (left)
+                                          GestureDetector(
+                                            onTap: () {
+                                              // TODO: open lyrics
+                                            },
+                                            child: Container(
+                                              padding: EdgeInsets.all(
+                                                context.responsive(6.0, 7.0, 8.0),
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: context.adaptiveTextTertiary
+                                                    .withValues(alpha: 0.08),
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
+                                              child: Icon(
+                                                LucideIcons.fileText,
+                                                color: context.adaptiveTextTertiary,
+                                                size: context.responsive(16.0, 17.0, 18.0),
+                                              ),
                                             ),
                                           ),
-                                          child: Text(
-                                            song.fileType,
-                                            style: TextStyle(
-                                              fontFamily: 'ProductSans',
-                                              fontSize: context.responsive(9.0, 10.0, 11.0),
-                                              fontWeight: FontWeight.w600,
-                                              color:
-                                                  context.adaptiveTextSecondary,
-                                            ),
+                                          // File info (center)
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Container(
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal: context.responsive(4.0, 5.0, 6.0),
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: context.adaptiveTextTertiary
+                                                      .withValues(alpha: 0.1),
+                                                  borderRadius: BorderRadius.circular(3),
+                                                ),
+                                                child: Text(
+                                                  song.fileType,
+                                                  style: TextStyle(
+                                                    fontFamily: 'ProductSans',
+                                                    fontSize: context.responsive(9.0, 10.0, 11.0),
+                                                    fontWeight: FontWeight.w600,
+                                                    color: context.adaptiveTextSecondary,
+                                                  ),
+                                                ),
+                                              ),
+                                              if (song.resolution != null) ...[
+                                                SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
+                                                Text(
+                                                  song.resolution!,
+                                                  style: TextStyle(
+                                                    fontFamily: 'ProductSans',
+                                                    fontSize: context.responsive(9.0, 10.0, 11.0),
+                                                    color: context.adaptiveTextTertiary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
                                           ),
-                                        ),
-                                        if (song.resolution != null) ...[
-                                          SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
-                                          Text(
-                                            song.resolution!,
-                                            style: TextStyle(
-                                              fontFamily: 'ProductSans',
-                                              fontSize: context.responsive(9.0, 10.0, 11.0),
-                                              color:
-                                                  context.adaptiveTextTertiary,
+                                          // Favorites button (right)
+                                          FutureBuilder<bool>(
+                                            future: _favoritesService.isFavorite(
+                                              song.id,
                                             ),
+                                            builder: (context, snapshot) {
+                                              final isFavorite =
+                                                  snapshot.data ?? false;
+                                              return GestureDetector(
+                                                onTap: () async {
+                                                  final newState =
+                                                      await _favoritesService
+                                                          .toggleFavorite(
+                                                            song.id,
+                                                          );
+                                                  setState(() {});
+                                                  if (context.mounted) {
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      SnackBar(
+                                                        content: Text(
+                                                          newState
+                                                              ? 'Added to favorites'
+                                                              : 'Removed from favorites',
+                                                        ),
+                                                        duration: const Duration(
+                                                          seconds: 1,
+                                                        ),
+                                                      ),
+                                                    );
+                                                  }
+                                                },
+                                                child: Container(
+                                                  padding: EdgeInsets.all(
+                                                    context.responsive(6.0, 7.0, 8.0),
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: isFavorite
+                                                        ? Colors.red.withValues(alpha: 0.12)
+                                                        : context.adaptiveTextTertiary
+                                                            .withValues(alpha: 0.08),
+                                                    borderRadius: BorderRadius.circular(10),
+                                                  ),
+                                                  child: Icon(
+                                                    isFavorite
+                                                        ? Icons.favorite
+                                                        : Icons.favorite_border,
+                                                    color: isFavorite
+                                                        ? Colors.red
+                                                        : context.adaptiveTextTertiary,
+                                                    size: context.responsive(16.0, 17.0, 18.0),
+                                                  ),
+                                                ),
+                                              );
+                                            },
                                           ),
                                         ],
-                                      ],
-                                    ),
-                                    SizedBox(height: context.responsive(6.0, 10.0, 8.0)),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        ValueListenableBuilder<bool>(
-                                          valueListenable:
-                                              _playerService.isShuffleNotifier,
-                                          builder: (context, isShuffle, _) {
-                                            return IconButton(
-                                              onPressed: () => _playerService
-                                                  .toggleShuffle(),
-                                              padding: EdgeInsets.all(context.responsive(6.0, 8.0, 10.0)),
-                                              constraints: const BoxConstraints(),
-                                              icon: Icon(
-                                                LucideIcons.shuffle,
-                                                color: isShuffle
-                                                    ? context.adaptiveAccent
-                                                    : context
-                                                          .adaptiveTextTertiary,
-                                                size: context.responsiveIcon(
-                                                  context.responsive(18.0, 20.0, 22.0),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                        SizedBox(width: context.responsive(8.0, 12.0, 14.0)),
-                                        ValueListenableBuilder<LoopMode>(
-                                          valueListenable:
-                                              _playerService.loopModeNotifier,
-                                          builder: (context, loopMode, _) {
-                                            IconData icon = LucideIcons.repeat;
-                                            Color color =
-                                                context.adaptiveTextTertiary;
-                                            if (loopMode == LoopMode.all) {
-                                              color = context.adaptiveAccent;
-                                            }
-                                            if (loopMode == LoopMode.one) {
-                                              icon = LucideIcons.repeat1;
-                                              color = context.adaptiveAccent;
-                                            }
-                                            return IconButton(
-                                              onPressed: () => _playerService
-                                                  .toggleLoopMode(),
-                                              padding: EdgeInsets.all(context.responsive(6.0, 8.0, 10.0)),
-                                              constraints: const BoxConstraints(),
-                                              icon: Icon(
-                                                icon,
-                                                color: color,
-                                                size: context.responsiveIcon(
-                                                  context.responsive(18.0, 20.0, 22.0),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                        SizedBox(width: context.responsive(8.0, 12.0, 14.0)),
-                                        FutureBuilder<bool>(
-                                          future: _favoritesService.isFavorite(
-                                            song.id,
-                                          ),
-                                          builder: (context, snapshot) {
-                                            final isFavorite =
-                                                snapshot.data ?? false;
-                                            return IconButton(
-                                              onPressed: () async {
-                                                final newState =
-                                                    await _favoritesService
-                                                        .toggleFavorite(
-                                                          song.id,
-                                                        );
-                                                setState(() {});
-                                                if (context.mounted) {
-                                                  ScaffoldMessenger.of(
-                                                    context,
-                                                  ).showSnackBar(
-                                                    SnackBar(
-                                                      content: Text(
-                                                        newState
-                                                            ? 'Added to favorites'
-                                                            : 'Removed from favorites',
-                                                      ),
-                                                      duration: const Duration(
-                                                        seconds: 1,
-                                                      ),
-                                                    ),
-                                                  );
-                                                }
-                                              },
-                                              padding: EdgeInsets.all(context.responsive(6.0, 8.0, 10.0)),
-                                              constraints: const BoxConstraints(),
-                                              icon: Icon(
-                                                isFavorite
-                                                    ? Icons.favorite
-                                                    : Icons.favorite_border,
-                                                color: isFavorite
-                                                    ? Colors.red
-                                                    : context
-                                                          .adaptiveTextTertiary,
-                                                size: context.responsiveIcon(
-                                                  context.responsive(18.0, 20.0, 22.0),
-                                                ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                      ],
+                                      ),
                                     ),
                                     SizedBox(height: context.responsive(2.0, 3.0, 0.0)),
                                   ],
@@ -1032,6 +1008,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                   playerService: _playerService,
                                   formatDuration: _formatDuration,
                                   currentSong: song,
+                                  isShuffleNotifier: _playerService.isShuffleNotifier,
                                 ),
                               ],
                             ),
@@ -1150,11 +1127,13 @@ class _PlayerControls extends StatelessWidget {
   final PlayerService playerService;
   final String Function(Duration) formatDuration;
   final Song? currentSong;
+  final ValueNotifier<bool> isShuffleNotifier;
 
   const _PlayerControls({
     required this.playerService,
     required this.formatDuration,
     required this.currentSong,
+    required this.isShuffleNotifier,
   });
 
   @override
@@ -1201,6 +1180,34 @@ class _PlayerControls extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // Shuffle
+                      ValueListenableBuilder<bool>(
+                        valueListenable: isShuffleNotifier,
+                        builder: (context, isShuffle, _) {
+                          return Container(
+                            width: context.responsive(40.0, 44.0, 48.0),
+                            height: context.responsive(40.0, 44.0, 48.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF121212).withValues(alpha: 0.6),
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              onPressed: () => playerService
+                                  .toggleShuffle(),
+                              iconSize: context.responsive(18.0, 20.0, 22.0),
+                              padding: EdgeInsets.zero,
+                              icon: Icon(
+                                LucideIcons.shuffle,
+                                color: isShuffle
+                                    ? context.adaptiveAccent
+                                    : context
+                                          .adaptiveTextTertiary,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      SizedBox(width: context.responsive(14.0, 18.0, 22.0)),
                       // Previous
                       Container(
                         width: context.responsive(40.0, 44.0, 48.0),
@@ -1240,6 +1247,42 @@ class _PlayerControls extends StatelessWidget {
                             color: context.adaptiveTextPrimary,
                           ),
                         ),
+                      ),
+                      SizedBox(width: context.responsive(14.0, 18.0, 22.0)),
+                      // Repeat/Loop
+                      ValueListenableBuilder<LoopMode>(
+                        valueListenable:
+                            playerService.loopModeNotifier,
+                        builder: (context, loopMode, _) {
+                          IconData icon = LucideIcons.repeat;
+                          Color color =
+                              context.adaptiveTextTertiary;
+                          if (loopMode == LoopMode.all) {
+                            color = context.adaptiveAccent;
+                          }
+                          if (loopMode == LoopMode.one) {
+                            icon = LucideIcons.repeat1;
+                            color = context.adaptiveAccent;
+                          }
+                          return Container(
+                            width: context.responsive(40.0, 44.0, 48.0),
+                            height: context.responsive(40.0, 44.0, 48.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF121212).withValues(alpha: 0.6),
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              onPressed: () => playerService
+                                  .toggleLoopMode(),
+                              iconSize: context.responsive(18.0, 20.0, 22.0),
+                              padding: EdgeInsets.zero,
+                              icon: Icon(
+                                icon,
+                                color: color,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),

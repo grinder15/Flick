@@ -359,7 +359,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           const SizedBox(height: 4),
           const Text(
-            'Version 1.0.0',
+            'Version 0.9.1-beta.3',
             style: TextStyle(
               fontFamily: 'ProductSans',
               fontSize: 14,
@@ -633,7 +633,7 @@ SOFTWARE.
                             context,
                             icon: LucideIcons.info,
                             title: 'About Flick Player',
-                            subtitle: 'Version 1.0.0',
+                            subtitle: 'Version 0.9.1-beta.3',
                             onTap: _showAboutBottomSheet,
                           ),
                           _buildDivider(),

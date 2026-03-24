@@ -185,9 +185,10 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   ),
                 ),
 
-                // Reserve space only when needed so list mode can use full height.
+                // Reserve space only when needed for orbit view.
+                // List view handles its own bottom padding.
                 SizedBox(
-                  height: shouldReserveBottomSpace
+                  height: shouldReserveBottomSpace && viewMode != SongViewMode.list
                       ? AppConstants.navBarHeight + 90
                       : 0,
                 ),
@@ -270,7 +271,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
         AppConstants.spacingLg,
         0,
         AppConstants.spacingXl + 30,
-        0,
+        AppConstants.navBarHeight + 120,
       ),
       itemCount: songs.length,
       itemBuilder: (context, index) {

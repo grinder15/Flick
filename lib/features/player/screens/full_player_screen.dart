@@ -612,7 +612,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                     ),
                                   ),
                                 ),
-                                // Now Playing with individual background
+                                // Now Playing with Title - Artist in same container
                                 Container(
                                   padding: EdgeInsets.symmetric(
                                     horizontal: context.responsive(16.0, 18.0, 20.0),
@@ -622,19 +622,39 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                     color: const Color(0xFF121212).withValues(alpha: 0.7),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
-                                  child: Text(
-                                    "Now Playing",
-                                    style: TextStyle(
-                                      fontFamily: 'ProductSans',
-                                      fontSize: context.responsive(
-                                        12.0,
-                                        13.0,
-                                        14.0,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        "Now Playing",
+                                        style: TextStyle(
+                                          fontFamily: 'ProductSans',
+                                          fontSize: context.responsive(
+                                            12.0,
+                                            13.0,
+                                            14.0,
+                                          ),
+                                          fontWeight: FontWeight.w600,
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          letterSpacing: 0.8,
+                                        ),
                                       ),
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.white.withValues(alpha: 0.9),
-                                      letterSpacing: 0.8,
-                                    ),
+                                      SizedBox(height: context.responsive(6.0, 7.0, 8.0)),
+                                      SizedBox(
+                                        height: context.responsive(20.0, 22.0, 24.0),
+                                        child: _ScrollingText(
+                                          text: '${song.title} - ${song.artist}',
+                                          style: TextStyle(
+                                            fontFamily: 'ProductSans',
+                                            fontSize: context.responsiveText(
+                                              context.responsive(13.0, 14.0, 15.0),
+                                            ),
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.white.withValues(alpha: 0.85),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 // Three-dot menu with individual background
@@ -752,72 +772,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             ),
                           ),
 
-                          // Title and Artist below "Now Playing"
-                          SizedBox(height: context.responsive(16.0, 20.0, 24.0)),
-                          Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: context.responsive(12.0, 16.0, 20.0),
-                            ),
-                            child: AnimatedSwitcher(
-                              duration: const Duration(milliseconds: 300),
-                              transitionBuilder: (Widget child, Animation<double> animation) {
-                                return SlideTransition(
-                                  position: Tween<Offset>(
-                                    begin: const Offset(1.0, 0.0),
-                                    end: Offset.zero,
-                                  ).animate(
-                                    CurvedAnimation(
-                                      parent: animation,
-                                      curve: Curves.easeInOut,
-                                    ),
-                                  ),
-                                  child: FadeTransition(
-                                    opacity: animation,
-                                    child: child,
-                                  ),
-                                );
-                              },
-                              child: Column(
-                                key: ValueKey(song.id),
-                                children: [
-                                  // Scrolling title
-                                  SizedBox(
-                                    height: context.responsive(32.0, 36.0, 40.0),
-                                    child: _ScrollingText(
-                                      text: song.title,
-                                      style: TextStyle(
-                                        fontFamily: 'ProductSans',
-                                        fontSize: context.responsiveText(
-                                          context.responsive(18.0, 22.0, 26.0),
-                                        ),
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                  SizedBox(height: context.responsive(4.0, 5.0, 6.0)),
-                                  // Artist
-                                  Text(
-                                    song.artist,
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontFamily: 'ProductSans',
-                                      fontSize: context.responsiveText(
-                                        context.responsive(13.0, 15.0, 17.0),
-                                      ),
-                                      color: Colors.white.withValues(alpha: 0.8),
-                                    ),
-                                  ),
-                                  SizedBox(height: context.responsive(6.0, 8.0, 8.0)),
-                                  const Uac2PlayerStatus(compact: true),
-                                ],
-                              ),
-                            ),
-                          ),
+                          // UAC2 Player Status
+                          SizedBox(height: context.responsive(8.0, 10.0, 12.0)),
+                          const Uac2PlayerStatus(compact: true),
 
-                          const Spacer(),
+                          const Spacer(flex: 2),
 
                           // File info above waveform
                           Padding(
@@ -928,7 +887,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             ),
                           ),
 
-                          SizedBox(height: context.responsive(12.0, 16.0, 20.0)),
+                          SizedBox(height: context.responsive(12.0, 14.0, 16.0)),
 
                           // Waveform & Controls (lowered)
                           Padding(
@@ -954,7 +913,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                             ),
                           ),
 
-                          SizedBox(height: context.responsive(8.0, 12.0, 16.0)),
+                          SizedBox(height: context.responsive(16.0, 20.0, 24.0)),
 
                           // Bottom Directory Info
                           if (song.filePath != null)

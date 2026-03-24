@@ -24,6 +24,9 @@ class Song {
   /// Album name (optional)
   final String? album;
 
+  /// Album artist (optional, used for compilations)
+  final String? albumArtist;
+
   /// File path on device
   final String? filePath;
 
@@ -39,6 +42,7 @@ class Song {
     required this.fileType,
     this.resolution,
     this.album,
+    this.albumArtist,
     this.filePath,
     this.dateAdded,
   });
@@ -65,6 +69,7 @@ class Song {
     String? fileType,
     String? resolution,
     String? album,
+    String? albumArtist,
     String? filePath,
     DateTime? dateAdded,
   }) {
@@ -77,6 +82,7 @@ class Song {
       fileType: fileType ?? this.fileType,
       resolution: resolution ?? this.resolution,
       album: album ?? this.album,
+      albumArtist: albumArtist ?? this.albumArtist,
       filePath: filePath ?? this.filePath,
       dateAdded: dateAdded ?? this.dateAdded,
     );

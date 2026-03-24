@@ -11,7 +11,7 @@ final songRepositoryProvider = Provider<SongRepository>((ref) {
 });
 
 /// Sort options for the song list.
-enum SongSortOption { title, artist, dateAdded, fileType }
+enum SongSortOption { albumArtist, title, artist, dateAdded, fileType }
 
 /// Filter options for file types.
 enum SongFileTypeFilter { all, flac, mp3, wav, aac, ogg, alac }
@@ -50,7 +50,7 @@ class SongsState {
 
   const SongsState({
     this.songs = const [],
-    this.sortOption = SongSortOption.title,
+    this.sortOption = SongSortOption.albumArtist,
     this.fileTypeFilter = SongFileTypeFilter.all,
   });
 
@@ -77,6 +77,17 @@ class SongsState {
     }
 
     switch (sortOption) {
+      case SongSortOption.albumArtist:
+        result.sort((a, b) {
+          final artistA = a.albumArtist ?? a.artist;
+          final artistB = b.albumArtist ?? b.artist;
+          final artistCompare = artistA.compareTo(artistB);
+          if (artistCompare != 0) return artistCompare;
+          // Secondary sort by album, then track number/title
+          final albumCompare = (a.album ?? '').compareTo(b.album ?? '');
+          if (albumCompare != 0) return albumCompare;
+          return a.title.compareTo(b.title);
+        });
       case SongSortOption.title:
         result.sort((a, b) => a.title.compareTo(b.title));
       case SongSortOption.artist:
@@ -98,7 +109,7 @@ class SongsState {
 /// Uses autoDispose to clean up when not being watched.
 class SongsNotifier extends AsyncNotifier<SongsState> {
   StreamSubscription<void>? _watchSubscription;
-  SongSortOption _sortOption = SongSortOption.title;
+  SongSortOption _sortOption = SongSortOption.albumArtist;
   SongFileTypeFilter _fileTypeFilter = SongFileTypeFilter.all;
 
   @override

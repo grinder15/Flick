@@ -11,12 +11,15 @@ import 'package:flick/services/music_folder_service.dart';
 import 'package:flick/services/library_scanner_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/data/repositories/song_repository.dart';
+import 'package:flick/data/repositories/folder_repository.dart';
+import 'package:flick/data/entities/folder_entity.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/glass_dialog.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
 import 'package:flick/features/settings/screens/equalizer_screen.dart';
 import 'package:flick/features/settings/screens/uac2_settings_screen.dart';
+import 'package:flick/features/settings/screens/duplicate_cleaner_screen.dart';
 import 'package:flick/features/settings/widgets/lastfm_settings_tile.dart';
 
 /// Settings screen matching the design language.
@@ -49,12 +52,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void initState() {
     super.initState();
     _loadLibraryData();
+    _syncFoldersToDatabase();
   }
 
   @override
   void dispose() {
     _scanProgressNotifier.dispose();
     super.dispose();
+  }
+
+  Future<void> _syncFoldersToDatabase() async {
+    // Sync folders from SharedPreferences to database (migration)
+    final folders = await _folderService.getSavedFolders();
+    final repository = FolderRepository();
+    
+    for (final folder in folders) {
+      final entity = FolderEntity()
+        ..uri = folder.uri
+        ..displayName = folder.displayName
+        ..dateAdded = folder.dateAdded
+        ..songCount = 0;
+      await repository.upsertFolder(entity);
+    }
   }
 
   Future<void> _loadLibraryData() async {
@@ -97,6 +116,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         await _loadLibraryData();
         // Start scanning the new folder
         await _scanFolder(folder.uri, folder.displayName);
+      }
+    } on FolderAlreadyExistsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -174,6 +204,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _scanProgress = null;
       });
     }
+  }
+
+  void _openDuplicateCleaner() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const DuplicateCleanerScreen(),
+      ),
+    );
   }
 
   void _showScanningBottomSheet(String folderName) {
@@ -741,6 +779,16 @@ SOFTWARE.
               subtitle: 'Re-index all folders',
               onTap: _isScanning ? null : _rescanAllFolders,
             ),
+            _buildDivider(),
+            _buildActionButton(
+              context,
+              icon: LucideIcons.copy,
+              title: 'Remove Duplicates',
+              subtitle: 'Find and remove duplicate songs',
+              onTap: _isScanning ? null : _openDuplicateCleaner,
+            ),
+            _buildDivider(),
+            _buildAutoSyncToggle(context),
           ],
         ],
       ),
@@ -949,6 +997,70 @@ SOFTWARE.
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildAutoSyncToggle(BuildContext context) {
+    return Consumer(
+      builder: (context, ref, child) {
+        final autoSyncEnabled = ref.watch(autoSyncEnabledProvider);
+        final autoSyncService = ref.watch(autoLibrarySyncServiceProvider);
+        final autoSyncInterval = ref.watch(autoSyncIntervalProvider);
+
+        return Padding(
+          padding: const EdgeInsets.all(AppConstants.spacingMd),
+          child: Row(
+            children: [
+              Container(
+                width: context.scaleSize(AppConstants.containerSizeSm),
+                height: context.scaleSize(AppConstants.containerSizeSm),
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackgroundStrong,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                ),
+                child: Icon(
+                  LucideIcons.refreshCcw,
+                  color: context.adaptiveTextSecondary,
+                  size: context.responsiveIcon(AppConstants.iconSizeMd),
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Auto-Sync Library',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Check for new songs every $autoSyncInterval minutes',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.adaptiveTextTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                value: autoSyncEnabled,
+                onChanged: (value) {
+                  ref.read(autoSyncEnabledProvider.notifier).set(value);
+                  if (value) {
+                    autoSyncService.syncInterval = Duration(minutes: autoSyncInterval);
+                    autoSyncService.start();
+                  } else {
+                    autoSyncService.stop();
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 

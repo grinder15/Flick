@@ -205,6 +205,7 @@ class SongRepository {
       fileType: entity.fileType ?? 'unknown',
       resolution: _buildResolutionString(entity),
       album: entity.album,
+      albumArtist: entity.albumArtist,
       filePath: entity.filePath,
       dateAdded: entity.dateAdded,
     );

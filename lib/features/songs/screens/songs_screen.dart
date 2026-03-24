@@ -609,7 +609,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
 
   Widget _buildHeader(AsyncValue<SongsState> songsAsync) {
     final songCount = songsAsync.value?.songs.length ?? 0;
-    final currentSort = songsAsync.value?.sortOption ?? SongSortOption.title;
+    final currentSort = songsAsync.value?.sortOption ?? SongSortOption.albumArtist;
     final currentFilter =
         songsAsync.value?.fileTypeFilter ?? SongFileTypeFilter.all;
 
@@ -698,6 +698,21 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                       color: context.adaptiveTextTertiary,
                       letterSpacing: 1.2,
                     ),
+                  ),
+                ),
+                PopupMenuItem<SongSortOption>(
+                  value: SongSortOption.albumArtist,
+                  child: Row(
+                    children: [
+                      if (currentSort == SongSortOption.albumArtist)
+                        const Icon(Icons.check, size: 18),
+                      if (currentSort == SongSortOption.albumArtist)
+                        const SizedBox(width: 8),
+                      Text(
+                        'Album Artist',
+                        style: TextStyle(color: context.adaptiveTextPrimary),
+                      ),
+                    ],
                   ),
                 ),
                 PopupMenuItem<SongSortOption>(

@@ -24,6 +24,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.security.MessageDigest
 
 class MainActivity: FlutterActivity() {
@@ -737,7 +743,23 @@ class MainActivity: FlutterActivity() {
 
             val lyricText = lyricKey?.let { retriever.extractMetadata(it) }
             if (lyricText.isNullOrBlank()) {
-                null
+                val id3Lyrics = parseId3EmbeddedLyrics(audioUriString)
+                if (!id3Lyrics.isNullOrBlank()) {
+                    mapOf(
+                        "content" to id3Lyrics,
+                        "source" to "embedded:id3",
+                    )
+                } else {
+                    val flacVorbisLyrics = parseFlacVorbisLyrics(audioUriString)
+                    if (!flacVorbisLyrics.isNullOrBlank()) {
+                        mapOf(
+                            "content" to flacVorbisLyrics,
+                            "source" to "embedded:vorbis",
+                        )
+                    } else {
+                        null
+                    }
+                }
             } else {
                 mapOf(
                     "content" to lyricText,
@@ -752,6 +774,372 @@ class MainActivity: FlutterActivity() {
             } catch (_: Exception) {
             }
         }
+    }
+
+    private fun parseId3EmbeddedLyrics(audioUriString: String): String? {
+        return openAudioInputStream(audioUriString)?.use { input ->
+            val header = ByteArray(10)
+            if (!readExact(input, header)) return@use null
+            if (header[0] != 'I'.code.toByte() ||
+                header[1] != 'D'.code.toByte() ||
+                header[2] != '3'.code.toByte()
+            ) {
+                return@use null
+            }
+
+            val version = header[3].toInt() and 0xFF
+            val flags = header[5].toInt() and 0xFF
+            val tagSize = readSynchsafeInt(header, 6)
+            if (tagSize <= 0) return@use null
+
+            val tagBody = ByteArray(tagSize)
+            if (!readExact(input, tagBody)) return@use null
+
+            val unsyncFlagSet = (flags and 0x80) != 0
+            val data = if (unsyncFlagSet) deUnsynchronize(tagBody) else tagBody
+
+            when (version) {
+                2 -> parseId3v22Lyrics(data)
+                3, 4 -> parseId3v23Or24Lyrics(data, version, flags)
+                else -> null
+            }
+        }
+    }
+
+    private fun parseId3v22Lyrics(data: ByteArray): String? {
+        var pos = 0
+        var bestSync: String? = null
+        var bestUnsync: String? = null
+
+        while (pos + 6 <= data.size) {
+            val id = String(data, pos, 3, Charsets.ISO_8859_1)
+            if (id.all { it == '\u0000' }) break
+
+            val frameSize =
+                ((data[pos + 3].toInt() and 0xFF) shl 16) or
+                ((data[pos + 4].toInt() and 0xFF) shl 8) or
+                (data[pos + 5].toInt() and 0xFF)
+            pos += 6
+            if (frameSize <= 0 || pos + frameSize > data.size) break
+
+            val frameData = data.copyOfRange(pos, pos + frameSize)
+            when (id) {
+                "SLT" -> {
+                    val parsed = parseSyltFrame(frameData)
+                    if (!parsed.isNullOrBlank()) bestSync = parsed
+                }
+                "ULT" -> {
+                    val parsed = parseUsltFrame(frameData)
+                    if (!parsed.isNullOrBlank() && bestUnsync == null) {
+                        bestUnsync = parsed
+                    }
+                }
+            }
+            pos += frameSize
+        }
+
+        return bestSync ?: bestUnsync
+    }
+
+    private fun parseId3v23Or24Lyrics(data: ByteArray, version: Int, flags: Int): String? {
+        var pos = 0
+        val extendedHeaderFlagSet = (flags and 0x40) != 0
+        if (extendedHeaderFlagSet && data.size >= 4) {
+            val extSize = if (version == 4) {
+                readSynchsafeInt(data, 0)
+            } else {
+                readBigEndianInt(data, 0)
+            }
+            if (extSize > 0 && extSize < data.size) {
+                pos = if (version == 3) 4 + extSize else extSize
+            }
+        }
+
+        var bestSync: String? = null
+        var bestUnsync: String? = null
+
+        while (pos + 10 <= data.size) {
+            val id = String(data, pos, 4, Charsets.ISO_8859_1)
+            if (id.all { it == '\u0000' }) break
+
+            val frameSize = if (version == 4) {
+                readSynchsafeInt(data, pos + 4)
+            } else {
+                readBigEndianInt(data, pos + 4)
+            }
+            pos += 10
+            if (frameSize <= 0 || pos + frameSize > data.size) break
+
+            val frameData = data.copyOfRange(pos, pos + frameSize)
+            when (id) {
+                "SYLT" -> {
+                    val parsed = parseSyltFrame(frameData)
+                    if (!parsed.isNullOrBlank()) bestSync = parsed
+                }
+                "USLT" -> {
+                    val parsed = parseUsltFrame(frameData)
+                    if (!parsed.isNullOrBlank() && bestUnsync == null) {
+                        bestUnsync = parsed
+                    }
+                }
+            }
+            pos += frameSize
+        }
+
+        return bestSync ?: bestUnsync
+    }
+
+    private fun parseUsltFrame(frameData: ByteArray): String? {
+        if (frameData.size < 4) return null
+
+        val encoding = frameData[0].toInt() and 0xFF
+        val descriptorStart = 4 // 1-byte encoding + 3-byte language
+        val termLen = nullTerminatorLength(encoding)
+        val descriptorEnd = findTerminator(frameData, descriptorStart, encoding)
+        val textStart = when {
+            descriptorEnd >= 0 -> descriptorEnd + termLen
+            else -> descriptorStart
+        }
+        if (textStart >= frameData.size) return null
+
+        val raw = frameData.copyOfRange(textStart, frameData.size)
+        val text = decodeId3Text(raw, encoding).trim()
+        return text.ifBlank { null }
+    }
+
+    private fun parseSyltFrame(frameData: ByteArray): String? {
+        if (frameData.size < 7) return null
+
+        val encoding = frameData[0].toInt() and 0xFF
+        val timestampFormat = frameData[4].toInt() and 0xFF
+        val descriptorStart = 6 // + content type byte
+        val termLen = nullTerminatorLength(encoding)
+        val descriptorEnd = findTerminator(frameData, descriptorStart, encoding)
+        var pos = if (descriptorEnd >= 0) descriptorEnd + termLen else descriptorStart
+        if (pos >= frameData.size) return null
+
+        val lines = mutableListOf<String>()
+        while (pos < frameData.size) {
+            val textEnd = findTerminator(frameData, pos, encoding)
+            if (textEnd < 0) break
+
+            val textBytes = frameData.copyOfRange(pos, textEnd)
+            val text = decodeId3Text(textBytes, encoding).trim()
+            pos = textEnd + termLen
+            if (pos + 4 > frameData.size) break
+
+            val timestamp = readBigEndianInt(frameData, pos)
+            pos += 4
+            if (text.isBlank()) continue
+
+            val timeMs = when (timestampFormat) {
+                1 -> timestamp // milliseconds
+                else -> timestamp // fallback for MPEG frames or unknown
+            }.coerceAtLeast(0)
+            lines.add("${formatLrcTime(timeMs)}$text")
+        }
+
+        if (lines.isEmpty()) return null
+        return lines.joinToString(separator = "\n")
+    }
+
+    private fun parseFlacVorbisLyrics(audioUriString: String): String? {
+        return openAudioInputStream(audioUriString)?.use { input ->
+            val signature = ByteArray(4)
+            if (!readExact(input, signature)) return@use null
+            if (!signature.contentEquals(byteArrayOf('f'.code.toByte(), 'L'.code.toByte(), 'a'.code.toByte(), 'C'.code.toByte()))) {
+                return@use null
+            }
+
+            var isLastBlock = false
+            while (!isLastBlock) {
+                val header = input.read()
+                if (header < 0) break
+
+                isLastBlock = (header and 0x80) != 0
+                val blockType = header and 0x7F
+                val lengthBytes = ByteArray(3)
+                if (!readExact(input, lengthBytes)) break
+                val blockLength =
+                    ((lengthBytes[0].toInt() and 0xFF) shl 16) or
+                    ((lengthBytes[1].toInt() and 0xFF) shl 8) or
+                    (lengthBytes[2].toInt() and 0xFF)
+
+                if (blockLength < 0) break
+
+                if (blockType == 4) {
+                    val commentData = ByteArray(blockLength)
+                    if (!readExact(input, commentData)) break
+                    return@use parseVorbisCommentLyrics(commentData)
+                } else {
+                    if (!skipFully(input, blockLength)) break
+                }
+            }
+            null
+        }
+    }
+
+    private fun parseVorbisCommentLyrics(data: ByteArray): String? {
+        if (data.size < 8) return null
+        val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+
+        val vendorLength = readLeIntSafe(buffer) ?: return null
+        if (vendorLength < 0 || vendorLength > buffer.remaining()) return null
+        buffer.position(buffer.position() + vendorLength)
+
+        val commentCount = readLeIntSafe(buffer) ?: return null
+        if (commentCount < 0) return null
+
+        val wantedKeys = listOf(
+            "LYRICS",
+            "UNSYNCEDLYRICS",
+            "UNSYNCED_LYRICS",
+        )
+
+        repeat(commentCount) {
+            val len = readLeIntSafe(buffer) ?: return null
+            if (len < 0 || len > buffer.remaining()) return null
+
+            val bytes = ByteArray(len)
+            buffer.get(bytes)
+            val entry = bytes.toString(Charsets.UTF_8)
+            val sep = entry.indexOf('=')
+            if (sep <= 0) return@repeat
+
+            val key = entry.substring(0, sep).uppercase()
+            val value = entry.substring(sep + 1).trim()
+            if (value.isBlank()) return@repeat
+            if (wantedKeys.contains(key)) {
+                return value
+            }
+        }
+
+        return null
+    }
+
+    private fun openAudioInputStream(audioUriString: String): InputStream? {
+        return try {
+            val uri = Uri.parse(audioUriString)
+            when (uri.scheme) {
+                "content" -> contentResolver.openInputStream(uri)
+                "file" -> {
+                    val path = uri.path
+                    if (path.isNullOrBlank()) null else FileInputStream(path)
+                }
+                null, "" -> FileInputStream(File(audioUriString))
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readExact(input: InputStream, out: ByteArray): Boolean {
+        var offset = 0
+        while (offset < out.size) {
+            val read = input.read(out, offset, out.size - offset)
+            if (read <= 0) return false
+            offset += read
+        }
+        return true
+    }
+
+    private fun skipFully(input: InputStream, bytesToSkip: Int): Boolean {
+        var remaining = bytesToSkip.toLong()
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped <= 0) {
+                if (input.read() == -1) return false
+                remaining -= 1
+            } else {
+                remaining -= skipped
+            }
+        }
+        return true
+    }
+
+    private fun readSynchsafeInt(data: ByteArray, offset: Int): Int {
+        if (offset + 3 >= data.size) return 0
+        return ((data[offset].toInt() and 0x7F) shl 21) or
+            ((data[offset + 1].toInt() and 0x7F) shl 14) or
+            ((data[offset + 2].toInt() and 0x7F) shl 7) or
+            (data[offset + 3].toInt() and 0x7F)
+    }
+
+    private fun readBigEndianInt(data: ByteArray, offset: Int): Int {
+        if (offset + 3 >= data.size) return 0
+        return ((data[offset].toInt() and 0xFF) shl 24) or
+            ((data[offset + 1].toInt() and 0xFF) shl 16) or
+            ((data[offset + 2].toInt() and 0xFF) shl 8) or
+            (data[offset + 3].toInt() and 0xFF)
+    }
+
+    private fun readLeIntSafe(buffer: ByteBuffer): Int? {
+        if (buffer.remaining() < 4) return null
+        return buffer.int
+    }
+
+    private fun deUnsynchronize(data: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream(data.size)
+        var i = 0
+        while (i < data.size) {
+            val current = data[i]
+            if (current == 0xFF.toByte() &&
+                i + 1 < data.size &&
+                data[i + 1] == 0x00.toByte()
+            ) {
+                out.write(0xFF)
+                i += 2
+            } else {
+                out.write(current.toInt())
+                i += 1
+            }
+        }
+        return out.toByteArray()
+    }
+
+    private fun decodeId3Text(bytes: ByteArray, encoding: Int): String {
+        if (bytes.isEmpty()) return ""
+        val charset = when (encoding) {
+            0 -> Charsets.ISO_8859_1
+            1 -> Charsets.UTF_16
+            2 -> Charsets.UTF_16BE
+            3 -> Charsets.UTF_8
+            else -> Charsets.UTF_8
+        }
+        return bytes.toString(charset).replace("\u0000", "")
+    }
+
+    private fun findTerminator(data: ByteArray, start: Int, encoding: Int): Int {
+        val termLen = nullTerminatorLength(encoding)
+        if (termLen == 1) {
+            for (i in start until data.size) {
+                if (data[i] == 0.toByte()) return i
+            }
+            return -1
+        }
+
+        var i = start
+        while (i + 1 < data.size) {
+            if (data[i] == 0.toByte() && data[i + 1] == 0.toByte()) return i
+            i++
+        }
+        return -1
+    }
+
+    private fun nullTerminatorLength(encoding: Int): Int {
+        return when (encoding) {
+            1, 2 -> 2
+            else -> 1
+        }
+    }
+
+    private fun formatLrcTime(milliseconds: Int): String {
+        val clampedMs = milliseconds.coerceAtLeast(0)
+        val minutes = clampedMs / 60000
+        val seconds = (clampedMs % 60000) / 1000
+        val hundredths = (clampedMs % 1000) / 10
+        return "[${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${hundredths.toString().padStart(2, '0')}]"
     }
 
     private fun readSiblingLyricsFromContentUri(audioUri: Uri): Map<String, String>? {

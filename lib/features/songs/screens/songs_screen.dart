@@ -9,6 +9,7 @@ import 'package:flick/models/song.dart';
 import 'package:flick/models/song_view_mode.dart';
 import 'package:flick/features/songs/widgets/orbit_scroll.dart';
 import 'package:flick/features/songs/widgets/song_fast_index_overlay.dart';
+import 'package:flick/features/songs/widgets/song_actions_bottom_sheet.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/glass_search_bar.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
@@ -262,20 +263,27 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   }
 
   Widget _buildOrbitView(List<Song> songs) {
-    return OrbitScroll(
-      controller: _orbitScrollController,
-      songs: songs,
-      selectedIndex: _selectedIndex.clamp(0, songs.length - 1).toInt(),
-      onSelectedIndexChanged: (index) {
-        if (!mounted) return;
-        setState(() {
-          _selectedIndex = index;
-        });
-        _syncSelectedTokenForIndex(songs, index);
+    return GestureDetector(
+      onLongPress: () {
+        if (songs.isNotEmpty && _selectedIndex < songs.length) {
+          SongActionsBottomSheet.show(context, songs[_selectedIndex]);
+        }
       },
-      onSongSelected: (index) async {
-        await _playSongAndOpenPlayer(songs: songs, index: index);
-      },
+      child: OrbitScroll(
+        controller: _orbitScrollController,
+        songs: songs,
+        selectedIndex: _selectedIndex.clamp(0, songs.length - 1).toInt(),
+        onSelectedIndexChanged: (index) {
+          if (!mounted) return;
+          setState(() {
+            _selectedIndex = index;
+          });
+          _syncSelectedTokenForIndex(songs, index);
+        },
+        onSongSelected: (index) async {
+          await _playSongAndOpenPlayer(songs: songs, index: index);
+        },
+      ),
     );
   }
 
@@ -306,6 +314,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                 });
                 _syncSelectedTokenForIndex(songs, index);
                 await _playSongAndOpenPlayer(songs: songs, index: index);
+              },
+              onLongPress: () {
+                SongActionsBottomSheet.show(context, song);
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),

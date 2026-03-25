@@ -1251,10 +1251,16 @@ class _PlayerControls extends StatelessWidget {
                             width: context.responsive(40.0, 44.0, 48.0),
                             height: context.responsive(40.0, 44.0, 48.0),
                             decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF121212,
-                              ).withValues(alpha: 0.6),
+                              color: isShuffle
+                                  ? AppColors.accent.withValues(alpha: 0.25)
+                                  : const Color(0xFF121212).withValues(alpha: 0.6),
                               shape: BoxShape.circle,
+                              border: isShuffle
+                                  ? Border.all(
+                                      color: AppColors.accent.withValues(alpha: 0.6),
+                                      width: 1.5,
+                                    )
+                                  : null,
                             ),
                             child: IconButton(
                               onPressed: () => playerService.toggleShuffle(),

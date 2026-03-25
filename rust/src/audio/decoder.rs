@@ -146,12 +146,28 @@ impl DecoderThread {
     ///
     /// Returns the audio source (for the audio thread) and the decoder thread handle.
     pub fn spawn(path: PathBuf, output_sample_rate: u32) -> Result<(AudioSource, Self), DecoderError> {
+        Self::spawn_with_seek(path, output_sample_rate, None)
+    }
+
+    /// Spawn a new decoder thread and start decoding from a specific position.
+    ///
+    /// `start_position_secs` is clamped to `>= 0`.
+    pub fn spawn_with_seek(
+        path: PathBuf,
+        output_sample_rate: u32,
+        start_position_secs: Option<f64>,
+    ) -> Result<(AudioSource, Self), DecoderError> {
         // Probe the file first (on the calling thread)
         let probe_result = probe_file(&path)?;
         let source_info = probe_result.source_info.clone();
 
         // Create the source and producer
         let (source, producer) = AudioSource::new(source_info);
+        if let Some(position_secs) = start_position_secs {
+            if position_secs > 0.0 {
+                source.set_position_secs(position_secs);
+            }
+        }
         let stop_signal = Arc::new(AtomicBool::new(false));
         let stop_signal_clone = Arc::clone(&stop_signal);
 
@@ -159,7 +175,13 @@ impl DecoderThread {
         let handle = thread::Builder::new()
             .name(format!("decoder-{}", path.display()))
             .spawn(move || {
-                decode_thread(probe_result, producer, output_sample_rate, stop_signal_clone)
+                decode_thread(
+                    probe_result,
+                    producer,
+                    output_sample_rate,
+                    stop_signal_clone,
+                    start_position_secs,
+                )
             })
             .map_err(|e| DecoderError::IoError(e.into()))?;
 
@@ -209,6 +231,7 @@ fn decode_thread(
     mut producer: SourceProducer,
     output_sample_rate: u32,
     stop_signal: Arc<AtomicBool>,
+    start_position_secs: Option<f64>,
 ) -> Result<(), DecoderError> {
     let ProbeResult {
         source_info,
@@ -216,6 +239,21 @@ fn decode_thread(
         mut decoder,
         track_id,
     } = probe_result;
+
+    if let Some(position_secs) = start_position_secs {
+        let target_secs = position_secs.max(0.0);
+        if target_secs > 0.0 {
+            let seek_to = SeekTo::Time {
+                time: Time::new(target_secs as u64, target_secs.fract()),
+                track_id: Some(track_id),
+            };
+
+            format
+                .seek(SeekMode::Coarse, seek_to)
+                .map_err(|e| DecoderError::DecodingFailed(format!("Seek failed: {}", e)))?;
+            decoder.reset();
+        }
+    }
 
     // Create resampler if needed
     let needs_resampling = source_info.original_sample_rate != output_sample_rate;

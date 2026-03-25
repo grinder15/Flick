@@ -625,11 +625,15 @@ fn command_processing_loop(
                         state.store(PlaybackState::Stopped as u8, Ordering::Relaxed);
                         let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Stopped));
                     }
-                    AudioCommand::Seek { position_secs: _ } => {
-                        // Seeking requires restarting the decoder - complex to implement
-                        let _ = event_tx.try_send(AudioEvent::Error {
-                            message: "Seek not yet implemented".to_string(),
-                        });
+                    AudioCommand::Seek { position_secs } => {
+                        handle_seek(
+                            position_secs,
+                            &callback_data,
+                            &state,
+                            &decoders,
+                            &event_tx,
+                            sample_rate,
+                        );
                     }
                     AudioCommand::SetVolume { volume } => {
                         callback_data.set_volume(volume.clamp(0.0, 1.0));
@@ -779,6 +783,84 @@ fn handle_skip_to_next(
             // Immediate transition
             sources.advance_to_next();
             state.store(PlaybackState::Playing as u8, Ordering::Relaxed);
+        }
+    }
+}
+
+fn handle_seek(
+    position_secs: f64,
+    callback_data: &AudioCallbackData,
+    state: &Arc<AtomicU8>,
+    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    event_tx: &Sender<AudioEvent>,
+    sample_rate: u32,
+) {
+    let target_secs = position_secs.max(0.0);
+
+    let current_path = {
+        let sources = callback_data.sources.lock();
+        sources.current().map(|s| s.info.path.clone())
+    };
+
+    let Some(path) = current_path else {
+        let _ = event_tx.try_send(AudioEvent::Error {
+            message: "Seek failed: no track loaded".to_string(),
+        });
+        return;
+    };
+
+    let was_paused = callback_data.is_paused();
+
+    state.store(PlaybackState::Buffering as u8, Ordering::Relaxed);
+    let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Buffering));
+
+    callback_data.sources.lock().stop();
+    callback_data.crossfader.lock().reset();
+    *callback_data.speed_frac_pos.lock() = 0.0;
+
+    {
+        let mut active_decoders = decoders.lock();
+        for decoder in active_decoders.drain(..) {
+            decoder.stop();
+        }
+    }
+
+    match DecoderThread::spawn_with_seek(path.clone(), sample_rate, Some(target_secs)) {
+        Ok((mut source, decoder_thread)) => {
+            let mut attempts = 0;
+            while !source.has_enough_buffer() && attempts < 100 {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                attempts += 1;
+            }
+
+            source.set_ready();
+            if !was_paused {
+                source.set_playing();
+            }
+
+            callback_data.sources.lock().set_current(source);
+            callback_data.set_paused(was_paused);
+            decoders.lock().push(decoder_thread);
+
+            let next_state = if was_paused {
+                PlaybackState::Paused
+            } else {
+                PlaybackState::Playing
+            };
+            state.store(next_state as u8, Ordering::Relaxed);
+            let _ = event_tx.try_send(AudioEvent::StateChanged(next_state));
+        }
+        Err(e) => {
+            let _ = event_tx.try_send(AudioEvent::Error {
+                message: format!(
+                    "Seek failed for {} to {:.2}s: {}",
+                    path.display(),
+                    target_secs,
+                    e
+                ),
+            });
+            state.store(PlaybackState::Idle as u8, Ordering::Relaxed);
+            let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Idle));
         }
     }
 }

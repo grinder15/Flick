@@ -13,6 +13,7 @@
 //! - `crossfader`: Equal-power crossfade implementation
 //! - `source`: Audio source abstraction for gapless playback
 
+pub mod alac_converter;
 pub mod commands;
 pub mod crossfader;
 pub mod decoder;
@@ -21,5 +22,6 @@ pub mod equalizer;
 pub mod resampler;
 pub mod source;
 
+pub use alac_converter::{AudioMetadata, ConversionSession};
 pub use commands::{AudioCommand, PlaybackState};
 pub use engine::{create_audio_engine, AudioEngineHandle};

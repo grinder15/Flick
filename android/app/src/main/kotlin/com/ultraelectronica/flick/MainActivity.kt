@@ -13,6 +13,7 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.AudioEffect
 import android.net.Uri
 import android.os.Build
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -23,6 +24,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.security.MessageDigest
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.ultraelectronica.flick/storage"
@@ -125,6 +133,58 @@ class MainActivity: FlutterActivity() {
                         }
                     } else {
                         result.error("INVALID_ARGUMENT", "URIs list is required", null)
+                    }
+                }
+                "cacheUriForPlayback" -> {
+                    val uri = call.argument<String>("uri")
+                    val extensionHint = call.argument<String>("extensionHint")
+                    if (uri != null) {
+                        mainScope.launch {
+                            try {
+                                val stagedPath = withContext(Dispatchers.IO) {
+                                    cacheUriForPlayback(uri, extensionHint)
+                                }
+                                result.success(stagedPath)
+                            } catch (e: Exception) {
+                                result.error("CACHE_URI_ERROR", "Failed to stage audio URI: ${e.message}", null)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "URI is required", null)
+                    }
+                }
+                "readSiblingLyrics" -> {
+                    val audioUri = call.argument<String>("audioUri")
+                    if (audioUri != null) {
+                        mainScope.launch {
+                            try {
+                                val lyrics = withContext(Dispatchers.IO) {
+                                    readSiblingLyrics(audioUri)
+                                }
+                                result.success(lyrics)
+                            } catch (e: Exception) {
+                                result.error("LYRICS_READ_ERROR", "Failed to read lyrics: ${e.message}", null)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "audioUri is required", null)
+                    }
+                }
+                "readEmbeddedLyrics" -> {
+                    val audioUri = call.argument<String>("audioUri")
+                    if (audioUri != null) {
+                        mainScope.launch {
+                            try {
+                                val lyrics = withContext(Dispatchers.IO) {
+                                    readEmbeddedLyrics(audioUri)
+                                }
+                                result.success(lyrics)
+                            } catch (e: Exception) {
+                                result.error("LYRICS_EMBEDDED_ERROR", "Failed to read embedded lyrics: ${e.message}", null)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "audioUri is required", null)
                     }
                 }
                 "getDocumentDisplayName" -> {
@@ -469,7 +529,7 @@ class MainActivity: FlutterActivity() {
         val uri = Uri.parse(uriString)
         val documentFile = DocumentFile.fromTreeUri(this, uri) ?: return emptyList()
         
-        val audioExtensions = setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "alac")
+        val audioExtensions = setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "alac", "aif", "aiff")
         val result = mutableListOf<Map<String, Any?>>()
 
         fun scanDirectory(dir: DocumentFile) {
@@ -569,6 +629,668 @@ class MainActivity: FlutterActivity() {
         }
 
         return result
+    }
+
+    private fun cacheUriForPlayback(uriString: String, extensionHint: String?): String? {
+        val uri = Uri.parse(uriString)
+        val normalizedExt = normalizeAudioExtension(extensionHint)
+        val stagingDir = java.io.File(cacheDir, "playback_staging").apply { mkdirs() }
+        val fileHash = md5(uriString)
+        val stagedFile = java.io.File(stagingDir, "$fileHash.$normalizedExt")
+        val tempFile = java.io.File(stagingDir, "$fileHash.$normalizedExt.tmp")
+
+        try {
+            // Reuse cached file only when non-empty and likely complete.
+            val expectedLength = try {
+                contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                    if (afd.length > 0L) afd.length else null
+                }
+            } catch (_: Exception) {
+                null
+            }
+            if (stagedFile.exists() && stagedFile.length() > 0L) {
+                if (expectedLength == null || stagedFile.length() == expectedLength) {
+                    return stagedFile.absolutePath
+                }
+            }
+
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+
+            val inputStream = contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                // If provider temporarily fails, keep using last known-good staged file.
+                if (stagedFile.exists() && stagedFile.length() > 0L) {
+                    return stagedFile.absolutePath
+                }
+                return null
+            }
+
+            inputStream.use { input ->
+                tempFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            if (!tempFile.exists() || tempFile.length() <= 0L) {
+                tempFile.delete()
+                return null
+            }
+
+            if (stagedFile.exists()) {
+                stagedFile.delete()
+            }
+            if (!tempFile.renameTo(stagedFile)) {
+                // Fallback: explicit copy and cleanup if rename fails.
+                tempFile.inputStream().use { input ->
+                    stagedFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                tempFile.delete()
+            }
+
+            if (stagedFile.length() <= 0L) return null
+            return stagedFile.absolutePath
+        } catch (e: Exception) {
+            android.util.Log.e("FlickPlayback", "cacheUriForPlayback failed for $uriString: ${e.message}", e)
+            return null
+        } finally {
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+        }
+    }
+
+    private fun readSiblingLyrics(audioUriString: String): Map<String, String>? {
+        return try {
+            val audioUri = Uri.parse(audioUriString)
+            when (audioUri.scheme) {
+                "content" -> readSiblingLyricsFromContentUri(audioUri)
+                "file" -> readSiblingLyricsFromFilePath(audioUri.path)
+                null, "" -> readSiblingLyricsFromFilePath(audioUriString)
+                else -> null
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("FlickLyrics", "readSiblingLyrics failed for $audioUriString: ${e.message}")
+            null
+        }
+    }
+
+    private fun readEmbeddedLyrics(audioUriString: String): Map<String, String>? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            val uri = Uri.parse(audioUriString)
+
+            val handledByUri = when (uri.scheme) {
+                "content", "file" -> {
+                    retriever.setDataSource(this, uri)
+                    true
+                }
+                else -> false
+            }
+
+            if (!handledByUri) {
+                retriever.setDataSource(audioUriString)
+            }
+
+            val lyricKey = try {
+                MediaMetadataRetriever::class.java.getField("METADATA_KEY_LYRIC").getInt(null)
+            } catch (_: Exception) {
+                null
+            }
+
+            val lyricText = lyricKey?.let { retriever.extractMetadata(it) }
+            if (lyricText.isNullOrBlank()) {
+                val id3Lyrics = parseId3EmbeddedLyrics(audioUriString)
+                if (!id3Lyrics.isNullOrBlank()) {
+                    mapOf(
+                        "content" to id3Lyrics,
+                        "source" to "embedded:id3",
+                    )
+                } else {
+                    val flacVorbisLyrics = parseFlacVorbisLyrics(audioUriString)
+                    if (!flacVorbisLyrics.isNullOrBlank()) {
+                        mapOf(
+                            "content" to flacVorbisLyrics,
+                            "source" to "embedded:vorbis",
+                        )
+                    } else {
+                        null
+                    }
+                }
+            } else {
+                mapOf(
+                    "content" to lyricText,
+                    "source" to "embedded",
+                )
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                retriever.release()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun parseId3EmbeddedLyrics(audioUriString: String): String? {
+        return openAudioInputStream(audioUriString)?.use { input ->
+            val header = ByteArray(10)
+            if (!readExact(input, header)) return@use null
+            if (header[0] != 'I'.code.toByte() ||
+                header[1] != 'D'.code.toByte() ||
+                header[2] != '3'.code.toByte()
+            ) {
+                return@use null
+            }
+
+            val version = header[3].toInt() and 0xFF
+            val flags = header[5].toInt() and 0xFF
+            val tagSize = readSynchsafeInt(header, 6)
+            if (tagSize <= 0) return@use null
+
+            val tagBody = ByteArray(tagSize)
+            if (!readExact(input, tagBody)) return@use null
+
+            val unsyncFlagSet = (flags and 0x80) != 0
+            val data = if (unsyncFlagSet) deUnsynchronize(tagBody) else tagBody
+
+            when (version) {
+                2 -> parseId3v22Lyrics(data)
+                3, 4 -> parseId3v23Or24Lyrics(data, version, flags)
+                else -> null
+            }
+        }
+    }
+
+    private fun parseId3v22Lyrics(data: ByteArray): String? {
+        var pos = 0
+        var bestSync: String? = null
+        var bestUnsync: String? = null
+
+        while (pos + 6 <= data.size) {
+            val id = String(data, pos, 3, Charsets.ISO_8859_1)
+            if (id.all { it == '\u0000' }) break
+
+            val frameSize =
+                ((data[pos + 3].toInt() and 0xFF) shl 16) or
+                ((data[pos + 4].toInt() and 0xFF) shl 8) or
+                (data[pos + 5].toInt() and 0xFF)
+            pos += 6
+            if (frameSize <= 0 || pos + frameSize > data.size) break
+
+            val frameData = data.copyOfRange(pos, pos + frameSize)
+            when (id) {
+                "SLT" -> {
+                    val parsed = parseSyltFrame(frameData)
+                    if (!parsed.isNullOrBlank()) bestSync = parsed
+                }
+                "ULT" -> {
+                    val parsed = parseUsltFrame(frameData)
+                    if (!parsed.isNullOrBlank() && bestUnsync == null) {
+                        bestUnsync = parsed
+                    }
+                }
+            }
+            pos += frameSize
+        }
+
+        return bestSync ?: bestUnsync
+    }
+
+    private fun parseId3v23Or24Lyrics(data: ByteArray, version: Int, flags: Int): String? {
+        var pos = 0
+        val extendedHeaderFlagSet = (flags and 0x40) != 0
+        if (extendedHeaderFlagSet && data.size >= 4) {
+            val extSize = if (version == 4) {
+                readSynchsafeInt(data, 0)
+            } else {
+                readBigEndianInt(data, 0)
+            }
+            if (extSize > 0 && extSize < data.size) {
+                pos = if (version == 3) 4 + extSize else extSize
+            }
+        }
+
+        var bestSync: String? = null
+        var bestUnsync: String? = null
+
+        while (pos + 10 <= data.size) {
+            val id = String(data, pos, 4, Charsets.ISO_8859_1)
+            if (id.all { it == '\u0000' }) break
+
+            val frameSize = if (version == 4) {
+                readSynchsafeInt(data, pos + 4)
+            } else {
+                readBigEndianInt(data, pos + 4)
+            }
+            pos += 10
+            if (frameSize <= 0 || pos + frameSize > data.size) break
+
+            val frameData = data.copyOfRange(pos, pos + frameSize)
+            when (id) {
+                "SYLT" -> {
+                    val parsed = parseSyltFrame(frameData)
+                    if (!parsed.isNullOrBlank()) bestSync = parsed
+                }
+                "USLT" -> {
+                    val parsed = parseUsltFrame(frameData)
+                    if (!parsed.isNullOrBlank() && bestUnsync == null) {
+                        bestUnsync = parsed
+                    }
+                }
+            }
+            pos += frameSize
+        }
+
+        return bestSync ?: bestUnsync
+    }
+
+    private fun parseUsltFrame(frameData: ByteArray): String? {
+        if (frameData.size < 4) return null
+
+        val encoding = frameData[0].toInt() and 0xFF
+        val descriptorStart = 4 // 1-byte encoding + 3-byte language
+        val termLen = nullTerminatorLength(encoding)
+        val descriptorEnd = findTerminator(frameData, descriptorStart, encoding)
+        val textStart = when {
+            descriptorEnd >= 0 -> descriptorEnd + termLen
+            else -> descriptorStart
+        }
+        if (textStart >= frameData.size) return null
+
+        val raw = frameData.copyOfRange(textStart, frameData.size)
+        val text = decodeId3Text(raw, encoding).trim()
+        return text.ifBlank { null }
+    }
+
+    private fun parseSyltFrame(frameData: ByteArray): String? {
+        if (frameData.size < 7) return null
+
+        val encoding = frameData[0].toInt() and 0xFF
+        val timestampFormat = frameData[4].toInt() and 0xFF
+        val descriptorStart = 6 // + content type byte
+        val termLen = nullTerminatorLength(encoding)
+        val descriptorEnd = findTerminator(frameData, descriptorStart, encoding)
+        var pos = if (descriptorEnd >= 0) descriptorEnd + termLen else descriptorStart
+        if (pos >= frameData.size) return null
+
+        val lines = mutableListOf<String>()
+        while (pos < frameData.size) {
+            val textEnd = findTerminator(frameData, pos, encoding)
+            if (textEnd < 0) break
+
+            val textBytes = frameData.copyOfRange(pos, textEnd)
+            val text = decodeId3Text(textBytes, encoding).trim()
+            pos = textEnd + termLen
+            if (pos + 4 > frameData.size) break
+
+            val timestamp = readBigEndianInt(frameData, pos)
+            pos += 4
+            if (text.isBlank()) continue
+
+            val timeMs = when (timestampFormat) {
+                1 -> timestamp // milliseconds
+                else -> timestamp // fallback for MPEG frames or unknown
+            }.coerceAtLeast(0)
+            lines.add("${formatLrcTime(timeMs)}$text")
+        }
+
+        if (lines.isEmpty()) return null
+        return lines.joinToString(separator = "\n")
+    }
+
+    private fun parseFlacVorbisLyrics(audioUriString: String): String? {
+        return openAudioInputStream(audioUriString)?.use { input ->
+            val signature = ByteArray(4)
+            if (!readExact(input, signature)) return@use null
+            if (!signature.contentEquals(byteArrayOf('f'.code.toByte(), 'L'.code.toByte(), 'a'.code.toByte(), 'C'.code.toByte()))) {
+                return@use null
+            }
+
+            var isLastBlock = false
+            while (!isLastBlock) {
+                val header = input.read()
+                if (header < 0) break
+
+                isLastBlock = (header and 0x80) != 0
+                val blockType = header and 0x7F
+                val lengthBytes = ByteArray(3)
+                if (!readExact(input, lengthBytes)) break
+                val blockLength =
+                    ((lengthBytes[0].toInt() and 0xFF) shl 16) or
+                    ((lengthBytes[1].toInt() and 0xFF) shl 8) or
+                    (lengthBytes[2].toInt() and 0xFF)
+
+                if (blockLength < 0) break
+
+                if (blockType == 4) {
+                    val commentData = ByteArray(blockLength)
+                    if (!readExact(input, commentData)) break
+                    return@use parseVorbisCommentLyrics(commentData)
+                } else {
+                    if (!skipFully(input, blockLength)) break
+                }
+            }
+            null
+        }
+    }
+
+    private fun parseVorbisCommentLyrics(data: ByteArray): String? {
+        if (data.size < 8) return null
+        val buffer = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
+
+        val vendorLength = readLeIntSafe(buffer) ?: return null
+        if (vendorLength < 0 || vendorLength > buffer.remaining()) return null
+        buffer.position(buffer.position() + vendorLength)
+
+        val commentCount = readLeIntSafe(buffer) ?: return null
+        if (commentCount < 0) return null
+
+        val wantedKeys = listOf(
+            "LYRICS",
+            "UNSYNCEDLYRICS",
+            "UNSYNCED_LYRICS",
+        )
+
+        repeat(commentCount) {
+            val len = readLeIntSafe(buffer) ?: return null
+            if (len < 0 || len > buffer.remaining()) return null
+
+            val bytes = ByteArray(len)
+            buffer.get(bytes)
+            val entry = bytes.toString(Charsets.UTF_8)
+            val sep = entry.indexOf('=')
+            if (sep <= 0) return@repeat
+
+            val key = entry.substring(0, sep).uppercase()
+            val value = entry.substring(sep + 1).trim()
+            if (value.isBlank()) return@repeat
+            if (wantedKeys.contains(key)) {
+                return value
+            }
+        }
+
+        return null
+    }
+
+    private fun openAudioInputStream(audioUriString: String): InputStream? {
+        return try {
+            val uri = Uri.parse(audioUriString)
+            when (uri.scheme) {
+                "content" -> contentResolver.openInputStream(uri)
+                "file" -> {
+                    val path = uri.path
+                    if (path.isNullOrBlank()) null else FileInputStream(path)
+                }
+                null, "" -> FileInputStream(File(audioUriString))
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readExact(input: InputStream, out: ByteArray): Boolean {
+        var offset = 0
+        while (offset < out.size) {
+            val read = input.read(out, offset, out.size - offset)
+            if (read <= 0) return false
+            offset += read
+        }
+        return true
+    }
+
+    private fun skipFully(input: InputStream, bytesToSkip: Int): Boolean {
+        var remaining = bytesToSkip.toLong()
+        while (remaining > 0) {
+            val skipped = input.skip(remaining)
+            if (skipped <= 0) {
+                if (input.read() == -1) return false
+                remaining -= 1
+            } else {
+                remaining -= skipped
+            }
+        }
+        return true
+    }
+
+    private fun readSynchsafeInt(data: ByteArray, offset: Int): Int {
+        if (offset + 3 >= data.size) return 0
+        return ((data[offset].toInt() and 0x7F) shl 21) or
+            ((data[offset + 1].toInt() and 0x7F) shl 14) or
+            ((data[offset + 2].toInt() and 0x7F) shl 7) or
+            (data[offset + 3].toInt() and 0x7F)
+    }
+
+    private fun readBigEndianInt(data: ByteArray, offset: Int): Int {
+        if (offset + 3 >= data.size) return 0
+        return ((data[offset].toInt() and 0xFF) shl 24) or
+            ((data[offset + 1].toInt() and 0xFF) shl 16) or
+            ((data[offset + 2].toInt() and 0xFF) shl 8) or
+            (data[offset + 3].toInt() and 0xFF)
+    }
+
+    private fun readLeIntSafe(buffer: ByteBuffer): Int? {
+        if (buffer.remaining() < 4) return null
+        return buffer.int
+    }
+
+    private fun deUnsynchronize(data: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream(data.size)
+        var i = 0
+        while (i < data.size) {
+            val current = data[i]
+            if (current == 0xFF.toByte() &&
+                i + 1 < data.size &&
+                data[i + 1] == 0x00.toByte()
+            ) {
+                out.write(0xFF)
+                i += 2
+            } else {
+                out.write(current.toInt())
+                i += 1
+            }
+        }
+        return out.toByteArray()
+    }
+
+    private fun decodeId3Text(bytes: ByteArray, encoding: Int): String {
+        if (bytes.isEmpty()) return ""
+        val charset = when (encoding) {
+            0 -> Charsets.ISO_8859_1
+            1 -> Charsets.UTF_16
+            2 -> Charsets.UTF_16BE
+            3 -> Charsets.UTF_8
+            else -> Charsets.UTF_8
+        }
+        return bytes.toString(charset).replace("\u0000", "")
+    }
+
+    private fun findTerminator(data: ByteArray, start: Int, encoding: Int): Int {
+        val termLen = nullTerminatorLength(encoding)
+        if (termLen == 1) {
+            for (i in start until data.size) {
+                if (data[i] == 0.toByte()) return i
+            }
+            return -1
+        }
+
+        var i = start
+        while (i + 1 < data.size) {
+            if (data[i] == 0.toByte() && data[i + 1] == 0.toByte()) return i
+            i++
+        }
+        return -1
+    }
+
+    private fun nullTerminatorLength(encoding: Int): Int {
+        return when (encoding) {
+            1, 2 -> 2
+            else -> 1
+        }
+    }
+
+    private fun formatLrcTime(milliseconds: Int): String {
+        val clampedMs = milliseconds.coerceAtLeast(0)
+        val minutes = clampedMs / 60000
+        val seconds = (clampedMs % 60000) / 1000
+        val hundredths = (clampedMs % 1000) / 10
+        return "[${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${hundredths.toString().padStart(2, '0')}]"
+    }
+
+    private fun readSiblingLyricsFromContentUri(audioUri: Uri): Map<String, String>? {
+        val audioName = DocumentFile.fromSingleUri(this, audioUri)?.name ?: return null
+        val stem = audioName.substringBeforeLast('.', audioName)
+        val candidateNames = listOf("$stem.lrc", "$stem.txt")
+        val candidateSet = candidateNames.map { it.lowercase() }.toSet()
+
+        val authority = audioUri.authority ?: return null
+        val documentId = try {
+            DocumentsContract.getDocumentId(audioUri)
+        } catch (e: Exception) {
+            return null
+        }
+        val slashIndex = documentId.lastIndexOf('/')
+        if (slashIndex <= 0) return null
+        val parentDocumentId = documentId.substring(0, slashIndex)
+
+        // Fast path: build candidate URIs directly using parent document id.
+        for (candidateName in candidateNames) {
+            val candidateDocumentId = "$parentDocumentId/$candidateName"
+            val directUri = DocumentsContract.buildDocumentUri(authority, candidateDocumentId)
+            val directContent = readTextFromUri(directUri)
+            if (!directContent.isNullOrBlank()) {
+                return mapOf(
+                    "content" to directContent,
+                    "uri" to directUri.toString(),
+                    "name" to candidateName,
+                )
+            }
+
+            val treeUri = try {
+                DocumentsContract.buildDocumentUriUsingTree(audioUri, candidateDocumentId)
+            } catch (_: Exception) {
+                null
+            }
+            if (treeUri != null) {
+                val treeContent = readTextFromUri(treeUri)
+                if (!treeContent.isNullOrBlank()) {
+                    return mapOf(
+                        "content" to treeContent,
+                        "uri" to treeUri.toString(),
+                        "name" to candidateName,
+                    )
+                }
+            }
+        }
+
+        // Fallback: list siblings from parent and match candidate names case-insensitively.
+        val childrenUri = try {
+            DocumentsContract.buildChildDocumentsUri(authority, parentDocumentId)
+        } catch (e: Exception) {
+            return null
+        }
+
+        contentResolver.query(
+            childrenUri,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            ),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            val idIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            if (idIndex == -1 || nameIndex == -1) {
+                return null
+            }
+
+            while (cursor.moveToNext()) {
+                val displayName = cursor.getString(nameIndex) ?: continue
+                if (!candidateSet.contains(displayName.lowercase())) continue
+
+                val childDocumentId = cursor.getString(idIndex) ?: continue
+                val childUri = DocumentsContract.buildDocumentUri(authority, childDocumentId)
+                val content = readTextFromUri(childUri)
+                if (!content.isNullOrBlank()) {
+                    return mapOf(
+                        "content" to content,
+                        "uri" to childUri.toString(),
+                        "name" to displayName,
+                    )
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun readSiblingLyricsFromFilePath(audioPath: String?): Map<String, String>? {
+        if (audioPath.isNullOrBlank()) return null
+
+        val audioFile = java.io.File(audioPath)
+        val parent = audioFile.parentFile ?: return null
+        val stem = audioFile.name.substringBeforeLast('.', audioFile.name)
+        val candidateNames = listOf("$stem.lrc", "$stem.txt", "$stem.LRC", "$stem.TXT")
+
+        for (candidateName in candidateNames) {
+            val candidateFile = java.io.File(parent, candidateName)
+            if (!candidateFile.exists() || !candidateFile.isFile) continue
+
+            val text = try {
+                candidateFile.readText(Charsets.UTF_8)
+            } catch (_: Exception) {
+                try {
+                    candidateFile.readText(Charsets.ISO_8859_1)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            if (!text.isNullOrBlank()) {
+                return mapOf(
+                    "content" to text,
+                    "uri" to candidateFile.absolutePath,
+                    "name" to candidateFile.name,
+                )
+            }
+        }
+
+        return null
+    }
+
+    private fun readTextFromUri(uri: Uri): String? {
+        return try {
+            val inputStream = contentResolver.openInputStream(uri) ?: return null
+            inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun normalizeAudioExtension(extensionHint: String?): String {
+        val ext = extensionHint
+            ?.trim()
+            ?.lowercase()
+            ?.removePrefix(".")
+            ?.ifEmpty { null } ?: return "m4a"
+
+        return when (ext) {
+            "aif", "aiff" -> "aiff"
+            "m4a", "alac" -> "m4a"
+            else -> ext
+        }
+    }
+
+    private fun md5(input: String): String {
+        val digest = MessageDigest.getInstance("MD5").digest(input.toByteArray())
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     // ========== UAC 2.0 USB Host (Android) ==========
@@ -750,4 +1472,3 @@ class MainActivity: FlutterActivity() {
         private const val ACTION_USB_PERMISSION = "com.ultraelectronica.flick.USB_PERMISSION"
     }
 }
-

@@ -150,6 +150,16 @@ impl AudioSource {
         frames as f64 / self.info.output_sample_rate as f64
     }
 
+    /// Set the current playback position in seconds.
+    ///
+    /// Used after decoder-side seeks so progress reporting remains absolute.
+    pub fn set_position_secs(&self, position_secs: f64) {
+        let clamped_secs = position_secs.max(0.0);
+        let frames = (clamped_secs * self.info.output_sample_rate as f64).round() as u64;
+        let samples = frames.saturating_mul(self.info.channels as u64);
+        self.position.store(samples, Ordering::Relaxed);
+    }
+
     /// Get the buffer fill level (0.0 to 1.0).
     #[inline]
     pub fn buffer_level(&self) -> f32 {

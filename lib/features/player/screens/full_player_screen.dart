@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/utils/responsive.dart';
+import 'package:flick/data/repositories/song_repository.dart';
+import 'package:flick/features/albums/screens/albums_screen.dart';
+import 'package:flick/features/artists/screens/artists_screen.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/favorites_service.dart';
+import 'package:flick/services/lyrics_service.dart';
 import 'package:flick/providers/playlist_provider.dart';
 import 'package:flick/features/player/widgets/waveform_seek_bar.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -28,6 +32,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     with TickerProviderStateMixin {
   final PlayerService _playerService = PlayerService();
   final FavoritesService _favoritesService = FavoritesService();
+  final LyricsService _lyricsService = LyricsService();
+  final SongRepository _songRepository = SongRepository();
+  static const String _topBarTextFontFamily = 'ProductSans';
+  static const FontWeight _topBarTextFontWeight = FontWeight.w500;
 
   // Animation controller for drag offset (replaces setState)
   late AnimationController _dragController;
@@ -38,9 +46,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   // Last drag update time for throttling
   DateTime _lastDragUpdate = DateTime.now();
 
-  // Throttled position for waveform updates (updates every 50ms for smooth animation)
-  Duration _throttledPosition = Duration.zero;
+  // Notifier for throttled position – only _WaveformLayer listens, so no setState needed.
+  late final ValueNotifier<Duration> _throttledPositionNotifier;
   Timer? _positionThrottleTimer;
+  String? _cachedTopBarText;
+  double? _cachedTopBarFontSize;
+  double _cachedTopBarTextWidth = 0;
+  bool _isLyricsMode = false;
 
   @override
   void initState() {
@@ -55,28 +67,75 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
     _dragController.value = 0.0;
 
-    // Initialize with current position
-    _throttledPosition = _playerService.positionNotifier.value;
-    // Set up throttled position updates for waveform (50ms interval for smooth animation)
+    // Initialize notifier with current position
+    _throttledPositionNotifier = ValueNotifier(
+      _playerService.positionNotifier.value,
+    );
+    // Throttled position tick: only mutates the notifier – never calls setState.
     _positionThrottleTimer = Timer.periodic(const Duration(milliseconds: 50), (
       timer,
     ) {
       if (mounted) {
         final newPosition = _playerService.positionNotifier.value;
-        // Only update if position actually changed
-        if (_throttledPosition != newPosition) {
-          _throttledPosition = newPosition;
-          setState(() {});
+        if (_throttledPositionNotifier.value != newPosition) {
+          _throttledPositionNotifier.value = newPosition;
         }
       }
     });
+
+    _playerService.currentSongNotifier.addListener(_handleCurrentSongChanged);
+    _updateTopBarTextMeasurement(_playerService.currentSongNotifier.value);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _updateTopBarTextMeasurement(_playerService.currentSongNotifier.value);
   }
 
   @override
   void dispose() {
+    _playerService.currentSongNotifier.removeListener(
+      _handleCurrentSongChanged,
+    );
     _positionThrottleTimer?.cancel();
+    _throttledPositionNotifier.dispose();
     _dragController.dispose();
     super.dispose();
+  }
+
+  void _handleCurrentSongChanged() {
+    _updateTopBarTextMeasurement(_playerService.currentSongNotifier.value);
+  }
+
+  void _updateTopBarTextMeasurement(Song? song) {
+    if (!mounted || song == null) return;
+
+    final text = '${song.title} - ${song.artist}';
+    final fontSize = context.responsiveText(
+      context.responsive(13.0, 14.0, 15.0),
+    );
+
+    if (_cachedTopBarText == text && _cachedTopBarFontSize == fontSize) {
+      return;
+    }
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontFamily: _topBarTextFontFamily,
+          fontSize: fontSize,
+          fontWeight: _topBarTextFontWeight,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+
+    _cachedTopBarText = text;
+    _cachedTopBarFontSize = fontSize;
+    _cachedTopBarTextWidth = textPainter.width;
   }
 
   // For nice time formatting (mm:ss)
@@ -95,11 +154,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         decoration: BoxDecoration(
-          color: AppColors.glassBackgroundStrong.withValues(alpha: 0.95),
+          color: AppColors.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: AppColors.glassBorder, width: 1),
+          border: Border.all(color: AppColors.glassBorder),
         ),
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -195,11 +254,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         decoration: BoxDecoration(
-          color: AppColors.glassBackgroundStrong.withValues(alpha: 0.95),
+          color: AppColors.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: AppColors.glassBorder, width: 1),
+          border: Border.all(color: AppColors.glassBorder),
         ),
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -471,6 +530,574 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     );
   }
 
+  void _showSongActionsBottomSheet(BuildContext context, Song song) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: AppColors.glassBorder),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.glassBorderStrong,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: 68,
+                      height: 68,
+                      child: song.albumArt != null
+                          ? CachedImageWidget(
+                              imagePath: song.albumArt!,
+                              fit: BoxFit.cover,
+                              useThumbnail: true,
+                              thumbnailWidth: 136,
+                              thumbnailHeight: 136,
+                            )
+                          : Container(
+                              color: AppColors.surfaceLight,
+                              child: const Icon(
+                                LucideIcons.music,
+                                color: AppColors.textTertiary,
+                                size: 24,
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'ProductSans',
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: sheetContext.adaptiveTextPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'ProductSans',
+                            fontSize: 14,
+                            color: sheetContext.adaptiveTextSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _buildSongInfoChip(
+                              sheetContext,
+                              song.formattedDuration,
+                            ),
+                            _buildSongInfoChip(
+                              sheetContext,
+                              song.fileType.toUpperCase(),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.listPlus,
+                label: 'Add to Playlist',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showAddToPlaylistDialog(context, song);
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.info,
+                label: 'View Metadata',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showSongMetadataBottomSheet(context, song);
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.fileText,
+                label: 'Lyrics',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  if (mounted) {
+                    setState(() {
+                      _isLyricsMode = true;
+                    });
+                  }
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.user,
+                label: 'Go to Artist',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openArtistFromSong(context, song);
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.disc,
+                label: 'Go to Album',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openAlbumFromSong(context, song);
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.gauge,
+                label: 'Playback Speed',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showSpeedBottomSheet(context);
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.moonStar,
+                label: 'Sleep Timer',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _showSleepTimerBottomSheet(context);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSongInfoChip(BuildContext context, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceLight,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: Text(
+        value,
+        style: TextStyle(
+          fontFamily: 'ProductSans',
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: context.adaptiveTextSecondary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSongActionTile({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppColors.surfaceLight,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  size: 18,
+                  color: context.adaptiveTextSecondary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: context.adaptiveTextPrimary,
+                  ),
+                ),
+              ),
+              Icon(
+                LucideIcons.chevronRight,
+                size: 16,
+                color: context.adaptiveTextTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showSongMetadataBottomSheet(BuildContext context, Song song) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => Container(
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: AppColors.glassBorder),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  LucideIcons.info,
+                  size: 20,
+                  color: sheetContext.adaptiveTextSecondary,
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  'Song Metadata',
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: sheetContext.adaptiveTextPrimary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildMetadataRow(sheetContext, 'Title', song.title),
+            _buildMetadataRow(sheetContext, 'Artist', song.artist),
+            if (song.album != null)
+              _buildMetadataRow(sheetContext, 'Album', song.album!),
+            _buildMetadataRow(sheetContext, 'Duration', song.formattedDuration),
+            _buildMetadataRow(
+              sheetContext,
+              'Format',
+              song.fileType.toUpperCase(),
+            ),
+            if (song.resolution != null)
+              _buildMetadataRow(sheetContext, 'Resolution', song.resolution!),
+            if (song.filePath != null)
+              _buildMetadataRow(sheetContext, 'File Path', song.filePath!),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetadataRow(BuildContext context, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontFamily: 'ProductSans',
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: context.adaptiveTextSecondary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontFamily: 'ProductSans',
+                fontSize: 13,
+                color: context.adaptiveTextPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openArtistFromSong(BuildContext context, Song song) async {
+    final artistName = song.artist.trim();
+    if (artistName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Artist is not available for this song')),
+      );
+      return;
+    }
+
+    final artistMap = await _songRepository.getSongsByArtist();
+    final artistSongs = artistMap[artistName];
+    if (!mounted) return;
+
+    if (artistSongs == null || artistSongs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load artist songs')),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ArtistDetailScreen(
+          artistName: artistName,
+          songs: artistSongs,
+          artistArt: _firstArt(artistSongs),
+          playerService: _playerService,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openAlbumFromSong(BuildContext context, Song song) async {
+    final albumName = (song.album?.trim().isNotEmpty ?? false)
+        ? song.album!.trim()
+        : 'Unknown Album';
+
+    final albumMap = await _songRepository.getSongsByAlbum();
+    final albumSongs = albumMap[albumName];
+    if (!mounted) return;
+
+    if (albumSongs == null || albumSongs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load album songs')),
+      );
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AlbumDetailScreen(
+          albumName: albumName,
+          songs: albumSongs,
+          albumArt: _firstArt(albumSongs),
+          playerService: _playerService,
+        ),
+      ),
+    );
+  }
+
+  String? _firstArt(List<Song> songs) {
+    for (final item in songs) {
+      final art = item.albumArt;
+      if (art != null && art.isNotEmpty) {
+        return art;
+      }
+    }
+    return null;
+  }
+
+  Widget _buildFileInfoRow(
+    BuildContext context,
+    Song song, {
+    required bool lyricsMode,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        GestureDetector(
+          onTap: () {
+            setState(() {
+              _isLyricsMode = !lyricsMode;
+            });
+          },
+          child: Container(
+            padding: EdgeInsets.all(context.responsive(6.0, 7.0, 8.0)),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              lyricsMode
+                  ? Icons.keyboard_arrow_down_rounded
+                  : LucideIcons.fileText,
+              color: Colors.white.withValues(alpha: 0.9),
+              size: context.responsive(18.0, 20.0, 22.0),
+            ),
+          ),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: context.responsive(4.0, 5.0, 6.0),
+                vertical: 2,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Text(
+                song.fileType,
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: context.responsive(9.0, 10.0, 11.0),
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+            if (song.resolution != null) ...[
+              SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
+              Text(
+                song.resolution!,
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: context.responsive(9.0, 10.0, 11.0),
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ],
+        ),
+        FutureBuilder<bool>(
+          future: _favoritesService.isFavorite(song.id),
+          builder: (context, snapshot) {
+            final isFavorite = snapshot.data ?? false;
+            return GestureDetector(
+              onTap: () async {
+                final newState = await _favoritesService.toggleFavorite(
+                  song.id,
+                );
+                setState(() {});
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        newState
+                            ? 'Added to favorites'
+                            : 'Removed from favorites',
+                      ),
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                }
+              },
+              child: Container(
+                padding: EdgeInsets.all(context.responsive(6.0, 7.0, 8.0)),
+                decoration: BoxDecoration(
+                  color: isFavorite
+                      ? Colors.red.withValues(alpha: 0.25)
+                      : Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isFavorite ? Icons.favorite : Icons.favorite_border,
+                  color: isFavorite
+                      ? Colors.red
+                      : Colors.white.withValues(alpha: 0.9),
+                  size: context.responsive(16.0, 17.0, 18.0),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDirectoryInfo(
+    BuildContext context,
+    Song song, {
+    required bool compact,
+  }) {
+    if (song.filePath == null) return const SizedBox.shrink();
+
+    String dirText = '';
+    final filePath = song.filePath!;
+    final parts = filePath.split(RegExp(r'[/\\]'));
+    if (parts.length > 1) {
+      parts.removeLast();
+      final startIndex = parts.length > 2 ? parts.length - 2 : 0;
+      final folders = parts.sublist(startIndex);
+      dirText = folders.join('/');
+    }
+    if (dirText.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: EdgeInsets.only(
+        left: context.responsive(12.0, 16.0, 20.0),
+        right: context.responsive(12.0, 16.0, 20.0),
+        top: compact ? context.responsive(8.0, 10.0, 12.0) : 0,
+        bottom: compact ? 0 : context.responsive(16.0, 20.0, 24.0),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            LucideIcons.folder,
+            size: context.responsive(11.0, 12.0, 13.0),
+            color: Colors.white.withValues(alpha: 0.7),
+          ),
+          SizedBox(width: context.responsive(4.0, 5.0, 6.0)),
+          Flexible(
+            child: Text(
+              dirText,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'ProductSans',
+                fontSize: context.responsive(10.0, 11.0, 12.0),
+                color: Colors.white.withValues(alpha: 0.7),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DisplayModeWrapper(
@@ -684,7 +1311,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                             final text =
                                                 '${song.title} - ${song.artist}';
                                             final textStyle = TextStyle(
-                                              fontFamily: 'ProductSans',
+                                              fontFamily: _topBarTextFontFamily,
                                               fontSize: context.responsiveText(
                                                 context.responsive(
                                                   13.0,
@@ -692,21 +1319,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                                   15.0,
                                                 ),
                                               ),
-                                              fontWeight: FontWeight.w500,
+                                              fontWeight: _topBarTextFontWeight,
                                               color: Colors.white.withValues(
                                                 alpha: 0.85,
                                               ),
                                             );
-                                            final textPainter = TextPainter(
-                                              text: TextSpan(
-                                                text: text,
-                                                style: textStyle,
-                                              ),
-                                              textDirection: TextDirection.ltr,
-                                              maxLines: 1,
-                                            )..layout();
 
-                                            if (textPainter.width <=
+                                            if (_cachedTopBarTextWidth <=
                                                 constraints.maxWidth) {
                                               return Center(
                                                 child: Text(
@@ -739,7 +1358,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                     ).withValues(alpha: 0.7),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: PopupMenuButton<String>(
+                                  child: IconButton(
                                     padding: EdgeInsets.all(
                                       context.responsive(8.0, 10.0, 12.0),
                                     ),
@@ -752,100 +1371,11 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                                         24.0,
                                       ),
                                     ),
-                                    color: AppColors.surface,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(16),
-                                    ),
-                                    itemBuilder: (context) => [
-                                      PopupMenuItem(
-                                        value: 'add_to_playlist',
-                                        child: Row(
-                                          children: [
-                                            const Icon(
-                                              LucideIcons.listPlus,
-                                              color: AppColors.textPrimary,
-                                              size: 20,
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Text(
-                                              'Add to Playlist',
-                                              style: TextStyle(
-                                                fontFamily: 'ProductSans',
-                                                color:
-                                                    context.adaptiveTextPrimary,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      PopupMenuItem(
-                                        value: 'speed',
-                                        child: ValueListenableBuilder<double>(
-                                          valueListenable: _playerService
-                                              .playbackSpeedNotifier,
-                                          builder: (context, speed, _) {
-                                            return Row(
-                                              children: [
-                                                const Icon(
-                                                  LucideIcons.gauge,
-                                                  color: AppColors.textPrimary,
-                                                  size: 20,
-                                                ),
-                                                const SizedBox(width: 12),
-                                                Text(
-                                                  'Speed: ${speed}x',
-                                                  style: const TextStyle(
-                                                    fontFamily: 'ProductSans',
-                                                    color:
-                                                        AppColors.textPrimary,
-                                                  ),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      PopupMenuItem(
-                                        value: 'timer',
-                                        child: ValueListenableBuilder<Duration?>(
-                                          valueListenable: _playerService
-                                              .sleepTimerRemainingNotifier,
-                                          builder: (context, remaining, _) {
-                                            return Row(
-                                              children: [
-                                                Icon(
-                                                  LucideIcons.moonStar,
-                                                  color: remaining != null
-                                                      ? AppColors.accent
-                                                      : AppColors.textPrimary,
-                                                  size: 20,
-                                                ),
-                                                const SizedBox(width: 12),
-                                                Text(
-                                                  remaining != null
-                                                      ? 'Sleep: ${_formatDuration(remaining)}'
-                                                      : 'Sleep Timer',
-                                                  style: TextStyle(
-                                                    fontFamily: 'ProductSans',
-                                                    color: remaining != null
-                                                        ? AppColors.accent
-                                                        : AppColors.textPrimary,
-                                                  ),
-                                                ),
-                                              ],
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
-                                    onSelected: (value) {
-                                      if (value == 'add_to_playlist') {
-                                        _showAddToPlaylistDialog(context, song);
-                                      } else if (value == 'speed') {
-                                        _showSpeedBottomSheet(context);
-                                      } else if (value == 'timer') {
-                                        _showSleepTimerBottomSheet(context);
-                                      }
+                                    onPressed: () {
+                                      _showSongActionsBottomSheet(
+                                        context,
+                                        song,
+                                      );
                                     },
                                   ),
                                 ),
@@ -857,173 +1387,42 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                           SizedBox(height: context.responsive(8.0, 10.0, 12.0)),
                           const Uac2PlayerStatus(compact: true),
 
-                          const Spacer(flex: 2),
+                          if (_isLyricsMode) ...[
+                            SizedBox(
+                              height: context.responsive(8.0, 10.0, 12.0),
+                            ),
+                            Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: context.responsive(
+                                    20.0,
+                                    28.0,
+                                    36.0,
+                                  ),
+                                ),
+                                child: _InlineLyricsPanel(
+                                  song: song,
+                                  playerService: _playerService,
+                                  lyricsService: _lyricsService,
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (!_isLyricsMode) const Spacer(flex: 2),
 
-                          // File info above waveform
                           Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: context.responsive(12.0, 16.0, 20.0),
                             ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                // Lyrics button (left)
-                                GestureDetector(
-                                  onTap: () {
-                                    // TODO: open lyrics
-                                  },
-                                  child: Container(
-                                    padding: EdgeInsets.all(
-                                      context.responsive(6.0, 7.0, 8.0),
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.15,
-                                      ),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Icon(
-                                      LucideIcons.fileText,
-                                      color: Colors.white.withValues(
-                                        alpha: 0.9,
-                                      ),
-                                      size: context.responsive(
-                                        16.0,
-                                        17.0,
-                                        18.0,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                // File info (center)
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      padding: EdgeInsets.symmetric(
-                                        horizontal: context.responsive(
-                                          4.0,
-                                          5.0,
-                                          6.0,
-                                        ),
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.2,
-                                        ),
-                                        borderRadius: BorderRadius.circular(3),
-                                      ),
-                                      child: Text(
-                                        song.fileType,
-                                        style: TextStyle(
-                                          fontFamily: 'ProductSans',
-                                          fontSize: context.responsive(
-                                            9.0,
-                                            10.0,
-                                            11.0,
-                                          ),
-                                          fontWeight: FontWeight.w600,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                    if (song.resolution != null) ...[
-                                      SizedBox(
-                                        width: context.responsive(
-                                          5.0,
-                                          6.0,
-                                          7.0,
-                                        ),
-                                      ),
-                                      Text(
-                                        song.resolution!,
-                                        style: TextStyle(
-                                          fontFamily: 'ProductSans',
-                                          fontSize: context.responsive(
-                                            9.0,
-                                            10.0,
-                                            11.0,
-                                          ),
-                                          color: Colors.white.withValues(
-                                            alpha: 0.7,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                // Favorites button (right)
-                                FutureBuilder<bool>(
-                                  future: _favoritesService.isFavorite(song.id),
-                                  builder: (context, snapshot) {
-                                    final isFavorite = snapshot.data ?? false;
-                                    return GestureDetector(
-                                      onTap: () async {
-                                        final newState = await _favoritesService
-                                            .toggleFavorite(song.id);
-                                        setState(() {});
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                newState
-                                                    ? 'Added to favorites'
-                                                    : 'Removed from favorites',
-                                              ),
-                                              duration: const Duration(
-                                                seconds: 1,
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                      },
-                                      child: Container(
-                                        padding: EdgeInsets.all(
-                                          context.responsive(6.0, 7.0, 8.0),
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: isFavorite
-                                              ? Colors.red.withValues(
-                                                  alpha: 0.25,
-                                                )
-                                              : Colors.white.withValues(
-                                                  alpha: 0.15,
-                                                ),
-                                          borderRadius: BorderRadius.circular(
-                                            10,
-                                          ),
-                                        ),
-                                        child: Icon(
-                                          isFavorite
-                                              ? Icons.favorite
-                                              : Icons.favorite_border,
-                                          color: isFavorite
-                                              ? Colors.red
-                                              : Colors.white.withValues(
-                                                  alpha: 0.9,
-                                                ),
-                                          size: context.responsive(
-                                            16.0,
-                                            17.0,
-                                            18.0,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
+                            child: _buildFileInfoRow(
+                              context,
+                              song,
+                              lyricsMode: _isLyricsMode,
                             ),
                           ),
-
                           SizedBox(
                             height: context.responsive(12.0, 14.0, 16.0),
                           ),
-
-                          // Waveform & Controls (lowered)
                           Padding(
                             padding: EdgeInsets.symmetric(
                               horizontal: context.responsive(12.0, 16.0, 20.0),
@@ -1033,7 +1432,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               children: [
                                 _WaveformLayer(
                                   playerService: _playerService,
-                                  throttledPosition: _throttledPosition,
+                                  positionNotifier: _throttledPositionNotifier,
                                   currentSong: song,
                                 ),
                                 SizedBox(
@@ -1049,83 +1448,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                               ],
                             ),
                           ),
-
                           SizedBox(
                             height: context.responsive(16.0, 20.0, 24.0),
                           ),
-
-                          // Bottom Directory Info
-                          if (song.filePath != null)
-                            Builder(
-                              builder: (context) {
-                                String dirText = '';
-                                final filePath = song.filePath!;
-                                final parts = filePath.split(RegExp(r'[/\\]'));
-                                if (parts.length > 1) {
-                                  parts.removeLast();
-                                  final startIndex = parts.length > 2
-                                      ? parts.length - 2
-                                      : 0;
-                                  final folders = parts.sublist(startIndex);
-                                  dirText = folders.join('/');
-                                }
-                                if (dirText.isEmpty) {
-                                  return const SizedBox.shrink();
-                                }
-                                return Padding(
-                                  padding: EdgeInsets.only(
-                                    left: context.responsive(12.0, 16.0, 20.0),
-                                    right: context.responsive(12.0, 16.0, 20.0),
-                                    bottom: context.responsive(
-                                      16.0,
-                                      20.0,
-                                      24.0,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        LucideIcons.folder,
-                                        size: context.responsive(
-                                          11.0,
-                                          12.0,
-                                          13.0,
-                                        ),
-                                        color: Colors.white.withValues(
-                                          alpha: 0.7,
-                                        ),
-                                      ),
-                                      SizedBox(
-                                        width: context.responsive(
-                                          4.0,
-                                          5.0,
-                                          6.0,
-                                        ),
-                                      ),
-                                      Flexible(
-                                        child: Text(
-                                          dirText,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontFamily: 'ProductSans',
-                                            fontSize: context.responsive(
-                                              10.0,
-                                              11.0,
-                                              12.0,
-                                            ),
-                                            color: Colors.white.withValues(
-                                              alpha: 0.7,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                          _buildDirectoryInfo(context, song, compact: false),
                         ],
                       ),
                     ),
@@ -1140,45 +1466,238 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   }
 }
 
-/// Extracted waveform layer widget to reduce nesting and improve performance
-/// Uses TweenAnimationBuilder for smooth position interpolation between updates
-class _WaveformLayer extends StatelessWidget {
+class _InlineLyricsPanel extends StatefulWidget {
   final PlayerService playerService;
-  final Duration throttledPosition;
+  final LyricsService lyricsService;
+  final Song song;
+
+  const _InlineLyricsPanel({
+    required this.playerService,
+    required this.lyricsService,
+    required this.song,
+  });
+
+  @override
+  State<_InlineLyricsPanel> createState() => _InlineLyricsPanelState();
+}
+
+class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
+  static const double _lineHeight = 56;
+
+  final ScrollController _scrollController = ScrollController();
+  LyricsData? _lyricsData;
+  bool _isLoading = true;
+  int _activeLineIndex = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.playerService.positionNotifier.addListener(_onPositionChanged);
+    _loadLyricsForSong(widget.song);
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineLyricsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.song.id != widget.song.id) {
+      _loadLyricsForSong(widget.song);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.playerService.positionNotifier.removeListener(_onPositionChanged);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onPositionChanged() {
+    final data = _lyricsData;
+    if (data == null || !data.isSynchronized || data.lines.isEmpty) return;
+
+    final position = widget.playerService.positionNotifier.value;
+    final newIndex = widget.lyricsService.findCurrentLineIndex(data, position);
+    if (newIndex == _activeLineIndex) return;
+
+    setState(() {
+      _activeLineIndex = newIndex;
+    });
+    _scrollToActiveLine(newIndex);
+  }
+
+  Future<void> _loadLyricsForSong(Song song) async {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = true;
+      _lyricsData = null;
+      _activeLineIndex = -1;
+    });
+
+    final loaded = await widget.lyricsService.loadLyricsForSong(song);
+    if (!mounted) return;
+    if (widget.song.id != song.id) return;
+
+    setState(() {
+      _lyricsData = loaded;
+      _isLoading = false;
+    });
+
+    _onPositionChanged();
+  }
+
+  void _scrollToActiveLine(int index) {
+    if (!_scrollController.hasClients || index < 0) return;
+
+    final viewportHeight = _scrollController.position.viewportDimension;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final target = (index * _lineHeight) - (viewportHeight * 0.35);
+    final clampedTarget = target.clamp(0.0, maxScroll);
+
+    _scrollController.animateTo(
+      clampedTarget,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _buildBody(context);
+  }
+
+  Widget _buildBody(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.accent),
+      );
+    }
+
+    final lyrics = _lyricsData;
+    if (lyrics == null || lyrics.lines.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            'No lyrics file found.\nAdd an .lrc or .txt file with the same name as the song.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'ProductSans',
+              fontSize: 14,
+              height: 1.5,
+              color: Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (!lyrics.isSynchronized) {
+      return Align(
+        alignment: Alignment.center,
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(12, 20, 12, 20),
+          child: Text(
+            lyrics.lines.map((line) => line.text).join('\n'),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: 'ProductSans',
+              fontSize: 18,
+              height: 1.9,
+              color: Colors.white.withValues(alpha: 0.92),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final centerPadding = constraints.maxHeight * 0.35;
+        return ListView.builder(
+          controller: _scrollController,
+          padding: EdgeInsets.fromLTRB(10, centerPadding, 10, centerPadding),
+          itemCount: lyrics.lines.length,
+          itemExtent: _lineHeight,
+          itemBuilder: (context, index) {
+            final line = lyrics.lines[index];
+            final isActive = index == _activeLineIndex;
+
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                line.text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: isActive ? 22 : 17,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                  color: isActive
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.52),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+/// Extracted waveform layer widget.
+/// Owns a ValueListenableBuilder on [positionNotifier] so that 50ms position
+/// ticks **never** cause the parent [_FullPlayerScreenState] to rebuild.
+class _WaveformLayer extends StatefulWidget {
+  final PlayerService playerService;
+  final ValueNotifier<Duration> positionNotifier;
   final Song? currentSong;
 
   const _WaveformLayer({
     required this.playerService,
-    required this.throttledPosition,
+    required this.positionNotifier,
     required this.currentSong,
   });
 
   @override
+  State<_WaveformLayer> createState() => _WaveformLayerState();
+}
+
+class _WaveformLayerState extends State<_WaveformLayer> {
+  @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<Duration>(
-      valueListenable: playerService.durationNotifier,
+      valueListenable: widget.playerService.durationNotifier,
       builder: (context, engineDuration, _) {
-        // Use engine duration if available, otherwise fallback to song duration
         final duration = engineDuration.inMilliseconds > 0
             ? engineDuration
-            : (currentSong?.duration ?? Duration.zero);
+            : (widget.currentSong?.duration ?? Duration.zero);
 
         if (duration.inMilliseconds == 0) {
           return const SizedBox();
         }
 
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: RepaintBoundary(
-            child: WaveformSeekBar(
-              barCount: 60,
-              position: throttledPosition,
-              duration: duration,
-              onChanged: (newPos) {
-                playerService.seek(newPos);
-              },
-            ),
-          ),
+        return ValueListenableBuilder<Duration>(
+          valueListenable: widget.positionNotifier,
+          builder: (context, position, _) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: RepaintBoundary(
+                child: WaveformSeekBar(
+                  barCount: 60,
+                  position: position,
+                  duration: duration,
+                  onChanged: (newPos) {
+                    widget.playerService.seek(newPos);
+                  },
+                ),
+              ),
+            );
+          },
         );
       },
     );
@@ -1251,10 +1770,20 @@ class _PlayerControls extends StatelessWidget {
                             width: context.responsive(40.0, 44.0, 48.0),
                             height: context.responsive(40.0, 44.0, 48.0),
                             decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF121212,
-                              ).withValues(alpha: 0.6),
+                              color: isShuffle
+                                  ? AppColors.accent.withValues(alpha: 0.25)
+                                  : const Color(
+                                      0xFF121212,
+                                    ).withValues(alpha: 0.6),
                               shape: BoxShape.circle,
+                              border: isShuffle
+                                  ? Border.all(
+                                      color: AppColors.accent.withValues(
+                                        alpha: 0.6,
+                                      ),
+                                      width: 1.5,
+                                    )
+                                  : null,
                             ),
                             child: IconButton(
                               onPressed: () => playerService.toggleShuffle(),

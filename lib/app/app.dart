@@ -54,9 +54,11 @@ class _MainShellState extends ConsumerState<MainShell>
   // Animation controller for smoother nav bar transitions
   late final AnimationController _navBarAnimationController;
   late final Animation<Offset> _navBarSlideAnimation;
+  final Set<int> _visitedTabs = <int>{0};
   late final ProviderSubscription<bool> _navBarVisibilitySubscription;
   late final ProviderSubscription<bool> _navBarAlwaysVisibleSubscription;
   late final ProviderSubscription<Song?> _currentSongSubscription;
+  late final ProviderSubscription<int> _navigationIndexSubscription;
 
   // Track previous song to detect changes
   Song? _previousSong;
@@ -120,6 +122,15 @@ class _MainShellState extends ConsumerState<MainShell>
       // Update previous song
       _previousSong = nextSong;
     });
+
+    _navigationIndexSubscription = ref.listenManual<int>(
+      navigationIndexProvider,
+      (previous, next) {
+        if (_visitedTabs.add(next) && mounted) {
+          setState(() {});
+        }
+      },
+    );
   }
 
   @override
@@ -128,6 +139,7 @@ class _MainShellState extends ConsumerState<MainShell>
     _navBarVisibilitySubscription.close();
     _navBarAlwaysVisibleSubscription.close();
     _currentSongSubscription.close();
+    _navigationIndexSubscription.close();
     _navBarAnimationController.dispose();
     super.dispose();
   }
@@ -196,6 +208,7 @@ class _MainShellState extends ConsumerState<MainShell>
   Widget build(BuildContext context) {
     final currentIndex = ref.watch(navigationIndexProvider);
     final backgroundColor = ref.watch(backgroundColorProvider);
+    _visitedTabs.add(currentIndex);
 
     return AdaptiveColorProvider(
       backgroundColor: backgroundColor,
@@ -232,23 +245,35 @@ class _MainShellState extends ConsumerState<MainShell>
               IndexedStack(
                 index: currentIndex,
                 children: [
-                  MenuScreen(
-                    key: const ValueKey('menu'),
-                    onNavigateToTab: (index) {
-                      ref
-                          .read(navigationIndexProvider.notifier)
-                          .setIndex(index);
-                    },
+                  _buildTab(
+                    tabIndex: 0,
+                    currentIndex: currentIndex,
+                    child: MenuScreen(
+                      key: const ValueKey('menu'),
+                      onNavigateToTab: (index) {
+                        ref
+                            .read(navigationIndexProvider.notifier)
+                            .setIndex(index);
+                      },
+                    ),
                   ),
-                  SongsScreen(
-                    key: const ValueKey('songs'),
-                    onNavigationRequested: (index) {
-                      ref
-                          .read(navigationIndexProvider.notifier)
-                          .setIndex(index);
-                    },
+                  _buildTab(
+                    tabIndex: 1,
+                    currentIndex: currentIndex,
+                    child: SongsScreen(
+                      key: const ValueKey('songs'),
+                      onNavigationRequested: (index) {
+                        ref
+                            .read(navigationIndexProvider.notifier)
+                            .setIndex(index);
+                      },
+                    ),
                   ),
-                  const SettingsScreen(key: ValueKey('settings')),
+                  _buildTab(
+                    tabIndex: 2,
+                    currentIndex: currentIndex,
+                    child: const SettingsScreen(key: ValueKey('settings')),
+                  ),
                 ],
               ),
 
@@ -268,6 +293,19 @@ class _MainShellState extends ConsumerState<MainShell>
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildTab({
+    required int tabIndex,
+    required int currentIndex,
+    required Widget child,
+  }) {
+    return TickerMode(
+      enabled: currentIndex == tabIndex,
+      child: _visitedTabs.contains(tabIndex)
+          ? child
+          : const SizedBox.shrink(),
     );
   }
 

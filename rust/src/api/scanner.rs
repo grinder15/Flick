@@ -76,7 +76,18 @@ pub fn scan_root_dir(root_path: String, known_files: HashMap<String, i64>) -> Sc
                 .and_then(|s: &std::ffi::OsStr| s.to_str())
                 .unwrap_or("")
                 .to_lowercase();
-            if !["mp3", "flac", "ogg", "m4a", "wav"].contains(&ext.as_str()) {
+            if ![
+                "mp3",
+                "flac",
+                "ogg",
+                "m4a",
+                "wav",
+                "aif",
+                "aiff",
+                "alac",
+            ]
+            .contains(&ext.as_str())
+            {
                 return None;
             }
 

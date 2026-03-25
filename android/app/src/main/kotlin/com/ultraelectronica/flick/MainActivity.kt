@@ -23,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.security.MessageDigest
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.ultraelectronica.flick/storage"
@@ -125,6 +126,24 @@ class MainActivity: FlutterActivity() {
                         }
                     } else {
                         result.error("INVALID_ARGUMENT", "URIs list is required", null)
+                    }
+                }
+                "cacheUriForPlayback" -> {
+                    val uri = call.argument<String>("uri")
+                    val extensionHint = call.argument<String>("extensionHint")
+                    if (uri != null) {
+                        mainScope.launch {
+                            try {
+                                val stagedPath = withContext(Dispatchers.IO) {
+                                    cacheUriForPlayback(uri, extensionHint)
+                                }
+                                result.success(stagedPath)
+                            } catch (e: Exception) {
+                                result.error("CACHE_URI_ERROR", "Failed to stage audio URI: ${e.message}", null)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "URI is required", null)
                     }
                 }
                 "getDocumentDisplayName" -> {
@@ -469,7 +488,7 @@ class MainActivity: FlutterActivity() {
         val uri = Uri.parse(uriString)
         val documentFile = DocumentFile.fromTreeUri(this, uri) ?: return emptyList()
         
-        val audioExtensions = setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "alac")
+        val audioExtensions = setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "alac", "aif", "aiff")
         val result = mutableListOf<Map<String, Any?>>()
 
         fun scanDirectory(dir: DocumentFile) {
@@ -569,6 +588,97 @@ class MainActivity: FlutterActivity() {
         }
 
         return result
+    }
+
+    private fun cacheUriForPlayback(uriString: String, extensionHint: String?): String? {
+        val uri = Uri.parse(uriString)
+        val normalizedExt = normalizeAudioExtension(extensionHint)
+        val stagingDir = java.io.File(cacheDir, "playback_staging").apply { mkdirs() }
+        val fileHash = md5(uriString)
+        val stagedFile = java.io.File(stagingDir, "$fileHash.$normalizedExt")
+        val tempFile = java.io.File(stagingDir, "$fileHash.$normalizedExt.tmp")
+
+        try {
+            // Reuse cached file only when non-empty and likely complete.
+            val expectedLength = try {
+                contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+                    if (afd.length > 0L) afd.length else null
+                }
+            } catch (_: Exception) {
+                null
+            }
+            if (stagedFile.exists() && stagedFile.length() > 0L) {
+                if (expectedLength == null || stagedFile.length() == expectedLength) {
+                    return stagedFile.absolutePath
+                }
+            }
+
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+
+            val inputStream = contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                // If provider temporarily fails, keep using last known-good staged file.
+                if (stagedFile.exists() && stagedFile.length() > 0L) {
+                    return stagedFile.absolutePath
+                }
+                return null
+            }
+
+            inputStream.use { input ->
+                tempFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            if (!tempFile.exists() || tempFile.length() <= 0L) {
+                tempFile.delete()
+                return null
+            }
+
+            if (stagedFile.exists()) {
+                stagedFile.delete()
+            }
+            if (!tempFile.renameTo(stagedFile)) {
+                // Fallback: explicit copy and cleanup if rename fails.
+                tempFile.inputStream().use { input ->
+                    stagedFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                tempFile.delete()
+            }
+
+            if (stagedFile.length() <= 0L) return null
+            return stagedFile.absolutePath
+        } catch (e: Exception) {
+            android.util.Log.e("FlickPlayback", "cacheUriForPlayback failed for $uriString: ${e.message}", e)
+            return null
+        } finally {
+            if (tempFile.exists()) {
+                tempFile.delete()
+            }
+        }
+    }
+
+    private fun normalizeAudioExtension(extensionHint: String?): String {
+        val ext = extensionHint
+            ?.trim()
+            ?.lowercase()
+            ?.removePrefix(".")
+            ?.ifEmpty { null } ?: return "m4a"
+
+        return when (ext) {
+            "aif", "aiff" -> "aiff"
+            "m4a", "alac" -> "m4a"
+            else -> ext
+        }
+    }
+
+    private fun md5(input: String): String {
+        val digest = MessageDigest.getInstance("MD5").digest(input.toByteArray())
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     // ========== UAC 2.0 USB Host (Android) ==========
@@ -750,4 +860,3 @@ class MainActivity: FlutterActivity() {
         private const val ACTION_USB_PERMISSION = "com.ultraelectronica.flick.USB_PERMISSION"
     }
 }
-

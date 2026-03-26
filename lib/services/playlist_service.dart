@@ -50,6 +50,7 @@ class PlaylistService {
 
   List<Playlist> _playlists = [];
   bool _isLoaded = false;
+  bool _importInProgress = false;
 
   Future<void> _ensureLoaded() async {
     if (_isLoaded) return;
@@ -193,45 +194,71 @@ class PlaylistService {
       );
     }
 
-    final uri = await _storageChannel.invokeMethod<String>('openDocument', {
-      'mimeTypes': _playlistMimeTypes,
-    });
-    if (uri == null || uri.trim().isEmpty) return null;
+    if (_importInProgress) return null;
+    _importInProgress = true;
 
-    final content = await _storageChannel.invokeMethod<String>(
-      'readTextDocument',
-      {'uri': uri},
-    );
-    if (content == null || content.trim().isEmpty) {
-      throw const FormatException('Selected playlist file is empty');
+    try {
+      final uri = await _storageChannel.invokeMethod<String>('openDocument', {
+        'mimeTypes': _playlistMimeTypes,
+      });
+      print('[PlaylistService] Selected URI: $uri');
+      if (uri == null || uri.trim().isEmpty) return null;
+
+      final parsedUri = Uri.tryParse(uri);
+      if (parsedUri == null || parsedUri.scheme != 'content') {
+        throw FormatException('Invalid document URI returned: $uri');
+      }
+
+      final content = await _storageChannel.invokeMethod<String>(
+        'readTextDocument',
+        {'uri': uri},
+      );
+      print('[PlaylistService] Content length: ${content?.length ?? 0}');
+      if (content == null || content.trim().isEmpty) {
+        throw const FormatException('Selected playlist file is empty');
+      }
+
+      final displayName = await _storageChannel.invokeMethod<String>(
+        'getDocumentDisplayName',
+        {'uri': uri},
+      );
+      print('[PlaylistService] Display name: $displayName');
+
+      final playlistName = await _nextAvailablePlaylistName(
+        _extractPlaylistNameFromFilename(displayName),
+      );
+      print('[PlaylistService] Playlist name: $playlistName');
+      final entries = _parseM3uEntries(content);
+      print('[PlaylistService] Parsed ${entries.length} entries');
+      final resolved = await _resolveSongIds(entries);
+      print(
+        '[PlaylistService] Resolved ${resolved.ids.length} songs, ${resolved.unmatchedEntries.length} unmatched',
+      );
+
+      final created = await createPlaylist(playlistName);
+      if (created == null) {
+        throw StateError('Failed to create imported playlist "$playlistName"');
+      }
+
+      final updated = await updatePlaylist(
+        created.copyWith(songIds: resolved.ids),
+      );
+      final playlist = updated ?? created;
+
+      return PlaylistImportResult(
+        playlist: playlist,
+        totalEntries: entries.length,
+        importedSongs: resolved.ids.length,
+        unmatchedEntries: resolved.unmatchedEntries.length,
+        unmatchedSamples: resolved.unmatchedEntries.take(5).toList(),
+      );
+    } catch (e, st) {
+      print('[PlaylistService] Import error: $e');
+      print('[PlaylistService] Import stack: $st');
+      rethrow;
+    } finally {
+      _importInProgress = false;
     }
-
-    final displayName = await _storageChannel.invokeMethod<String>(
-      'getDocumentDisplayName',
-      {'uri': uri},
-    );
-
-    final playlistName = await _nextAvailablePlaylistName(
-      _extractPlaylistNameFromFilename(displayName),
-    );
-    final entries = _parseM3uEntries(content);
-    final resolved = await _resolveSongIds(entries);
-
-    final created = await createPlaylist(playlistName);
-    if (created == null) {
-      throw StateError('Failed to create imported playlist "$playlistName"');
-    }
-
-    final updated = await updatePlaylist(created.copyWith(songIds: resolved.ids));
-    final playlist = updated ?? created;
-
-    return PlaylistImportResult(
-      playlist: playlist,
-      totalEntries: entries.length,
-      importedSongs: resolved.ids.length,
-      unmatchedEntries: resolved.unmatchedEntries.length,
-      unmatchedSamples: resolved.unmatchedEntries.take(5).toList(),
-    );
   }
 
   Future<PlaylistExportResult?> exportPlaylistAsM3u(
@@ -299,7 +326,9 @@ class PlaylistService {
 
     for (final song in songs) {
       final seconds = song.duration.inSeconds;
-      final artist = song.artist.trim().isEmpty ? 'Unknown Artist' : song.artist;
+      final artist = song.artist.trim().isEmpty
+          ? 'Unknown Artist'
+          : song.artist;
       final title = song.title.trim().isEmpty ? 'Unknown Title' : song.title;
 
       buffer.writeln('#EXTINF:$seconds,$artist - $title');
@@ -311,7 +340,9 @@ class PlaylistService {
 
   Future<String> _nextAvailablePlaylistName(String baseName) async {
     await _ensureLoaded();
-    final trimmed = baseName.trim().isEmpty ? 'Imported Playlist' : baseName.trim();
+    final trimmed = baseName.trim().isEmpty
+        ? 'Imported Playlist'
+        : baseName.trim();
 
     if (!_playlistNameExists(trimmed)) return trimmed;
 
@@ -325,7 +356,10 @@ class PlaylistService {
   String _extractPlaylistNameFromFilename(String? name) {
     if (name == null || name.trim().isEmpty) return 'Imported Playlist';
     final trimmed = name.trim();
-    final withoutExt = trimmed.replaceFirst(RegExp(r'\.(m3u8|m3u)$', caseSensitive: false), '');
+    final withoutExt = trimmed.replaceFirst(
+      RegExp(r'\.(m3u8|m3u)$', caseSensitive: false),
+      '',
+    );
     return withoutExt.isEmpty ? 'Imported Playlist' : withoutExt;
   }
 
@@ -336,7 +370,8 @@ class PlaylistService {
   }
 
   List<_M3uEntry> _parseM3uEntries(String content) {
-    final lines = content.split(RegExp(r'\r?\n'));
+    final sanitizedContent = content.replaceAll('\u0000', '');
+    final lines = sanitizedContent.split(RegExp(r'\r\n?|\n'));
     final entries = <_M3uEntry>[];
     String? pendingExtInf;
 
@@ -355,7 +390,12 @@ class PlaylistService {
 
       if (line.startsWith('#')) continue;
 
-      entries.add(_M3uEntry(pathOrUri: line, extInfTitle: pendingExtInf));
+      entries.add(
+        _M3uEntry(
+          pathOrUri: _stripWrappingQuotes(line),
+          extInfTitle: pendingExtInf,
+        ),
+      );
       pendingExtInf = null;
     }
 
@@ -376,16 +416,25 @@ class PlaylistService {
 
     final songs = await SongRepository().getAllSongs();
 
-    final byPath = <String, Song>{};
+    final byPath = <String, List<Song>>{};
     final byFileName = <String, List<Song>>{};
     for (final song in songs) {
       final filePath = song.filePath;
       if (filePath == null || filePath.trim().isEmpty) continue;
 
-      byPath[_normalizePath(filePath)] = song;
-      final fileName = _extractFileName(filePath);
-      if (fileName.isNotEmpty) {
-        byFileName.putIfAbsent(fileName, () => []).add(song);
+      try {
+        for (final key in _pathLookupKeys(filePath)) {
+          byPath.putIfAbsent(key, () => []).add(song);
+        }
+        final fileName = _extractFileName(filePath);
+        if (fileName.isNotEmpty) {
+          byFileName.putIfAbsent(fileName, () => []).add(song);
+        }
+      } catch (e, st) {
+        print(
+          '[PlaylistService] Skipping song during import matching: path="$filePath", error=$e',
+        );
+        print('[PlaylistService] Song matching stack: $st');
       }
     }
 
@@ -394,19 +443,39 @@ class PlaylistService {
     final unmatched = <String>[];
 
     for (final entry in entries) {
-      Song? match = byPath[_normalizePath(entry.pathOrUri)];
-      if (match == null) {
-        final candidates = byFileName[_extractFileName(entry.pathOrUri)] ?? [];
-        match = _pickBestCandidate(candidates, entry.extInfTitle);
-      }
+      try {
+        final pathCandidates = <Song>{};
+        for (final key in _pathLookupKeys(entry.pathOrUri)) {
+          final matches = byPath[key];
+          if (matches != null) {
+            pathCandidates.addAll(matches);
+          }
+        }
 
-      if (match == null) {
+        Song? match = _pickBestCandidate(
+          pathCandidates.toList(),
+          entry.extInfTitle,
+        );
+        if (match == null) {
+          final candidates =
+              byFileName[_extractFileName(entry.pathOrUri)] ?? [];
+          match = _pickBestCandidate(candidates, entry.extInfTitle);
+        }
+
+        if (match == null) {
+          unmatched.add(entry.pathOrUri);
+          continue;
+        }
+
+        if (seen.add(match.id)) {
+          ids.add(match.id);
+        }
+      } catch (e, st) {
+        print(
+          '[PlaylistService] Failed to resolve playlist entry: "${entry.pathOrUri}", error=$e',
+        );
+        print('[PlaylistService] Entry matching stack: $st');
         unmatched.add(entry.pathOrUri);
-        continue;
-      }
-
-      if (seen.add(match.id)) {
-        ids.add(match.id);
       }
     }
 
@@ -443,7 +512,7 @@ class PlaylistService {
   }
 
   String _normalizePath(String value) {
-    var normalized = value.trim();
+    var normalized = _stripWrappingQuotes(value.trim());
     if (normalized.startsWith('\uFEFF')) {
       normalized = normalized.substring(1);
     }
@@ -452,7 +521,7 @@ class PlaylistService {
     normalized = normalized.split('#').first;
     normalized = normalized.split('?').first;
 
-    final uri = Uri.tryParse(normalized);
+    final uri = _tryParseUri(normalized);
     if (uri != null && uri.scheme == 'file') {
       try {
         normalized = uri.toFilePath();
@@ -461,7 +530,7 @@ class PlaylistService {
       }
       normalized = normalized.replaceAll('\\', '/');
     } else {
-      normalized = Uri.decodeFull(normalized);
+      normalized = _decodeUriSafely(normalized);
     }
 
     while (normalized.endsWith('/')) {
@@ -472,12 +541,12 @@ class PlaylistService {
   }
 
   String _extractFileName(String value) {
-    var normalized = value.trim();
+    var normalized = _stripWrappingQuotes(value.trim());
     if (normalized.startsWith('\uFEFF')) {
       normalized = normalized.substring(1);
     }
 
-    final uri = Uri.tryParse(normalized);
+    final uri = _tryParseUri(normalized);
     if (uri != null && uri.pathSegments.isNotEmpty) {
       normalized = uri.pathSegments.last;
     } else {
@@ -488,7 +557,107 @@ class PlaylistService {
       }
     }
 
-    return Uri.decodeFull(normalized).toLowerCase().trim();
+    normalized = _decodeUriSafely(normalized);
+    normalized = normalized.replaceAll('\\', '/');
+
+    final slashIndex = normalized.lastIndexOf('/');
+    if (slashIndex >= 0 && slashIndex < normalized.length - 1) {
+      normalized = normalized.substring(slashIndex + 1);
+    }
+
+    final colonIndex = normalized.lastIndexOf(':');
+    if (colonIndex >= 0 && colonIndex < normalized.length - 1) {
+      normalized = normalized.substring(colonIndex + 1);
+    }
+
+    return normalized.toLowerCase().trim();
+  }
+
+  List<String> _pathLookupKeys(String value) {
+    final keys = <String>{};
+
+    void addKey(String candidate) {
+      final normalized = _normalizePath(candidate);
+      if (normalized.isEmpty) return;
+
+      keys.add(normalized);
+      final segments = normalized
+          .split('/')
+          .where((part) => part.isNotEmpty)
+          .toList();
+      for (var count = 2; count <= 4; count += 1) {
+        if (segments.length < count) continue;
+        keys.add(segments.sublist(segments.length - count).join('/'));
+      }
+    }
+
+    addKey(value);
+
+    final decodedDocumentPath = _extractDocumentPath(value);
+    if (decodedDocumentPath != null && decodedDocumentPath.isNotEmpty) {
+      addKey(decodedDocumentPath);
+    }
+
+    return keys.toList()..sort((a, b) => b.length.compareTo(a.length));
+  }
+
+  String? _extractDocumentPath(String value) {
+    final uri = _tryParseUri(value.trim());
+    if (uri == null) return null;
+
+    if (uri.scheme == 'file') {
+      try {
+        return uri.toFilePath();
+      } catch (_) {
+        return uri.path;
+      }
+    }
+
+    if (uri.pathSegments.isEmpty) return null;
+
+    final decoded = _decodeUriSafely(uri.pathSegments.last);
+    final colonIndex = decoded.indexOf(':');
+    if (colonIndex >= 0 && colonIndex < decoded.length - 1) {
+      return decoded.substring(colonIndex + 1);
+    }
+
+    return decoded;
+  }
+
+  String _stripWrappingQuotes(String value) {
+    final trimmed = value.trim();
+    if (trimmed.length < 2) return trimmed;
+
+    final startsWithDouble = trimmed.startsWith('"') && trimmed.endsWith('"');
+    final startsWithSingle = trimmed.startsWith("'") && trimmed.endsWith("'");
+    if (!startsWithDouble && !startsWithSingle) {
+      return trimmed;
+    }
+
+    return trimmed.substring(1, trimmed.length - 1).trim();
+  }
+
+  Uri? _tryParseUri(String value) {
+    try {
+      final uri = Uri.parse(value);
+      const allowedSchemes = {'file', 'content', 'http', 'https'};
+      if (!allowedSchemes.contains(uri.scheme.toLowerCase())) {
+        return null;
+      }
+      return uri;
+    } on FormatException catch (e) {
+      print('[PlaylistService] URI parse error for "$value": $e');
+      return null;
+    }
+  }
+
+  String _decodeUriSafely(String value) {
+    try {
+      return Uri.decodeFull(value);
+    } on FormatException catch (e) {
+      print('[PlaylistService] URI decode error for "$value": $e');
+      return value;
+    }
   }
 
   String _normalizeSearchText(String value) {

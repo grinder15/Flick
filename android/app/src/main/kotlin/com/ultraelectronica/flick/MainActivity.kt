@@ -91,6 +91,14 @@ class MainActivity: FlutterActivity() {
                         "audio/mpegurl",
                         "text/plain"
                     )) as List<String>
+                    if (pendingOpenDocumentResult != null) {
+                        result.error(
+                            "OPERATION_IN_PROGRESS",
+                            "Another document picker request is already in progress",
+                            null
+                        )
+                        return@setMethodCallHandler
+                    }
                     pendingOpenDocumentResult = result
                     openDocument(mimeTypes)
                 }
@@ -224,14 +232,17 @@ class MainActivity: FlutterActivity() {
                 }
                 "readTextDocument" -> {
                     val uri = call.argument<String>("uri")
+                    android.util.Log.d("MainActivity", "[MethodChannel] readTextDocument called with URI: $uri")
                     if (uri != null) {
                         mainScope.launch {
                             try {
                                 val text = withContext(Dispatchers.IO) {
                                     readTextDocument(uri)
                                 }
+                                android.util.Log.d("MainActivity", "[MethodChannel] readTextDocument success, length: ${text.length}")
                                 result.success(text)
                             } catch (e: Exception) {
+                                android.util.Log.e("MainActivity", "[MethodChannel] readTextDocument error: ${e.message}", e)
                                 result.error("READ_TEXT_ERROR", "Failed to read document: ${e.message}", null)
                             }
                         }
@@ -242,14 +253,17 @@ class MainActivity: FlutterActivity() {
                 "writeTextDocument" -> {
                     val uri = call.argument<String>("uri")
                     val content = call.argument<String>("content")
+                    android.util.Log.d("MainActivity", "[MethodChannel] writeTextDocument called with URI: $uri, content length: ${content?.length}")
                     if (uri != null && content != null) {
                         mainScope.launch {
                             try {
                                 val success = withContext(Dispatchers.IO) {
                                     writeTextDocument(uri, content)
                                 }
+                                android.util.Log.d("MainActivity", "[MethodChannel] writeTextDocument result: $success")
                                 result.success(success)
                             } catch (e: Exception) {
+                                android.util.Log.e("MainActivity", "[MethodChannel] writeTextDocument error: ${e.message}", e)
                                 result.error("WRITE_TEXT_ERROR", "Failed to write document: ${e.message}", null)
                             }
                         }
@@ -613,50 +627,71 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun getDocumentDisplayName(uriString: String): String? {
+        android.util.Log.d("MainActivity", "[getDocumentDisplayName] Input URI: $uriString")
         return try {
             val uri = Uri.parse(uriString)
+            android.util.Log.d("MainActivity", "[getDocumentDisplayName] Parsed URI: $uri")
             val fromSingle = DocumentFile.fromSingleUri(this, uri)?.name
-            if (!fromSingle.isNullOrBlank()) return fromSingle
+            if (!fromSingle.isNullOrBlank()) {
+                android.util.Log.d("MainActivity", "[getDocumentDisplayName] From single: $fromSingle")
+                return fromSingle
+            }
 
             val fromTree = DocumentFile.fromTreeUri(this, uri)?.name
-            if (!fromTree.isNullOrBlank()) return fromTree
+            if (!fromTree.isNullOrBlank()) {
+                android.util.Log.d("MainActivity", "[getDocumentDisplayName] From tree: $fromTree")
+                return fromTree
+            }
 
             contentResolver.query(uri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val index = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
                     if (index >= 0) {
-                        return cursor.getString(index)
+                        val name = cursor.getString(index)
+                        android.util.Log.d("MainActivity", "[getDocumentDisplayName] From query: $name")
+                        return name
                     }
                 }
             }
+            android.util.Log.d("MainActivity", "[getDocumentDisplayName] No name found")
             null
         } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "[getDocumentDisplayName] Error: ${e.message}", e)
             null
         }
     }
 
     private fun readTextDocument(uriString: String): String {
+        android.util.Log.d("MainActivity", "[readTextDocument] Input URI: $uriString")
         val uri = Uri.parse(uriString)
+        android.util.Log.d("MainActivity", "[readTextDocument] Parsed URI: $uri")
         val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw IllegalStateException("Unable to open input stream")
 
+        android.util.Log.d("MainActivity", "[readTextDocument] Read ${bytes.size} bytes")
         if (bytes.size >= 3 &&
             bytes[0] == 0xEF.toByte() &&
             bytes[1] == 0xBB.toByte() &&
             bytes[2] == 0xBF.toByte()
         ) {
+            android.util.Log.d("MainActivity", "[readTextDocument] Detected UTF-8 BOM")
             return String(bytes.copyOfRange(3, bytes.size), Charsets.UTF_8)
         }
         return String(bytes, Charsets.UTF_8)
     }
 
     private fun writeTextDocument(uriString: String, content: String): Boolean {
+        android.util.Log.d("MainActivity", "[writeTextDocument] Input URI: $uriString")
+        android.util.Log.d("MainActivity", "[writeTextDocument] Content length: ${content.length}")
         val uri = Uri.parse(uriString)
+        android.util.Log.d("MainActivity", "[writeTextDocument] Parsed URI: $uri")
         contentResolver.openOutputStream(uri, "wt")?.use { output ->
             output.write(content.toByteArray(Charsets.UTF_8))
             output.flush()
+            android.util.Log.d("MainActivity", "[writeTextDocument] Write successful")
             return true
         }
+        android.util.Log.e("MainActivity", "[writeTextDocument] Failed to open output stream")
         return false
     }
 

@@ -1,10 +1,52 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/models/playlist.dart';
+import 'package:flick/models/song.dart';
+
+class PlaylistImportResult {
+  final Playlist playlist;
+  final int totalEntries;
+  final int importedSongs;
+  final int unmatchedEntries;
+  final List<String> unmatchedSamples;
+
+  const PlaylistImportResult({
+    required this.playlist,
+    required this.totalEntries,
+    required this.importedSongs,
+    required this.unmatchedEntries,
+    required this.unmatchedSamples,
+  });
+}
+
+class PlaylistExportResult {
+  final String fileName;
+  final int exportedSongs;
+  final bool isUtf8;
+
+  const PlaylistExportResult({
+    required this.fileName,
+    required this.exportedSongs,
+    required this.isUtf8,
+  });
+}
 
 class PlaylistService {
   static const String _playlistsKey = 'playlists';
+  static const MethodChannel _storageChannel = MethodChannel(
+    'com.ultraelectronica.flick/storage',
+  );
+  static const List<String> _playlistMimeTypes = [
+    'audio/x-mpegurl',
+    'application/vnd.apple.mpegurl',
+    'application/x-mpegurl',
+    'audio/mpegurl',
+    'text/plain',
+  ];
 
   List<Playlist> _playlists = [];
   bool _isLoaded = false;
@@ -144,6 +186,319 @@ class PlaylistService {
     return true;
   }
 
+  Future<PlaylistImportResult?> importM3uPlaylist() async {
+    if (!Platform.isAndroid) {
+      throw UnsupportedError(
+        'Playlist import is currently supported on Android only.',
+      );
+    }
+
+    final uri = await _storageChannel.invokeMethod<String>('openDocument', {
+      'mimeTypes': _playlistMimeTypes,
+    });
+    if (uri == null || uri.trim().isEmpty) return null;
+
+    final content = await _storageChannel.invokeMethod<String>(
+      'readTextDocument',
+      {'uri': uri},
+    );
+    if (content == null || content.trim().isEmpty) {
+      throw const FormatException('Selected playlist file is empty');
+    }
+
+    final displayName = await _storageChannel.invokeMethod<String>(
+      'getDocumentDisplayName',
+      {'uri': uri},
+    );
+
+    final playlistName = await _nextAvailablePlaylistName(
+      _extractPlaylistNameFromFilename(displayName),
+    );
+    final entries = _parseM3uEntries(content);
+    final resolved = await _resolveSongIds(entries);
+
+    final created = await createPlaylist(playlistName);
+    if (created == null) {
+      throw StateError('Failed to create imported playlist "$playlistName"');
+    }
+
+    final updated = await updatePlaylist(created.copyWith(songIds: resolved.ids));
+    final playlist = updated ?? created;
+
+    return PlaylistImportResult(
+      playlist: playlist,
+      totalEntries: entries.length,
+      importedSongs: resolved.ids.length,
+      unmatchedEntries: resolved.unmatchedEntries.length,
+      unmatchedSamples: resolved.unmatchedEntries.take(5).toList(),
+    );
+  }
+
+  Future<PlaylistExportResult?> exportPlaylistAsM3u(
+    String playlistId, {
+    required bool utf8,
+  }) async {
+    if (!Platform.isAndroid) {
+      throw UnsupportedError(
+        'Playlist export is currently supported on Android only.',
+      );
+    }
+
+    await _ensureLoaded();
+    final playlist = await getPlaylist(playlistId);
+    if (playlist == null) {
+      throw StateError('Playlist not found');
+    }
+
+    final extension = utf8 ? 'm3u8' : 'm3u';
+    final fileName = '${_sanitizeFileName(playlist.name)}.$extension';
+    final documentUri = await _storageChannel.invokeMethod<String>(
+      'createDocument',
+      {
+        'fileName': fileName,
+        'mimeType': utf8 ? 'application/vnd.apple.mpegurl' : 'audio/x-mpegurl',
+      },
+    );
+    if (documentUri == null || documentUri.trim().isEmpty) return null;
+
+    final orderedSongs = await _getOrderedSongs(playlist.songIds);
+    final content = _buildM3uContent(orderedSongs);
+    final success = await _storageChannel.invokeMethod<bool>(
+      'writeTextDocument',
+      {'uri': documentUri, 'content': content},
+    );
+    if (success != true) {
+      throw const FileSystemException('Failed to write playlist file');
+    }
+
+    return PlaylistExportResult(
+      fileName: fileName,
+      exportedSongs: orderedSongs.length,
+      isUtf8: utf8,
+    );
+  }
+
+  Future<List<Song>> _getOrderedSongs(List<String> songIds) async {
+    if (songIds.isEmpty) return [];
+
+    final songs = await SongRepository().getAllSongs();
+    final byId = {for (final song in songs) song.id: song};
+
+    final ordered = <Song>[];
+    for (final id in songIds) {
+      final song = byId[id];
+      if (song != null && song.filePath != null && song.filePath!.isNotEmpty) {
+        ordered.add(song);
+      }
+    }
+    return ordered;
+  }
+
+  String _buildM3uContent(List<Song> songs) {
+    final buffer = StringBuffer()..writeln('#EXTM3U');
+
+    for (final song in songs) {
+      final seconds = song.duration.inSeconds;
+      final artist = song.artist.trim().isEmpty ? 'Unknown Artist' : song.artist;
+      final title = song.title.trim().isEmpty ? 'Unknown Title' : song.title;
+
+      buffer.writeln('#EXTINF:$seconds,$artist - $title');
+      buffer.writeln(song.filePath);
+    }
+
+    return buffer.toString();
+  }
+
+  Future<String> _nextAvailablePlaylistName(String baseName) async {
+    await _ensureLoaded();
+    final trimmed = baseName.trim().isEmpty ? 'Imported Playlist' : baseName.trim();
+
+    if (!_playlistNameExists(trimmed)) return trimmed;
+
+    var index = 2;
+    while (_playlistNameExists('$trimmed ($index)')) {
+      index += 1;
+    }
+    return '$trimmed ($index)';
+  }
+
+  String _extractPlaylistNameFromFilename(String? name) {
+    if (name == null || name.trim().isEmpty) return 'Imported Playlist';
+    final trimmed = name.trim();
+    final withoutExt = trimmed.replaceFirst(RegExp(r'\.(m3u8|m3u)$', caseSensitive: false), '');
+    return withoutExt.isEmpty ? 'Imported Playlist' : withoutExt;
+  }
+
+  String _sanitizeFileName(String name) {
+    final sanitized = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    if (sanitized.isEmpty) return 'playlist';
+    return sanitized;
+  }
+
+  List<_M3uEntry> _parseM3uEntries(String content) {
+    final lines = content.split(RegExp(r'\r?\n'));
+    final entries = <_M3uEntry>[];
+    String? pendingExtInf;
+
+    for (var line in lines) {
+      line = line.trim();
+      if (line.isEmpty) continue;
+
+      if (line.startsWith('\uFEFF')) {
+        line = line.substring(1).trim();
+      }
+
+      if (line.startsWith('#EXTINF:')) {
+        pendingExtInf = _extractExtInfTitle(line);
+        continue;
+      }
+
+      if (line.startsWith('#')) continue;
+
+      entries.add(_M3uEntry(pathOrUri: line, extInfTitle: pendingExtInf));
+      pendingExtInf = null;
+    }
+
+    return entries;
+  }
+
+  String? _extractExtInfTitle(String line) {
+    final commaIndex = line.indexOf(',');
+    if (commaIndex == -1 || commaIndex >= line.length - 1) return null;
+    final value = line.substring(commaIndex + 1).trim();
+    return value.isEmpty ? null : value;
+  }
+
+  Future<_ResolvedM3uImport> _resolveSongIds(List<_M3uEntry> entries) async {
+    if (entries.isEmpty) {
+      return const _ResolvedM3uImport(ids: [], unmatchedEntries: []);
+    }
+
+    final songs = await SongRepository().getAllSongs();
+
+    final byPath = <String, Song>{};
+    final byFileName = <String, List<Song>>{};
+    for (final song in songs) {
+      final filePath = song.filePath;
+      if (filePath == null || filePath.trim().isEmpty) continue;
+
+      byPath[_normalizePath(filePath)] = song;
+      final fileName = _extractFileName(filePath);
+      if (fileName.isNotEmpty) {
+        byFileName.putIfAbsent(fileName, () => []).add(song);
+      }
+    }
+
+    final ids = <String>[];
+    final seen = <String>{};
+    final unmatched = <String>[];
+
+    for (final entry in entries) {
+      Song? match = byPath[_normalizePath(entry.pathOrUri)];
+      if (match == null) {
+        final candidates = byFileName[_extractFileName(entry.pathOrUri)] ?? [];
+        match = _pickBestCandidate(candidates, entry.extInfTitle);
+      }
+
+      if (match == null) {
+        unmatched.add(entry.pathOrUri);
+        continue;
+      }
+
+      if (seen.add(match.id)) {
+        ids.add(match.id);
+      }
+    }
+
+    return _ResolvedM3uImport(ids: ids, unmatchedEntries: unmatched);
+  }
+
+  Song? _pickBestCandidate(List<Song> candidates, String? extInfTitle) {
+    if (candidates.isEmpty) return null;
+    if (candidates.length == 1) return candidates.first;
+    if (extInfTitle == null || extInfTitle.trim().isEmpty) return null;
+
+    final normalizedExt = _normalizeSearchText(extInfTitle);
+    for (final candidate in candidates) {
+      final combined = _normalizeSearchText(
+        '${candidate.artist} - ${candidate.title}',
+      );
+      if (combined == normalizedExt || combined.contains(normalizedExt)) {
+        return candidate;
+      }
+    }
+
+    // EXTINF often has "Artist - Title", but some lists contain only title.
+    final titleOnly = normalizedExt.contains('-')
+        ? normalizedExt.split('-').last.trim()
+        : normalizedExt;
+    for (final candidate in candidates) {
+      final songTitle = _normalizeSearchText(candidate.title);
+      if (songTitle == titleOnly || songTitle.contains(titleOnly)) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  String _normalizePath(String value) {
+    var normalized = value.trim();
+    if (normalized.startsWith('\uFEFF')) {
+      normalized = normalized.substring(1);
+    }
+
+    normalized = normalized.replaceAll('\\', '/');
+    normalized = normalized.split('#').first;
+    normalized = normalized.split('?').first;
+
+    final uri = Uri.tryParse(normalized);
+    if (uri != null && uri.scheme == 'file') {
+      try {
+        normalized = uri.toFilePath();
+      } catch (_) {
+        normalized = uri.path;
+      }
+      normalized = normalized.replaceAll('\\', '/');
+    } else {
+      normalized = Uri.decodeFull(normalized);
+    }
+
+    while (normalized.endsWith('/')) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+
+    return normalized.toLowerCase();
+  }
+
+  String _extractFileName(String value) {
+    var normalized = value.trim();
+    if (normalized.startsWith('\uFEFF')) {
+      normalized = normalized.substring(1);
+    }
+
+    final uri = Uri.tryParse(normalized);
+    if (uri != null && uri.pathSegments.isNotEmpty) {
+      normalized = uri.pathSegments.last;
+    } else {
+      normalized = normalized.replaceAll('\\', '/');
+      final index = normalized.lastIndexOf('/');
+      if (index >= 0 && index < normalized.length - 1) {
+        normalized = normalized.substring(index + 1);
+      }
+    }
+
+    return Uri.decodeFull(normalized).toLowerCase().trim();
+  }
+
+  String _normalizeSearchText(String value) {
+    return value
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .replaceAll(RegExp(r'[^\w\s-]'), '')
+        .trim();
+  }
+
   Future<void> _savePlaylists() async {
     final prefs = await SharedPreferences.getInstance();
     final jsonString = json.encode(_playlists.map((p) => p.toJson()).toList());
@@ -154,4 +509,18 @@ class PlaylistService {
     _playlists.clear();
     await _savePlaylists();
   }
+}
+
+class _M3uEntry {
+  final String pathOrUri;
+  final String? extInfTitle;
+
+  const _M3uEntry({required this.pathOrUri, this.extInfTitle});
+}
+
+class _ResolvedM3uImport {
+  final List<String> ids;
+  final List<String> unmatchedEntries;
+
+  const _ResolvedM3uImport({required this.ids, required this.unmatchedEntries});
 }

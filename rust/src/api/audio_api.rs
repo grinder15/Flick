@@ -29,12 +29,27 @@ pub struct AudioProgress {
 /// Audio event types for Dart.
 #[derive(Debug, Clone)]
 pub enum AudioEventType {
-    StateChanged { state: String },
-    Progress { position_secs: f64, duration_secs: Option<f64>, buffer_level: f32 },
-    TrackEnded { path: String },
-    CrossfadeStarted { from_path: String, to_path: String },
-    Error { message: String },
-    NextTrackReady { path: String },
+    StateChanged {
+        state: String,
+    },
+    Progress {
+        position_secs: f64,
+        duration_secs: Option<f64>,
+        buffer_level: f32,
+    },
+    TrackEnded {
+        path: String,
+    },
+    CrossfadeStarted {
+        from_path: String,
+        to_path: String,
+    },
+    Error {
+        message: String,
+    },
+    NextTrackReady {
+        path: String,
+    },
 }
 
 /// Crossfade curve type for Dart.
@@ -140,6 +155,41 @@ pub fn audio_set_equalizer(enabled: bool, gains_db: Vec<f32>) -> Result<(), Stri
         .get()
         .ok_or("Audio engine not initialized")?
         .set_equalizer(enabled, arr)
+}
+
+/// Configure compressor settings for the native audio engine.
+pub fn audio_set_compressor(
+    enabled: bool,
+    threshold_db: f32,
+    ratio: f32,
+    attack_ms: f32,
+    release_ms: f32,
+    makeup_gain_db: f32,
+) -> Result<(), String> {
+    AUDIO_ENGINE
+        .get()
+        .ok_or("Audio engine not initialized")?
+        .set_compressor(
+            enabled,
+            threshold_db,
+            ratio,
+            attack_ms,
+            release_ms,
+            makeup_gain_db,
+        )
+}
+
+/// Configure limiter settings for the native audio engine.
+pub fn audio_set_limiter(
+    enabled: bool,
+    input_gain_db: f32,
+    ceiling_db: f32,
+    release_ms: f32,
+) -> Result<(), String> {
+    AUDIO_ENGINE
+        .get()
+        .ok_or("Audio engine not initialized")?
+        .set_limiter(enabled, input_gain_db, ceiling_db, release_ms)
 }
 
 /// Configure crossfade settings.

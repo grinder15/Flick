@@ -9,13 +9,9 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub enum AudioCommand {
     /// Load and play a track immediately
-    Play {
-        path: PathBuf,
-    },
+    Play { path: PathBuf },
     /// Queue a track for gapless playback (starts when current ends)
-    QueueNext {
-        path: PathBuf,
-    },
+    QueueNext { path: PathBuf },
     /// Pause playback (maintains position)
     Pause,
     /// Resume playback from paused position
@@ -23,26 +19,30 @@ pub enum AudioCommand {
     /// Stop playback completely and clear buffers
     Stop,
     /// Seek to a position in seconds
-    Seek {
-        position_secs: f64,
-    },
+    Seek { position_secs: f64 },
     /// Set the main volume (0.0 to 1.0)
-    SetVolume {
-        volume: f32,
-    },
+    SetVolume { volume: f32 },
     /// Enable/disable crossfade and set duration
-    SetCrossfade {
-        enabled: bool,
-        duration_secs: f32,
-    },
+    SetCrossfade { enabled: bool, duration_secs: f32 },
     /// Set playback speed (0.5 to 2.0)
-    SetPlaybackSpeed {
-        speed: f32,
-    },
+    SetPlaybackSpeed { speed: f32 },
     /// Set graphic EQ: enabled and 10 band gains in dB.
-    SetEqualizer {
+    SetEqualizer { enabled: bool, gains_db: [f32; 10] },
+    /// Configure compressor settings.
+    SetCompressor {
         enabled: bool,
-        gains_db: [f32; 10],
+        threshold_db: f32,
+        ratio: f32,
+        attack_ms: f32,
+        release_ms: f32,
+        makeup_gain_db: f32,
+    },
+    /// Configure limiter settings.
+    SetLimiter {
+        enabled: bool,
+        input_gain_db: f32,
+        ceiling_db: f32,
+        release_ms: f32,
     },
     /// Trigger crossfade to next track immediately
     CrossfadeToNext,
@@ -94,20 +94,11 @@ pub enum AudioEvent {
     /// Progress update (sent periodically during playback)
     Progress(PlaybackProgress),
     /// Track finished naturally (not skipped)
-    TrackEnded {
-        path: String,
-    },
+    TrackEnded { path: String },
     /// Crossfade started between tracks
-    CrossfadeStarted {
-        from_path: String,
-        to_path: String,
-    },
+    CrossfadeStarted { from_path: String, to_path: String },
     /// Error occurred during playback
-    Error {
-        message: String,
-    },
+    Error { message: String },
     /// Next track is ready (for gapless)
-    NextTrackReady {
-        path: String,
-    },
+    NextTrackReady { path: String },
 }

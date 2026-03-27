@@ -7,7 +7,9 @@ import 'package:flick/services/notification_service.dart';
 import 'package:flick/services/last_played_service.dart';
 import 'package:flick/services/favorites_service.dart';
 import 'package:flick/data/repositories/recently_played_repository.dart';
+import 'package:flick/services/equalizer_service.dart';
 import 'package:flick/services/rust_audio_service.dart';
+import 'package:flick/services/uac2_service.dart';
 
 /// Loop mode for playback
 enum LoopMode { off, one, all }
@@ -33,6 +35,7 @@ class PlayerService {
   final LastPlayedService _lastPlayedService = LastPlayedService();
   final FavoritesService _favoritesService = FavoritesService();
   final RustAudioService _rustAudioService = RustAudioService();
+  final Uac2Service _uac2Service = Uac2Service.instance;
   final RecentlyPlayedRepository _recentlyPlayedRepository =
       RecentlyPlayedRepository();
   static const MethodChannel _storageChannel = MethodChannel(
@@ -63,6 +66,11 @@ class PlayerService {
   // Playback Speed
   final ValueNotifier<double> playbackSpeedNotifier = ValueNotifier(1.0);
 
+  // Queue State
+  final ValueNotifier<List<Song>> queueNotifier = ValueNotifier(const []);
+  final ValueNotifier<int> currentIndexNotifier = ValueNotifier(-1);
+  int _nextQueueEntryId = 0;
+
   // Sleep Timer
   final ValueNotifier<Duration?> sleepTimerRemainingNotifier = ValueNotifier(
     null,
@@ -73,14 +81,26 @@ class PlayerService {
   // Playlist Management
   final List<Song> _playlist = [];
   final List<Song> _originalPlaylist = []; // For shuffle restore
+  final List<int?> _playlistQueueEntryIds = [];
+  final List<_QueueEntry> _queuedEntries = [];
   int _currentIndex = -1;
-  bool _isRebuildingPlaylist = false; // Flag to prevent unwanted updates during rebuild
+  bool _isRebuildingPlaylist =
+      false; // Flag to prevent unwanted updates during rebuild
 
   // Track previous position to detect repeat wrap-around for notification progress
   Duration _lastPosition = Duration.zero;
-  
+
   // Track last notification update time to throttle updates
   DateTime _lastNotificationUpdate = DateTime.now();
+
+  List<Song> get queue =>
+      List.unmodifiable(_queuedEntries.map((entry) => entry.song));
+  int get currentIndex => _currentIndex;
+  List<Song> get upNext {
+    if (_playlist.isEmpty) return const [];
+    final startIndex = (_currentIndex + 1).clamp(0, _playlist.length);
+    return List.unmodifiable(_playlist.sublist(startIndex));
+  }
 
   void _init() {
     // Initialize notification service with callbacks
@@ -93,6 +113,72 @@ class PlayerService {
       onToggleShuffle: toggleShuffle,
       onToggleFavorite: _toggleFavoriteFromNotification,
     );
+    _notifyQueueChanged();
+  }
+
+  void _notifyQueueChanged() {
+    queueNotifier.value = List.unmodifiable(
+      _queuedEntries.map((entry) => entry.song),
+    );
+  }
+
+  void _setCurrentIndex(int newIndex) {
+    if (_currentIndex == newIndex) return;
+    _currentIndex = newIndex;
+    currentIndexNotifier.value = newIndex;
+  }
+
+  void _replacePlaybackContext(List<Song> songs) {
+    _playlist
+      ..clear()
+      ..addAll(songs);
+    _originalPlaylist
+      ..clear()
+      ..addAll(songs);
+    _playlistQueueEntryIds
+      ..clear()
+      ..addAll(List<int?>.filled(songs.length, null));
+  }
+
+  void _insertQueuedEntriesAfterCurrent() {
+    if (_queuedEntries.isEmpty || _playlist.isEmpty) return;
+    final insertIndex = (_currentIndex + 1).clamp(0, _playlist.length);
+    for (var i = 0; i < _queuedEntries.length; i++) {
+      final entry = _queuedEntries[i];
+      _playlist.insert(insertIndex + i, entry.song);
+      _playlistQueueEntryIds.insert(insertIndex + i, entry.id);
+    }
+  }
+
+  void _consumeQueueEntryAt(int playlistIndex) {
+    if (playlistIndex < 0 || playlistIndex >= _playlistQueueEntryIds.length) {
+      return;
+    }
+    final queueEntryId = _playlistQueueEntryIds[playlistIndex];
+    if (queueEntryId == null) return;
+    _playlistQueueEntryIds[playlistIndex] = null;
+    _queuedEntries.removeWhere((entry) => entry.id == queueEntryId);
+    _notifyQueueChanged();
+  }
+
+  int _findPlaylistIndexForQueueEntry(int queueEntryId) {
+    return _playlistQueueEntryIds.indexOf(queueEntryId);
+  }
+
+  Future<void> _removeQueueEntryById(int queueEntryId) async {
+    final playlistIndex = _findPlaylistIndexForQueueEntry(queueEntryId);
+    _queuedEntries.removeWhere((entry) => entry.id == queueEntryId);
+    if (playlistIndex != -1) {
+      _playlist.removeAt(playlistIndex);
+      _playlistQueueEntryIds.removeAt(playlistIndex);
+      if (playlistIndex < _currentIndex) {
+        _setCurrentIndex(_currentIndex - 1);
+      }
+    }
+    _notifyQueueChanged();
+    if (!_usingRustBackend) {
+      await _rebuildPlaylist();
+    }
   }
 
   /// Android: current audio session ID from just_audio (for Equalizer attachment).
@@ -110,8 +196,7 @@ class PlayerService {
 
     // Set initial loop mode
     await _updateLoopMode();
-
-    await _ensureRustBackendAvailable();
+    await _uac2Service.initialize();
   }
 
   Future<bool> _ensureRustBackendAvailable() async {
@@ -153,6 +238,45 @@ class PlayerService {
     return false;
   }
 
+  Uac2AudioFormat? _deriveUac2FormatFromSong(Song? song) {
+    if (song == null) return null;
+
+    final resolution = song.resolution ?? '';
+    final bitDepthMatch = RegExp(
+      r'(\d+)-bit',
+      caseSensitive: false,
+    ).firstMatch(resolution);
+    final sampleRateMatch = RegExp(
+      r'(\d+(?:\.\d+)?)\s*kHz',
+      caseSensitive: false,
+    ).firstMatch(resolution);
+
+    final bitDepth = int.tryParse(bitDepthMatch?.group(1) ?? '');
+    final sampleRateKhz = double.tryParse(sampleRateMatch?.group(1) ?? '');
+    final sampleRate = sampleRateKhz != null
+        ? (sampleRateKhz * 1000).round()
+        : null;
+
+    if (bitDepth == null && sampleRate == null) return null;
+
+    return Uac2AudioFormat(
+      sampleRate: sampleRate ?? 44100,
+      bitDepth: bitDepth ?? 16,
+      channels: 2,
+    );
+  }
+
+  Future<void> _syncUac2PlaybackStatus(
+    Song? song, {
+    required bool isPlaying,
+  }) async {
+    await _uac2Service.syncPlaybackStatus(
+      song: song,
+      isPlaying: isPlaying,
+      formatOverride: _deriveUac2FormatFromSong(song),
+    );
+  }
+
   void _setupJustAudioListeners() {
     _justAudioPlayer.errorStream.listen((error) {
       if (_usingRustBackend) return;
@@ -167,6 +291,12 @@ class PlayerService {
       if (_usingRustBackend) return;
       final wasPlaying = isPlayingNotifier.value;
       isPlayingNotifier.value = state.playing;
+      unawaited(
+        _syncUac2PlaybackStatus(
+          currentSongNotifier.value,
+          isPlaying: state.playing,
+        ),
+      );
 
       if (wasPlaying != state.playing && currentSongNotifier.value != null) {
         // Update full notification state to ensure icon and time update properly
@@ -185,7 +315,7 @@ class PlayerService {
       final prev = _lastPosition;
       _lastPosition = pos;
       positionNotifier.value = pos;
-      
+
       // Update notification on loop wrap-around
       if (currentSongNotifier.value != null &&
           durationNotifier.value.inSeconds > 0 &&
@@ -193,7 +323,7 @@ class PlayerService {
           pos.inSeconds < 2) {
         _updateNotificationState();
       }
-      
+
       // Periodically update notification with current position (throttled to every 2 seconds)
       final now = DateTime.now();
       if (currentSongNotifier.value != null &&
@@ -224,11 +354,12 @@ class PlayerService {
       if (_usingRustBackend) return;
       // Skip updates during playlist rebuild to prevent wrong song display
       if (_isRebuildingPlaylist) return;
-      
+
       if (sequenceState.currentIndex != null) {
         final newIndex = sequenceState.currentIndex!;
         if (newIndex != _currentIndex && newIndex < _playlist.length) {
-          _currentIndex = newIndex;
+          _setCurrentIndex(newIndex);
+          _consumeQueueEntryAt(newIndex);
           final newSong = _playlist[newIndex];
           if (newSong != currentSongNotifier.value) {
             debugPrint(
@@ -237,6 +368,12 @@ class PlayerService {
             currentSongNotifier.value = newSong;
             _recentlyPlayedRepository.recordPlay(newSong.id);
             positionNotifier.value = Duration.zero;
+            unawaited(
+              _syncUac2PlaybackStatus(
+                newSong,
+                isPlaying: isPlayingNotifier.value,
+              ),
+            );
             _updateNotificationState();
           }
         }
@@ -257,6 +394,12 @@ class PlayerService {
           rustState == RustPlaybackState.crossfading;
 
       isPlayingNotifier.value = isPlaying;
+      unawaited(
+        _syncUac2PlaybackStatus(
+          currentSongNotifier.value,
+          isPlaying: isPlaying,
+        ),
+      );
     });
 
     _rustAudioService.positionNotifier.addListener(() {
@@ -338,6 +481,7 @@ class PlayerService {
     }
 
     cancelSleepTimer();
+    await _syncUac2PlaybackStatus(null, isPlaying: false);
     _notificationService.hideNotification();
   }
 
@@ -531,7 +675,9 @@ class PlayerService {
           ? _rustAudioService.durationNotifier.value
           : song.duration;
       bufferedPositionNotifier.value = Duration.zero;
+      await reapplyEqualizer();
       await _updateNotificationState();
+      await _syncUac2PlaybackStatus(song, isPlaying: isPlayingNotifier.value);
 
       _positionSaveTimer = Timer.periodic(
         const Duration(seconds: 5),
@@ -561,20 +707,16 @@ class PlayerService {
       }
 
       if (playlist != null) {
-        _playlist.clear();
-        _playlist.addAll(playlist);
-        _originalPlaylist.clear();
-        _originalPlaylist.addAll(playlist);
-        _currentIndex = _playlist.indexOf(song);
+        _replacePlaybackContext(playlist);
+        _setCurrentIndex(_playlist.indexOf(song));
+        _insertQueuedEntriesAfterCurrent();
       } else {
         if (!_playlist.contains(song)) {
-          _playlist.clear();
-          _playlist.add(song);
-          _originalPlaylist.clear();
-          _originalPlaylist.add(song);
-          _currentIndex = 0;
+          _replacePlaybackContext([song]);
+          _setCurrentIndex(0);
+          _insertQueuedEntriesAfterCurrent();
         } else {
-          _currentIndex = _playlist.indexOf(song);
+          _setCurrentIndex(_playlist.indexOf(song));
         }
       }
 
@@ -598,7 +740,7 @@ class PlayerService {
 
         // Prefer Rust backend up-front for formats that frequently fail or
         // silently decode incorrectly on some Android decoder stacks.
-        if (_rustBackendAvailable && _shouldUseRustFallback(song)) {
+        if (_shouldUseRustFallback(song)) {
           final usedRust = await _tryRustFallbackPlayback(song);
           if (usedRust) {
             return;
@@ -619,6 +761,8 @@ class PlayerService {
         await _justAudioPlayer.setSpeed(playbackSpeedNotifier.value);
         await _updateLoopMode();
         await _justAudioPlayer.play();
+        await reapplyEqualizer();
+        await _syncUac2PlaybackStatus(song, isPlaying: true);
 
         _positionSaveTimer = Timer.periodic(
           const Duration(seconds: 5),
@@ -650,26 +794,22 @@ class PlayerService {
     final lastPlayed = await _lastPlayedService.getLastPlayed();
     if (lastPlayed != null) {
       final restoredPlaylist = lastPlayed.playlist;
-      _playlist.clear();
-      _originalPlaylist.clear();
 
       if (restoredPlaylist != null && restoredPlaylist.isNotEmpty) {
-        _playlist.addAll(restoredPlaylist);
-        _originalPlaylist.addAll(restoredPlaylist);
+        _replacePlaybackContext(restoredPlaylist);
         final fallbackIndex = restoredPlaylist.indexWhere(
           (song) => song.id == lastPlayed.song.id,
         );
-        _currentIndex =
-            lastPlayed.playlistIndex ??
-            (fallbackIndex >= 0 ? fallbackIndex : 0);
+        _setCurrentIndex(
+          lastPlayed.playlistIndex ?? (fallbackIndex >= 0 ? fallbackIndex : 0),
+        );
       } else {
-        _playlist.add(lastPlayed.song);
-        _originalPlaylist.add(lastPlayed.song);
-        _currentIndex = 0;
+        _replacePlaybackContext([lastPlayed.song]);
+        _setCurrentIndex(0);
       }
 
       if (_currentIndex < 0 || _currentIndex >= _playlist.length) {
-        _currentIndex = 0;
+        _setCurrentIndex(0);
       }
 
       currentSongNotifier.value = _playlist[_currentIndex];
@@ -689,6 +829,7 @@ class PlayerService {
             isShuffle: isShuffleNotifier.value,
             isFavorite: isFav,
           );
+          await _syncUac2PlaybackStatus(restoredSong, isPlaying: false);
         } catch (e) {
           debugPrint("Error restoring last played: $e");
         }
@@ -705,6 +846,7 @@ class PlayerService {
     } else {
       await _justAudioPlayer.pause();
     }
+    await _syncUac2PlaybackStatus(currentSongNotifier.value, isPlaying: false);
     _updateNotificationState();
   }
 
@@ -716,6 +858,7 @@ class PlayerService {
 
     if (_usingRustBackend) {
       await _rustAudioService.resume();
+      await _syncUac2PlaybackStatus(song, isPlaying: true);
       _updateNotificationState();
       return;
     }
@@ -732,6 +875,7 @@ class PlayerService {
       await _justAudioPlayer.seek(positionNotifier.value);
     }
     await _justAudioPlayer.play();
+    await _syncUac2PlaybackStatus(song, isPlaying: true);
     _updateNotificationState();
   }
 
@@ -766,10 +910,10 @@ class PlayerService {
 
     if (_usingRustBackend) {
       if (_currentIndex < _playlist.length - 1) {
-        _currentIndex++;
+        _setCurrentIndex(_currentIndex + 1);
         await play(_playlist[_currentIndex]);
       } else if (loopModeNotifier.value == LoopMode.all) {
-        _currentIndex = 0;
+        _setCurrentIndex(0);
         await play(_playlist[_currentIndex]);
       } else {
         await pause();
@@ -779,11 +923,11 @@ class PlayerService {
     }
 
     if (_currentIndex < _playlist.length - 1) {
-      _currentIndex++;
+      _setCurrentIndex(_currentIndex + 1);
       debugPrint('next(): Advancing to index $_currentIndex');
       await _justAudioPlayer.seekToNext();
     } else if (loopModeNotifier.value == LoopMode.all) {
-      _currentIndex = 0;
+      _setCurrentIndex(0);
       debugPrint('next(): LoopMode.all, wrapping to index 0');
       await _justAudioPlayer.seek(Duration.zero, index: 0);
       if (!isPlayingNotifier.value) {
@@ -804,7 +948,7 @@ class PlayerService {
         await seek(Duration.zero);
       } else {
         if (_currentIndex > 0) {
-          _currentIndex--;
+          _setCurrentIndex(_currentIndex - 1);
           await play(_playlist[_currentIndex]);
         } else {
           await seek(Duration.zero);
@@ -817,7 +961,7 @@ class PlayerService {
       await seek(Duration.zero);
     } else {
       if (_currentIndex > 0) {
-        _currentIndex--;
+        _setCurrentIndex(_currentIndex - 1);
         await _justAudioPlayer.seekToPrevious();
       } else {
         await seek(Duration.zero);
@@ -877,22 +1021,40 @@ class PlayerService {
     final enable = !isShuffleNotifier.value;
     isShuffleNotifier.value = enable;
 
-    if (enable) {
-      final current = currentSongNotifier.value;
-      if (current != null) {
-        _playlist.shuffle();
-        _currentIndex = _playlist.indexOf(current);
-      } else {
-        _playlist.shuffle();
-      }
-    } else {
-      final current = currentSongNotifier.value;
-      _playlist.clear();
-      _playlist.addAll(_originalPlaylist);
-      if (current != null) {
-        _currentIndex = _playlist.indexOf(current);
+    final current = currentSongNotifier.value;
+    final basePlaylist = <Song>[];
+    for (var i = 0; i < _playlist.length; i++) {
+      if (_playlistQueueEntryIds[i] == null) {
+        basePlaylist.add(_playlist[i]);
       }
     }
+
+    if (enable) {
+      basePlaylist.shuffle();
+    } else {
+      basePlaylist
+        ..clear()
+        ..addAll(_originalPlaylist);
+      if (current != null &&
+          !basePlaylist.any((song) => song.id == current.id)) {
+        final insertionIndex = _currentIndex.clamp(0, basePlaylist.length);
+        basePlaylist.insert(insertionIndex, current);
+      }
+    }
+
+    _playlist
+      ..clear()
+      ..addAll(basePlaylist);
+    _playlistQueueEntryIds
+      ..clear()
+      ..addAll(List<int?>.filled(basePlaylist.length, null));
+    if (current != null) {
+      _setCurrentIndex(_playlist.indexWhere((song) => song.id == current.id));
+    }
+    if (_currentIndex < 0 && _playlist.isNotEmpty) {
+      _setCurrentIndex(0);
+    }
+    _insertQueuedEntriesAfterCurrent();
 
     // Rebuild playlist with new order (just_audio only).
     if (!_usingRustBackend) {
@@ -917,6 +1079,107 @@ class PlayerService {
     } else {
       await _justAudioPlayer.setVolume(volume);
     }
+  }
+
+  Future<void> addToQueue(Song song) async {
+    final entry = _QueueEntry(id: _nextQueueEntryId++, song: song);
+    _queuedEntries.add(entry);
+    if (_playlist.isNotEmpty) {
+      final insertIndex = (_currentIndex + 1 + _queuedEntries.length - 1).clamp(
+        0,
+        _playlist.length,
+      );
+      _playlist.insert(insertIndex, song);
+      _playlistQueueEntryIds.insert(insertIndex, entry.id);
+    }
+    _notifyQueueChanged();
+
+    if (_playlist.isNotEmpty && !_usingRustBackend) {
+      await _rebuildPlaylist();
+    }
+  }
+
+  Future<void> playFromQueueIndex(int index) async {
+    if (index < 0 || index >= _queuedEntries.length) return;
+    final entry = _queuedEntries.removeAt(index);
+    final playlistIndex = _findPlaylistIndexForQueueEntry(entry.id);
+    if (playlistIndex != -1) {
+      _playlistQueueEntryIds[playlistIndex] = null;
+      _notifyQueueChanged();
+      if (_usingRustBackend) {
+        _setCurrentIndex(playlistIndex);
+        await play(_playlist[playlistIndex]);
+        return;
+      }
+      _setCurrentIndex(playlistIndex);
+      currentSongNotifier.value = _playlist[playlistIndex];
+      positionNotifier.value = Duration.zero;
+      await _justAudioPlayer.seek(Duration.zero, index: playlistIndex);
+      if (!isPlayingNotifier.value) {
+        await _justAudioPlayer.play();
+      }
+      _updateNotificationState();
+      return;
+    }
+
+    _notifyQueueChanged();
+    await play(entry.song);
+  }
+
+  Future<void> clearQueue() async {
+    if (_queuedEntries.isEmpty) return;
+    final queuedIds = _queuedEntries.map((entry) => entry.id).toSet();
+    for (var i = _playlistQueueEntryIds.length - 1; i >= 0; i--) {
+      final queueId = _playlistQueueEntryIds[i];
+      if (queueId != null && queuedIds.contains(queueId)) {
+        _playlist.removeAt(i);
+        _playlistQueueEntryIds.removeAt(i);
+        if (i < _currentIndex) {
+          _setCurrentIndex(_currentIndex - 1);
+        }
+      }
+    }
+    _queuedEntries.clear();
+    _notifyQueueChanged();
+    if (!_usingRustBackend) {
+      await _rebuildPlaylist();
+    }
+  }
+
+  Future<void> removeFromQueue(int index) async {
+    if (index < 0 || index >= _queuedEntries.length) return;
+    final entry = _queuedEntries[index];
+    await _removeQueueEntryById(entry.id);
+  }
+
+  Future<void> moveQueueItem(int oldIndex, int newIndex) async {
+    if (oldIndex < 0 ||
+        oldIndex >= _queuedEntries.length ||
+        newIndex < 0 ||
+        newIndex >= _queuedEntries.length) {
+      return;
+    }
+    if (oldIndex == newIndex) return;
+
+    final entry = _queuedEntries.removeAt(oldIndex);
+    _queuedEntries.insert(newIndex, entry);
+
+    for (var i = _playlistQueueEntryIds.length - 1; i >= 0; i--) {
+      if (_playlistQueueEntryIds[i] != null) {
+        _playlist.removeAt(i);
+        _playlistQueueEntryIds.removeAt(i);
+      }
+    }
+    _insertQueuedEntriesAfterCurrent();
+    _notifyQueueChanged();
+    if (!_usingRustBackend) {
+      await _rebuildPlaylist();
+    }
+  }
+
+  Future<void> moveQueueItemToNext(int index) async {
+    if (index <= 0 || index >= _queuedEntries.length) return;
+    await moveQueueItem(index, 0);
   }
 
   // ==================== Playback Speed ====================
@@ -989,4 +1252,11 @@ class PlayerService {
     playbackSpeedNotifier.dispose();
     sleepTimerRemainingNotifier.dispose();
   }
+}
+
+class _QueueEntry {
+  final int id;
+  final Song song;
+
+  const _QueueEntry({required this.id, required this.song});
 }

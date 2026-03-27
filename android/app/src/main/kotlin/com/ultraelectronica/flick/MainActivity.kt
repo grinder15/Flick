@@ -8,6 +8,8 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.media.audiofx.Equalizer
 import android.media.audiofx.AudioEffect
@@ -31,6 +33,7 @@ import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
+import kotlin.math.roundToInt
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.ultraelectronica.flick/storage"
@@ -51,6 +54,7 @@ class MainActivity: FlutterActivity() {
     private var usbHotplugReceiver: BroadcastReceiver? = null
     private var uac2DeviceCache: List<Map<String, Any?>>? = null
     private var uac2Channel: MethodChannel? = null
+    private var cachedMusicVolumeBeforeMute: Int? = null
     private var equalizer: Equalizer? = null
     // private var audioConverter: AudioConverter? = null
     // Coroutine scope for background tasks
@@ -387,6 +391,39 @@ class MainActivity: FlutterActivity() {
                     } else {
                         result.error("INVALID_ARGUMENT", "deviceName is required", null)
                     }
+                }
+                "getRouteStatus" -> {
+                    result.success(
+                        getRouteStatus(
+                            preferredDeviceName = call.argument<String>("deviceName"),
+                            preferredProductName = call.argument<String>("productName"),
+                            preferredVendorId = call.argument<Number>("vendorId")?.toInt(),
+                            preferredProductId = call.argument<Number>("productId")?.toInt(),
+                            preferredSerial = call.argument<String>("serial"),
+                        )
+                    )
+                }
+                "setRouteVolume" -> {
+                    val volume = call.argument<Double>("volume")
+                    if (volume != null) {
+                        result.success(setRouteVolume(volume))
+                    } else {
+                        result.error("INVALID_ARGUMENT", "volume is required", null)
+                    }
+                }
+                "getRouteVolume" -> {
+                    result.success(getRouteVolume())
+                }
+                "setRouteMuted" -> {
+                    val muted = call.argument<Boolean>("muted")
+                    if (muted != null) {
+                        result.success(setRouteMuted(muted))
+                    } else {
+                        result.error("INVALID_ARGUMENT", "muted is required", null)
+                    }
+                }
+                "getRouteMuted" -> {
+                    result.success(getRouteMuted())
                 }
                 else -> result.notImplemented()
             }
@@ -746,6 +783,13 @@ class MainActivity: FlutterActivity() {
                 metadata["title"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
                 metadata["artist"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 metadata["album"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+                metadata["albumArtist"] = extractMetadataByKeyName(retriever, "METADATA_KEY_ALBUMARTIST")
+                metadata["trackNumber"] = parseMetadataNumber(
+                    extractMetadataByKeyName(retriever, "METADATA_KEY_CD_TRACK_NUMBER")
+                )
+                metadata["discNumber"] = parseMetadataNumber(
+                    extractMetadataByKeyName(retriever, "METADATA_KEY_DISC_NUMBER")
+                )
                 metadata["bitrate"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
                 metadata["mimeType"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
                 
@@ -800,6 +844,25 @@ class MainActivity: FlutterActivity() {
         }
 
         return result
+    }
+
+    private fun extractMetadataByKeyName(
+        retriever: MediaMetadataRetriever,
+        keyName: String
+    ): String? {
+        return try {
+            val key = MediaMetadataRetriever::class.java.getField(keyName).getInt(null)
+            retriever.extractMetadata(key)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun parseMetadataNumber(rawValue: String?): Int? {
+        if (rawValue.isNullOrBlank()) return null
+        val match = Regex("""\d+""").find(rawValue) ?: return null
+        val value = match.value.toIntOrNull() ?: return null
+        return if (value > 0) value else null
     }
 
     private fun cacheUriForPlayback(uriString: String, extensionHint: String?): String? {
@@ -1511,12 +1574,16 @@ class MainActivity: FlutterActivity() {
 
     private fun isUac2Device(device: UsbDevice): Boolean {
         return try {
+            if (device.deviceClass == UsbConstants.USB_CLASS_AUDIO) {
+                return true
+            }
+
             for (i in 0 until device.interfaceCount) {
                 val iface = device.getInterface(i)
-                // UAC 2.0: Class 0x01 (Audio), Subclass 0x02 (UAC2), Protocol 0x20 (UAC2)
                 if (iface.interfaceClass == UsbConstants.USB_CLASS_AUDIO &&
-                    iface.interfaceSubclass == 0x02 &&
-                    iface.interfaceProtocol == 0x20
+                    (iface.interfaceSubclass == 0x01 ||
+                        iface.interfaceSubclass == 0x02 ||
+                        iface.interfaceSubclass == 0x03)
                 ) {
                     return true
                 }
@@ -1576,7 +1643,7 @@ class MainActivity: FlutterActivity() {
                             @Suppress("DEPRECATION")
                             intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
                         }
-                        unregisterReceiver(usbPermissionReceiver)
+                        unregisterReceiverSafely(usbPermissionReceiver)
                         usbPermissionReceiver = null
                         
                         if (granted && device != null) {
@@ -1603,6 +1670,259 @@ class MainActivity: FlutterActivity() {
         } catch (e: Exception) {
             android.util.Log.e("UAC2", "Error requesting permission: ${e.message}")
             result.error("UAC2_ERROR", "Failed to request permission: ${e.message}", null)
+        }
+    }
+
+    private fun getRouteStatus(
+        preferredDeviceName: String? = null,
+        preferredProductName: String? = null,
+        preferredVendorId: Int? = null,
+        preferredProductId: Int? = null,
+        preferredSerial: String? = null,
+    ): Map<String, Any?> {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val baseRoute = describeCurrentOutputRoute(audioManager).toMutableMap()
+        val baseRouteType = baseRoute["routeType"] as? String ?: "unknown"
+        val preferredUsbDevice = findPreferredUsbAudioDevice(
+            preferredDeviceName = preferredDeviceName,
+            preferredProductName = preferredProductName,
+            preferredVendorId = preferredVendorId,
+            preferredProductId = preferredProductId,
+            preferredSerial = preferredSerial,
+        )
+
+        if (preferredUsbDevice != null &&
+            (baseRouteType == "usb" || baseRouteType == "internal" || baseRouteType == "unknown")
+        ) {
+            baseRoute.clear()
+            baseRoute.putAll(buildUsbRouteMap(preferredUsbDevice))
+        }
+
+        val hasVolumeControl = audioManager != null && !audioManager.isVolumeFixed
+        baseRoute["hasVolumeControl"] = hasVolumeControl
+        baseRoute["volumeMode"] = if (hasVolumeControl) "system" else "unavailable"
+        baseRoute["volume"] = getRouteVolume()
+        baseRoute["muted"] = getRouteMuted()
+
+        return baseRoute
+    }
+
+    private fun findPreferredUsbAudioDevice(
+        preferredDeviceName: String? = null,
+        preferredProductName: String? = null,
+        preferredVendorId: Int? = null,
+        preferredProductId: Int? = null,
+        preferredSerial: String? = null,
+    ): UsbDevice? {
+        val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return null
+        val candidates = usbManager.deviceList.values.filter { device -> isUac2Device(device) }
+        if (candidates.isEmpty()) return null
+
+        return candidates.firstOrNull { device ->
+            preferredDeviceName != null && device.deviceName == preferredDeviceName
+        } ?: candidates.firstOrNull { device ->
+            preferredVendorId != null &&
+                preferredProductId != null &&
+                device.vendorId == preferredVendorId &&
+                device.productId == preferredProductId
+        } ?: candidates.firstOrNull { device ->
+            preferredSerial != null && safeUsbSerial(device) == preferredSerial
+        } ?: candidates.firstOrNull { device ->
+            preferredProductName != null &&
+                !device.productName.isNullOrBlank() &&
+                device.productName == preferredProductName
+        } ?: candidates.firstOrNull()
+    }
+
+    private fun describeCurrentOutputRoute(audioManager: AudioManager?): Map<String, Any?> {
+        if (audioManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val bestOutput = audioManager
+                .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+                .minByOrNull { device -> outputRoutePriority(device.type) }
+
+            if (bestOutput != null) {
+                val routeType = routeTypeForAudioDevice(bestOutput.type)
+                val label = bestOutput.productName
+                    ?.toString()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: defaultRouteLabel(routeType)
+                return mutableMapOf(
+                    "routeType" to routeType,
+                    "routeLabel" to label,
+                    "isExternal" to isExternalRouteType(routeType),
+                    "productName" to defaultProductName(routeType, label),
+                    "manufacturer" to Build.MANUFACTURER,
+                )
+            }
+        }
+
+        return mutableMapOf(
+            "routeType" to "internal",
+            "routeLabel" to "Built-in output",
+            "isExternal" to false,
+            "productName" to "Device DAC",
+            "manufacturer" to Build.MANUFACTURER,
+        )
+    }
+
+    private fun buildUsbRouteMap(device: UsbDevice): Map<String, Any?> {
+        val productName = device.productName?.takeIf { it.isNotBlank() } ?: "USB DAC"
+        val manufacturer = device.manufacturerName?.takeIf { it.isNotBlank() } ?: "USB Audio"
+        return mutableMapOf(
+            "routeType" to "usb",
+            "routeLabel" to productName,
+            "isExternal" to true,
+            "productName" to productName,
+            "manufacturer" to manufacturer,
+            "deviceName" to device.deviceName,
+            "vendorId" to device.vendorId,
+            "productId" to device.productId,
+            "serial" to safeUsbSerial(device),
+        )
+    }
+
+    private fun outputRoutePriority(type: Int): Int {
+        return when (type) {
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET,
+            AudioDeviceInfo.TYPE_DOCK -> 0
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_LINE_ANALOG,
+            AudioDeviceInfo.TYPE_LINE_DIGITAL -> 1
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_HEARING_AID -> 2
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> 3
+            else -> 4
+        }
+    }
+
+    private fun routeTypeForAudioDevice(type: Int): String {
+        return when (type) {
+            AudioDeviceInfo.TYPE_USB_DEVICE,
+            AudioDeviceInfo.TYPE_USB_HEADSET -> "usb"
+            AudioDeviceInfo.TYPE_DOCK -> "dock"
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            AudioDeviceInfo.TYPE_LINE_ANALOG,
+            AudioDeviceInfo.TYPE_LINE_DIGITAL -> "wired"
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_HEARING_AID -> "bluetooth"
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "internal"
+            else -> "unknown"
+        }
+    }
+
+    private fun isExternalRouteType(routeType: String): Boolean {
+        return routeType == "usb" || routeType == "dock"
+    }
+
+    private fun defaultProductName(routeType: String, label: String): String {
+        return when (routeType) {
+            "internal" -> "Device DAC"
+            "usb" -> label.ifBlank { "USB DAC" }
+            "dock" -> label.ifBlank { "Dock Audio" }
+            "wired" -> label.ifBlank { "Headphone Output" }
+            "bluetooth" -> label.ifBlank { "Bluetooth Output" }
+            else -> label.ifBlank { "Audio Output" }
+        }
+    }
+
+    private fun defaultRouteLabel(routeType: String): String {
+        return when (routeType) {
+            "internal" -> "Built-in output"
+            "usb" -> "USB DAC"
+            "dock" -> "Dock audio"
+            "wired" -> "Headphone output"
+            "bluetooth" -> "Bluetooth output"
+            else -> "Audio output"
+        }
+    }
+
+    private fun safeUsbSerial(device: UsbDevice): String? {
+        return try {
+            device.serialNumber
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun getRouteVolume(): Double? {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (maxVolume <= 0) return 1.0
+
+        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return (currentVolume.toDouble() / maxVolume.toDouble()).coerceIn(0.0, 1.0)
+    }
+
+    private fun setRouteVolume(volume: Double): Boolean {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        if (audioManager.isVolumeFixed) return false
+
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        if (maxVolume <= 0) return false
+
+        val clamped = volume.coerceIn(0.0, 1.0)
+        val targetVolume = (clamped * maxVolume.toDouble()).roundToInt().coerceIn(0, maxVolume)
+        if (targetVolume > 0) {
+            cachedMusicVolumeBeforeMute = targetVolume
+        }
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, targetVolume, 0)
+        return true
+    }
+
+    private fun getRouteMuted(): Boolean {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            audioManager.isStreamMute(AudioManager.STREAM_MUSIC) || currentVolume == 0
+        } else {
+            currentVolume == 0
+        }
+    }
+
+    private fun setRouteMuted(muted: Boolean): Boolean {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        if (audioManager.isVolumeFixed) return false
+
+        val streamType = AudioManager.STREAM_MUSIC
+        if (muted) {
+            val currentVolume = audioManager.getStreamVolume(streamType)
+            if (currentVolume > 0) {
+                cachedMusicVolumeBeforeMute = currentVolume
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager.adjustStreamVolume(streamType, AudioManager.ADJUST_MUTE, 0)
+            }
+            audioManager.setStreamVolume(streamType, 0, 0)
+            return true
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            audioManager.adjustStreamVolume(streamType, AudioManager.ADJUST_UNMUTE, 0)
+        }
+        if (audioManager.getStreamVolume(streamType) == 0) {
+            val maxVolume = audioManager.getStreamMaxVolume(streamType).coerceAtLeast(1)
+            val restoreVolume = (cachedMusicVolumeBeforeMute ?: (maxVolume / 2).coerceAtLeast(1))
+                .coerceIn(1, maxVolume)
+            audioManager.setStreamVolume(streamType, restoreVolume, 0)
+        }
+        return true
+    }
+
+    private fun unregisterReceiverSafely(receiver: BroadcastReceiver?) {
+        if (receiver == null) return
+        try {
+            unregisterReceiver(receiver)
+        } catch (_: IllegalArgumentException) {
+        } catch (_: Exception) {
         }
     }
 
@@ -1640,8 +1960,10 @@ class MainActivity: FlutterActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
-        usbHotplugReceiver?.let { unregisterReceiver(it) }
-        usbPermissionReceiver?.let { unregisterReceiver(it) }
+        unregisterReceiverSafely(usbHotplugReceiver)
+        unregisterReceiverSafely(usbPermissionReceiver)
+        usbHotplugReceiver = null
+        usbPermissionReceiver = null
     }
 
     companion object {

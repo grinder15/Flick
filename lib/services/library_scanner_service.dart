@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../data/database.dart';
-import '../data/entities/song_entity.dart';
 import '../data/repositories/song_repository.dart';
 import '../data/repositories/folder_repository.dart';
 import '../services/music_folder_service.dart';
@@ -48,13 +47,15 @@ class LibraryScannerService {
 
   /// Scan a single folder using appropriate method for platform.
   Stream<ScanProgress> scanFolder(String folderUri, String displayName) async* {
+    final scanKey = normalizeFolderIdentifier(folderUri);
+
     // Prevent concurrent scans of the same folder
-    if (_currentlyScanning.contains(folderUri)) {
+    if (_currentlyScanning.contains(scanKey)) {
       debugPrint('Folder $displayName is already being scanned, skipping...');
       return;
     }
 
-    _currentlyScanning.add(folderUri);
+    _currentlyScanning.add(scanKey);
     try {
       if (Platform.isAndroid) {
         yield* _scanFolderAndroid(folderUri, displayName);
@@ -62,7 +63,7 @@ class LibraryScannerService {
         yield* _scanFolderRust(folderUri, displayName);
       }
     } finally {
-      _currentlyScanning.remove(folderUri);
+      _currentlyScanning.remove(scanKey);
     }
   }
 
@@ -135,7 +136,10 @@ class LibraryScannerService {
             albumArtMissing ||
             existing.bitrate == null ||
             existing.sampleRate == null ||
-            existing.bitDepth == null;
+            existing.bitDepth == null ||
+            existing.trackNumber == null ||
+            existing.discNumber == null ||
+            existing.albumArtist == null;
 
         if (file.lastModified != existingTime || missingMetadata) {
           urisToProcess.add(file.uri);
@@ -160,30 +164,17 @@ class LibraryScannerService {
       isComplete: false,
     );
 
-    const chunkSize = 50;
-    for (var i = 0; i < urisToProcess.length; i += chunkSize) {
+    final metadataBatchSize = _recommendedMetadataBatchSize(
+      urisToProcess.length,
+    );
+    final metadataChunks = _chunkList(urisToProcess, metadataBatchSize);
+
+    for (final chunkUris in metadataChunks) {
       if (_isCancelled) break;
 
-      final end = (i + chunkSize < urisToProcess.length)
-          ? i + chunkSize
-          : urisToProcess.length;
-      final chunkUris = urisToProcess.sublist(i, end);
-
-      // Fetch Metadata for chunk
-      List<AudioFileInfo> metadataList = [];
-      try {
-        metadataList = await _musicFolderService.fetchMetadata(chunkUris);
-      } catch (e) {
-        debugPrint("Error fetching metadata chunk: $e");
+      final metadataList = await _fetchMetadataChunk(chunkUris);
+      if (metadataList == null) {
         continue;
-      }
-
-      for (var meta in metadataList) {
-        if (meta.albumArtPath != null && meta.albumArtPath!.isNotEmpty) {
-          debugPrint(
-            "Successfully found album cover for ${meta.title}: ${meta.albumArtPath}",
-          );
-        }
       }
 
       final batch = <SongEntity>[];
@@ -197,6 +188,13 @@ class LibraryScannerService {
           ..title = meta.title ?? basic.name
           ..artist = meta.artist ?? 'Unknown Artist'
           ..album = meta.album ?? 'Unknown Album'
+          ..albumArtist = (meta.albumArtist?.trim().isNotEmpty ?? false)
+              ? meta.albumArtist!.trim()
+              : (meta.artist ?? 'Unknown Artist')
+          // 0 is used as a persisted sentinel for "unknown track" so we can
+          // migrate old rows once without forcing rescans forever.
+          ..trackNumber = meta.trackNumber ?? 0
+          ..discNumber = meta.discNumber ?? 1
           ..durationMs = meta.duration ?? 0
           ..fileType = basic.extension.toUpperCase()
           ..dateAdded = existingMap[basic.uri]?.dateAdded ?? DateTime.now()
@@ -264,7 +262,9 @@ class LibraryScannerService {
     );
 
     // 1. Fetch existing file state from DB
-    final existingSongs = await _songRepository.getAllSongEntities();
+    final existingSongs = await _songRepository.getSongEntitiesByFolder(
+      folderUri,
+    );
     final knownFiles = <String, int>{};
     final existingMap = <String, SongEntity>{};
 
@@ -305,7 +305,7 @@ class LibraryScannerService {
 
     // Batch insert
     final batch = <SongEntity>[];
-    const batchSize = 100;
+    final batchSize = _recommendedWriteBatchSize(total);
 
     for (final metadata in result.newOrModified) {
       if (_isCancelled) break;
@@ -372,15 +372,50 @@ class LibraryScannerService {
 
   Stream<ScanProgress> scanAllFolders() async* {
     _isCancelled = false;
-    final folders = await _folderRepository
-        .getAllFolders(); // Assuming repository has this
+    final folders = await _folderRepository.getAllFolders();
+    final scanPlan = _deduplicateFoldersForScan(folders);
 
-    for (final folder in folders) {
+    for (final folder in scanPlan) {
       if (_isCancelled) break;
       await for (final progress in scanFolder(folder.uri, folder.displayName)) {
         yield progress;
       }
     }
+  }
+
+  List<FolderEntity> _deduplicateFoldersForScan(List<FolderEntity> folders) {
+    final sortedFolders = List<FolderEntity>.from(folders)
+      ..sort((a, b) {
+        final normalizedA = normalizeFolderIdentifier(a.uri);
+        final normalizedB = normalizeFolderIdentifier(b.uri);
+        final lengthCompare = normalizedA.length.compareTo(normalizedB.length);
+        if (lengthCompare != 0) {
+          return lengthCompare;
+        }
+        return normalizedA.compareTo(normalizedB);
+      });
+
+    final scheduledRoots = <String>{};
+    final scanPlan = <FolderEntity>[];
+
+    for (final folder in sortedFolders) {
+      final normalized = normalizeFolderIdentifier(folder.uri);
+      final overlapsExisting = scheduledRoots.any(
+        (root) =>
+            isSameOrDescendantFolder(normalized, root) ||
+            isSameOrDescendantFolder(root, normalized),
+      );
+      if (overlapsExisting) {
+        debugPrint(
+          'Skipping overlapping scan root ${folder.displayName} (${folder.uri})',
+        );
+        continue;
+      }
+      scheduledRoots.add(normalized);
+      scanPlan.add(folder);
+    }
+
+    return scanPlan;
   }
 
   String _extractTitleFromFilename(String filename) {
@@ -389,5 +424,46 @@ class LibraryScannerService {
     name = name.replaceFirst(RegExp(r'^\d{1,3}[\s._-]+'), '');
     name = name.replaceAll('_', ' ');
     return name.trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  Future<List<AudioFileInfo>?> _fetchMetadataChunk(
+    List<String> chunkUris,
+  ) async {
+    try {
+      return await _musicFolderService.fetchMetadata(chunkUris);
+    } catch (e) {
+      debugPrint(
+        'Error fetching metadata chunk (${chunkUris.length} files): $e',
+      );
+      return null;
+    }
+  }
+
+  int _recommendedMetadataBatchSize(int pendingFiles) {
+    final targetBatchSize = (pendingFiles / 3).ceil();
+    return _clampInt(targetBatchSize, 100, 450);
+  }
+
+  int _recommendedWriteBatchSize(int totalItems) {
+    return _clampInt((totalItems / 3).ceil(), 100, 450);
+  }
+
+  int _clampInt(int value, int min, int max) {
+    if (value < min) {
+      return min;
+    }
+    if (value > max) {
+      return max;
+    }
+    return value;
+  }
+
+  List<List<T>> _chunkList<T>(List<T> items, int chunkSize) {
+    final chunks = <List<T>>[];
+    for (var i = 0; i < items.length; i += chunkSize) {
+      final end = (i + chunkSize < items.length) ? i + chunkSize : items.length;
+      chunks.add(items.sublist(i, end));
+    }
+    return chunks;
   }
 }

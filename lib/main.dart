@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -44,8 +46,12 @@ Future<void> _initAudioEngines() async {
     // Continue anyway - the app can still function with degraded audio
   }
 
-  // Initialize Rust audio engine (desktop only - not available on Android/iOS)
+  // Initialize Rust audio engine only on desktop platforms.
   try {
+    if (Platform.isAndroid || Platform.isIOS) {
+      debugPrint('Skipping eager Rust audio engine init on mobile');
+      return;
+    }
     final rustAudioService = RustAudioService();
     final initialized = await rustAudioService.init();
     if (initialized) {

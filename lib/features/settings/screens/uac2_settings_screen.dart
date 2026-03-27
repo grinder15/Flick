@@ -87,10 +87,14 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
                           _buildSectionHeader(context, 'Status'),
                           _buildStatusCard(context, deviceStatus),
                         ],
-                        if (deviceStatus?.state == Uac2State.streaming) ...[
+                        if (deviceStatus != null &&
+                            deviceStatus.state != Uac2State.idle &&
+                            deviceStatus.hasVolumeControl) ...[
                           const SizedBox(height: AppConstants.spacingLg),
                           _buildSectionHeader(context, 'Volume Control'),
                           const Uac2VolumeControl(),
+                        ],
+                        if (deviceStatus?.state == Uac2State.streaming) ...[
                           const SizedBox(height: AppConstants.spacingLg),
                           _buildSectionHeader(context, 'Pipeline Information'),
                           const Uac2PipelineInfoWidget(),

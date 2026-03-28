@@ -1764,7 +1764,8 @@ class _WaveformLayerState extends State<_WaveformLayer> {
                   position: position,
                   duration: duration,
                   onChanged: (newPos) {
-                    widget.playerService.seek(newPos);
+                    widget.positionNotifier.value = newPos;
+                    unawaited(widget.playerService.seek(newPos));
                   },
                 ),
               ),

@@ -24,8 +24,17 @@ class WaveformSeekBar extends StatefulWidget {
 }
 
 class _WaveformSeekBarState extends State<WaveformSeekBar> {
+  static const double _baseHeight = 60;
+  static const double _expandedHeight = 96;
+  static const double _fineScrubZoom = 2.6;
+  static const int _cachedSampleCount = 180;
+
   // Cache the waveform data so it doesn't jitter on rebuilds
   late List<double> _waveformData;
+  bool _isFineScrubbing = false;
+  Duration? _interactivePosition;
+  double _fineScrubAnchorDx = 0;
+  Duration _fineScrubAnchorPosition = Duration.zero;
 
   @override
   void initState() {
@@ -36,7 +45,8 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
   @override
   void didUpdateWidget(WaveformSeekBar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.duration != oldWidget.duration &&
+    if ((widget.duration != oldWidget.duration ||
+            widget.barCount != oldWidget.barCount) &&
         widget.duration.inMilliseconds > 0) {
       _generateWaveform();
     }
@@ -46,9 +56,21 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
     // Generate pseudo-random bar heights based on duration to be deterministic for the same song
     final random = Random(widget.duration.inMilliseconds);
     _waveformData = List.generate(
-      widget.barCount,
+      max(widget.barCount, _cachedSampleCount),
       (index) => 0.3 + random.nextDouble() * 0.7,
     );
+  }
+
+  Duration get _displayPosition => _interactivePosition ?? widget.position;
+
+  Duration _positionFromDx(double dx, double width) {
+    final progress = (dx / width).clamp(0.0, 1.0);
+    final ms = (progress * widget.duration.inMilliseconds).round();
+    return Duration(milliseconds: ms);
+  }
+
+  void _updateInteractivePosition(Duration position) {
+    _interactivePosition = position;
   }
 
   void _onDragStart(DragStartDetails details) {
@@ -56,25 +78,85 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
   }
 
   void _onDragUpdate(DragUpdateDetails details, BoxConstraints constraints) {
+    if (_isFineScrubbing) return;
     final width = constraints.maxWidth;
-    final progress = (details.localPosition.dx / width).clamp(0.0, 1.0);
-    final ms = (progress * widget.duration.inMilliseconds).round();
-    widget.onChanged(Duration(milliseconds: ms));
+    final position = _positionFromDx(details.localPosition.dx, width);
+    setState(() {
+      _updateInteractivePosition(position);
+    });
   }
 
   void _onDragEnd(DragEndDetails details) {
+    final finalPosition = _displayPosition;
+    if (_interactivePosition != null) {
+      setState(() {
+        _interactivePosition = null;
+      });
+    }
+    widget.onChanged(finalPosition);
     if (widget.onChangeEnd != null) {
-      widget.onChangeEnd!(widget.position);
+      widget.onChangeEnd!(finalPosition);
     }
   }
 
   void _onTapUp(TapUpDetails details, BoxConstraints constraints) {
     final width = constraints.maxWidth;
-    final progress = (details.localPosition.dx / width).clamp(0.0, 1.0);
-    final ms = (progress * widget.duration.inMilliseconds).round();
-    final newPos = Duration(milliseconds: ms);
+    final newPos = _positionFromDx(details.localPosition.dx, width);
     widget.onChanged(newPos);
     widget.onChangeEnd?.call(newPos);
+  }
+
+  void _onLongPressStart(
+    LongPressStartDetails details,
+    BoxConstraints constraints,
+  ) {
+    final anchorPosition = _positionFromDx(
+      details.localPosition.dx,
+      constraints.maxWidth,
+    );
+    setState(() {
+      _isFineScrubbing = true;
+      _fineScrubAnchorDx = details.localPosition.dx;
+      _fineScrubAnchorPosition = anchorPosition;
+      _updateInteractivePosition(anchorPosition);
+    });
+  }
+
+  void _onLongPressMoveUpdate(
+    LongPressMoveUpdateDetails details,
+    BoxConstraints constraints,
+  ) {
+    final width = constraints.maxWidth;
+    final anchorProgress = widget.duration.inMilliseconds == 0
+        ? 0.0
+        : _fineScrubAnchorPosition.inMilliseconds /
+              widget.duration.inMilliseconds;
+    final deltaProgress =
+        (details.localPosition.dx - _fineScrubAnchorDx) /
+        width /
+        _fineScrubZoom;
+    final progress = (anchorProgress + deltaProgress).clamp(0.0, 1.0);
+    final nextPosition = Duration(
+      milliseconds: (progress * widget.duration.inMilliseconds).round(),
+    );
+
+    setState(() {
+      _updateInteractivePosition(nextPosition);
+    });
+  }
+
+  void _endFineScrub() {
+    final finalPosition = _displayPosition;
+    if (!_isFineScrubbing && _interactivePosition == null) {
+      return;
+    }
+
+    setState(() {
+      _isFineScrubbing = false;
+      _interactivePosition = null;
+    });
+    widget.onChanged(finalPosition);
+    widget.onChangeEnd?.call(finalPosition);
   }
 
   @override
@@ -86,18 +168,39 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
           onHorizontalDragUpdate: (details) =>
               _onDragUpdate(details, constraints),
           onHorizontalDragEnd: _onDragEnd,
+          onLongPressStart: (details) =>
+              _onLongPressStart(details, constraints),
+          onLongPressMoveUpdate: (details) =>
+              _onLongPressMoveUpdate(details, constraints),
+          onLongPressEnd: (_) => _endFineScrub(),
           onTapUp: (details) => _onTapUp(details, constraints),
           behavior: HitTestBehavior.opaque,
-          child: SizedBox(
-            height: 60, // Decreased height for better UI and screen framing
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            height: _isFineScrubbing ? _expandedHeight : _baseHeight,
             width: double.infinity,
-            child: CustomPaint(
-              painter: _WaveformPainter(
-                waveformData: _waveformData,
-                position: widget.position,
-                duration: widget.duration,
-                color: AppColors.textTertiary.withValues(alpha: 0.3),
-                activeColor: AppColors.accent,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              color: _isFineScrubbing
+                  ? AppColors.glassBackgroundStrong
+                  : Colors.transparent,
+            ),
+            padding: EdgeInsets.symmetric(
+              horizontal: 2,
+              vertical: _isFineScrubbing ? 6 : 0,
+            ),
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _WaveformPainter(
+                  waveformData: _waveformData,
+                  position: _displayPosition,
+                  duration: widget.duration,
+                  color: AppColors.textTertiary.withValues(alpha: 0.3),
+                  activeColor: AppColors.accent,
+                  barCount: widget.barCount,
+                  zoomFactor: _isFineScrubbing ? _fineScrubZoom : 1.0,
+                ),
               ),
             ),
           ),
@@ -113,6 +216,8 @@ class _WaveformPainter extends CustomPainter {
   final Duration duration;
   final Color color;
   final Color activeColor;
+  final int barCount;
+  final double zoomFactor;
 
   _WaveformPainter({
     required this.waveformData,
@@ -120,11 +225,25 @@ class _WaveformPainter extends CustomPainter {
     required this.duration,
     required this.color,
     required this.activeColor,
+    required this.barCount,
+    required this.zoomFactor,
   });
+
+  double _sampleHeight(double progress) {
+    final sampleProgress = progress.clamp(0.0, 1.0) * (waveformData.length - 1);
+    final lowerIndex = sampleProgress.floor();
+    final upperIndex = sampleProgress.ceil();
+
+    if (lowerIndex == upperIndex) {
+      return waveformData[lowerIndex];
+    }
+
+    final t = sampleProgress - lowerIndex;
+    return waveformData[lowerIndex] * (1 - t) + waveformData[upperIndex] * t;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final barCount = waveformData.length;
     // Spacing between bars
     final spacing = 2.0;
     // Calculate total available width for bars (width - total spacing)
@@ -134,6 +253,13 @@ class _WaveformPainter extends CustomPainter {
     final currentProgress = duration.inMilliseconds == 0
         ? 0.0
         : position.inMilliseconds / duration.inMilliseconds;
+    final visibleProgressWindow = 1 / zoomFactor;
+    final startProgress = zoomFactor <= 1
+        ? 0.0
+        : (currentProgress - visibleProgressWindow / 2).clamp(
+            0.0,
+            max(0.0, 1.0 - visibleProgressWindow),
+          );
 
     final paint = Paint()..strokeCap = StrokeCap.round;
 
@@ -142,12 +268,12 @@ class _WaveformPainter extends CustomPainter {
     final transitionWidth = transitionBars / barCount;
 
     for (int i = 0; i < barCount; i++) {
-      final barHeight = waveformData[i] * size.height;
+      final barProgress = zoomFactor <= 1
+          ? i / barCount
+          : startProgress + (i / max(1, barCount - 1)) * visibleProgressWindow;
+      final barHeight = _sampleHeight(barProgress) * size.height;
       final x = i * (barWidth + spacing) + barWidth / 2;
       final yCenter = size.height / 2;
-
-      // Calculate bar position as progress (0.0 to 1.0)
-      final barProgress = i / barCount;
 
       // Smooth color interpolation around the current progress
       // Calculate how far this bar is from the current progress
@@ -185,6 +311,11 @@ class _WaveformPainter extends CustomPainter {
       return true;
     }
 
+    if (oldDelegate.zoomFactor != zoomFactor ||
+        oldDelegate.waveformData != waveformData) {
+      return true;
+    }
+
     // For position changes, only repaint if the visual progress (which bar is highlighted) changed
     // Calculate which bar index corresponds to the current progress
     if (duration.inMilliseconds == 0) {
@@ -197,7 +328,6 @@ class _WaveformPainter extends CustomPainter {
     final newProgress = position.inMilliseconds / duration.inMilliseconds;
 
     // Calculate bar indices (0 to barCount-1)
-    final barCount = waveformData.length;
     final oldBarIndex = (oldProgress * barCount).floor();
     final newBarIndex = (newProgress * barCount).floor();
 

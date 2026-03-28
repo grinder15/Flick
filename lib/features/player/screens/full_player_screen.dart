@@ -1753,13 +1753,20 @@ class _AnimatedSongScene extends StatelessWidget {
   }
 
   Widget _buildPlaybackStack(BuildContext context) {
+    final immersivePlaybackPadding = playerScreenMode == PlayerScreenMode.immersive
+        ? context.responsive(18.0, 24.0, 30.0)
+        : 0.0;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _WaveformLayer(
-          playerService: playerService,
-          positionNotifier: throttledPositionNotifier,
-          currentSong: song,
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: immersivePlaybackPadding),
+          child: _WaveformLayer(
+            playerService: playerService,
+            positionNotifier: throttledPositionNotifier,
+            currentSong: song,
+          ),
         ),
         SizedBox(height: context.responsive(2.0, 3.0, 4.0)),
         _PlayerControls(
@@ -1769,6 +1776,7 @@ class _AnimatedSongScene extends StatelessWidget {
           isShuffleNotifier: playerService.isShuffleNotifier,
           onPrevious: onPrevious,
           onNext: onNext,
+          timelineHorizontalPadding: immersivePlaybackPadding,
         ),
       ],
     );
@@ -2167,6 +2175,7 @@ class _PlayerControls extends StatelessWidget {
   final ValueNotifier<bool> isShuffleNotifier;
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
+  final double timelineHorizontalPadding;
 
   const _PlayerControls({
     required this.playerService,
@@ -2175,6 +2184,7 @@ class _PlayerControls extends StatelessWidget {
     required this.isShuffleNotifier,
     required this.onPrevious,
     required this.onNext,
+    this.timelineHorizontalPadding = 0,
   });
 
   @override
@@ -2194,28 +2204,33 @@ class _PlayerControls extends StatelessWidget {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        formatDuration(position),
-                        style: const TextStyle(
-                          fontFamily: 'ProductSans',
-                          fontSize: 12,
-                          color: Colors.white,
-                          fontFeatures: [FontFeature.tabularFigures()],
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: timelineHorizontalPadding,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          formatDuration(position),
+                          style: const TextStyle(
+                            fontFamily: 'ProductSans',
+                            fontSize: 12,
+                            color: Colors.white,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
                         ),
-                      ),
-                      Text(
-                        formatDuration(duration),
-                        style: const TextStyle(
-                          fontFamily: 'ProductSans',
-                          fontSize: 12,
-                          color: Colors.white,
-                          fontFeatures: [FontFeature.tabularFigures()],
+                        Text(
+                          formatDuration(duration),
+                          style: const TextStyle(
+                            fontFamily: 'ProductSans',
+                            fontSize: 12,
+                            color: Colors.white,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Row(

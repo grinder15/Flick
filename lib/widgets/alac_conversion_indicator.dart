@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/providers/alac_converter_provider.dart';
-// Import will be available after running: flutter_rust_bridge_codegen generate
-// ignore: depend_on_referenced_packages, uri_does_not_exist
-import 'package:rust_lib_flick_player/src/rust/api/alac_converter_api.dart'
-    as alac_api;
+import 'package:flick/src/rust/api/alac_converter_api.dart' as alac_api;
 
 /// Widget that shows ALAC conversion status
 class AlacConversionIndicator extends ConsumerWidget {
@@ -39,7 +36,7 @@ class AlacConversionIndicator extends ConsumerWidget {
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
                   Text(
-                    'Converting ALAC...',
+                    'Converting audio...',
                     style: TextStyle(color: Colors.white),
                   ),
                 ],
@@ -56,10 +53,7 @@ class AlacConversionIndicator extends ConsumerWidget {
 class AlacFormatBadge extends ConsumerWidget {
   final String filePath;
 
-  const AlacFormatBadge({
-    super.key,
-    required this.filePath,
-  });
+  const AlacFormatBadge({super.key, required this.filePath});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -72,7 +66,7 @@ class AlacFormatBadge extends ConsumerWidget {
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: Colors.purple.withOpacity(0.2),
+            color: Colors.purple.withValues(alpha: 0.2),
             borderRadius: BorderRadius.circular(4),
             border: Border.all(color: Colors.purple),
           ),
@@ -103,10 +97,7 @@ class AlacFormatBadge extends ConsumerWidget {
 class AlacMetadataCard extends ConsumerWidget {
   final String filePath;
 
-  const AlacMetadataCard({
-    super.key,
-    required this.filePath,
-  });
+  const AlacMetadataCard({super.key, required this.filePath});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -150,15 +141,12 @@ class AlacMetadataCard extends ConsumerWidget {
                   'Duration',
                   '${meta.durationSeconds.toStringAsFixed(2)}s',
                 ),
-                _buildMetadataRow(
-                  'Samples',
-                  meta.durationSamples.toString(),
-                ),
+                _buildMetadataRow('Samples', meta.durationSamples.toString()),
                 const SizedBox(height: 8),
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.1),
+                    color: Colors.green.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: const Row(
@@ -207,10 +195,7 @@ class AlacMetadataCard extends ConsumerWidget {
               color: Colors.grey,
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -230,9 +215,7 @@ class AlacConversionNotifications {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 16),
-            Expanded(
-              child: Text('Converting $fileName to WAV...'),
-            ),
+            Expanded(child: Text('Converting $fileName to WAV...')),
           ],
         ),
         duration: const Duration(seconds: 2),
@@ -247,9 +230,7 @@ class AlacConversionNotifications {
           children: [
             const Icon(Icons.check_circle, color: Colors.green),
             const SizedBox(width: 16),
-            Expanded(
-              child: Text('$fileName converted successfully'),
-            ),
+            Expanded(child: Text('$fileName converted successfully')),
           ],
         ),
         backgroundColor: Colors.green.shade700,
@@ -265,9 +246,7 @@ class AlacConversionNotifications {
           children: [
             const Icon(Icons.error, color: Colors.white),
             const SizedBox(width: 16),
-            Expanded(
-              child: Text('Conversion failed: $error'),
-            ),
+            Expanded(child: Text('Conversion failed: $error')),
           ],
         ),
         backgroundColor: Colors.red.shade700,

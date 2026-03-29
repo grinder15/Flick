@@ -612,25 +612,34 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
             LucideIcons.activity,
             valueColor: _getStatusColor(status.state),
           ),
+          if (status.routeType != Uac2RouteType.unknown) ...[
+            _buildDivider(),
+            _buildInfoRow(
+              context,
+              'Playback Path',
+              _getPlaybackPathLabel(status),
+              Icons.alt_route,
+            ),
+          ],
           if (status.currentFormat != null) ...[
             _buildDivider(),
             _buildInfoRow(
               context,
-              'Sample Rate',
+              'Track Sample Rate',
               '${status.currentFormat!.sampleRate ~/ 1000}kHz',
               Icons.graphic_eq,
             ),
             _buildDivider(),
             _buildInfoRow(
               context,
-              'Bit Depth',
+              'Track Bit Depth',
               '${status.currentFormat!.bitDepth}bit',
               LucideIcons.layers,
             ),
             _buildDivider(),
             _buildInfoRow(
               context,
-              'Channels',
+              'Track Channels',
               status.currentFormat!.channels == 1
                   ? 'Mono'
                   : status.currentFormat!.channels == 2
@@ -638,10 +647,25 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
                   : '${status.currentFormat!.channels} channels',
               LucideIcons.radio,
             ),
+            if (status.routeType == Uac2RouteType.externalUsb ||
+                status.routeType == Uac2RouteType.dock) ...[
+              _buildDivider(),
+              _buildInfoRow(
+                context,
+                'DAC Output',
+                'Unconfirmed',
+                Icons.usb,
+                valueColor: Colors.amber.shade300,
+              ),
+            ],
           ],
           if (isBitPerfect) ...[
             _buildDivider(),
             _buildBitPerfectIndicator(context),
+          ],
+          if (status.warningMessage != null) ...[
+            _buildDivider(),
+            _buildWarningMessage(context, status.warningMessage!),
           ],
           if (status.errorMessage != null) ...[
             _buildDivider(),
@@ -702,6 +726,26 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: Colors.red.shade400),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWarningMessage(BuildContext context, String message) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingSm),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: Colors.amber.shade400, size: 20),
+          const SizedBox(width: AppConstants.spacingMd),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.amber.shade400),
             ),
           ),
         ],
@@ -794,6 +838,23 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
         return 'Streaming';
       case Uac2State.error:
         return 'Error';
+    }
+  }
+
+  String _getPlaybackPathLabel(Uac2DeviceStatus status) {
+    switch (status.routeType) {
+      case Uac2RouteType.internalDac:
+        return 'Device DAC';
+      case Uac2RouteType.externalUsb:
+        return 'Android USB route';
+      case Uac2RouteType.wired:
+        return 'Wired output';
+      case Uac2RouteType.bluetooth:
+        return 'Bluetooth output';
+      case Uac2RouteType.dock:
+        return 'Android dock route';
+      case Uac2RouteType.unknown:
+        return status.routeLabel ?? 'Unknown';
     }
   }
 }

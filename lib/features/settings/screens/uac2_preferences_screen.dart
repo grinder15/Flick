@@ -534,15 +534,25 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
               const SizedBox(height: AppConstants.spacingSm),
               Wrap(
                 spacing: 8,
-                children: [44100, 48000, 96000, 192000].map((rate) {
-                  return ChoiceChip(
-                    label: Text('${rate ~/ 1000}kHz'),
-                    selected: sampleRate == rate,
-                    onSelected: (selected) {
-                      if (selected) setState(() => sampleRate = rate);
-                    },
-                  );
-                }).toList(),
+                children:
+                    [
+                      44100,
+                      48000,
+                      88200,
+                      96000,
+                      176400,
+                      192000,
+                      352800,
+                      384000,
+                    ].map((rate) {
+                      return ChoiceChip(
+                        label: Text('${rate ~/ 1000}kHz'),
+                        selected: sampleRate == rate,
+                        onSelected: (selected) {
+                          if (selected) setState(() => sampleRate = rate);
+                        },
+                      );
+                    }).toList(),
               ),
               const SizedBox(height: AppConstants.spacingMd),
               Text(

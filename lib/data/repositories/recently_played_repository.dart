@@ -584,6 +584,8 @@ class RecentlyPlayedRepository {
       duration: Duration(milliseconds: entity.durationMs ?? 0),
       fileType: entity.fileType ?? 'unknown',
       resolution: _buildResolutionString(entity),
+      sampleRate: entity.sampleRate,
+      bitDepth: entity.bitDepth,
       album: entity.album,
       filePath: entity.filePath,
       dateAdded: entity.dateAdded,
@@ -597,14 +599,21 @@ class RecentlyPlayedRepository {
       parts.add('${entity.bitDepth}-bit');
     }
     if (entity.sampleRate != null) {
-      final sampleRateKhz = (entity.sampleRate! / 1000).round();
-      parts.add('${sampleRateKhz}kHz');
+      parts.add('${_formatSampleRateKhz(entity.sampleRate!)}kHz');
     }
     if (entity.bitrate != null) {
       final bitrateKbps = (entity.bitrate! / 1000).round();
       parts.add('${bitrateKbps}kbps');
     }
     return parts.isEmpty ? 'Unknown' : parts.join(' / ');
+  }
+
+  String _formatSampleRateKhz(int sampleRateHz) {
+    final khz = sampleRateHz / 1000;
+    if (sampleRateHz % 1000 == 0) {
+      return khz.toStringAsFixed(0);
+    }
+    return khz.toStringAsFixed(1);
   }
 }
 

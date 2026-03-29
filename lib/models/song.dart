@@ -21,6 +21,12 @@ class Song {
   /// Audio resolution (e.g., "24-bit/96kHz", "16-bit/44.1kHz")
   final String? resolution;
 
+  /// Structured sample rate in Hz when available.
+  final int? sampleRate;
+
+  /// Structured bit depth when available.
+  final int? bitDepth;
+
   /// Album name (optional)
   final String? album;
 
@@ -47,6 +53,8 @@ class Song {
     required this.duration,
     required this.fileType,
     this.resolution,
+    this.sampleRate,
+    this.bitDepth,
     this.album,
     this.albumArtist,
     this.trackNumber,
@@ -76,6 +84,8 @@ class Song {
     Duration? duration,
     String? fileType,
     String? resolution,
+    int? sampleRate,
+    int? bitDepth,
     String? album,
     String? albumArtist,
     int? trackNumber,
@@ -91,6 +101,8 @@ class Song {
       duration: duration ?? this.duration,
       fileType: fileType ?? this.fileType,
       resolution: resolution ?? this.resolution,
+      sampleRate: sampleRate ?? this.sampleRate,
+      bitDepth: bitDepth ?? this.bitDepth,
       album: album ?? this.album,
       albumArtist: albumArtist ?? this.albumArtist,
       trackNumber: trackNumber ?? this.trackNumber,

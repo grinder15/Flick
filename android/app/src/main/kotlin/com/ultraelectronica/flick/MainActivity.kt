@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
+import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbManager
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
@@ -18,8 +19,10 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.AudioEffect
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -58,15 +61,27 @@ class MainActivity: FlutterActivity() {
     private var usbHotplugReceiver: BroadcastReceiver? = null
     private var uac2DeviceCache: List<Map<String, Any?>>? = null
     private var uac2Channel: MethodChannel? = null
+    private val directUsbConnections = mutableMapOf<String, UsbDeviceConnection>()
+    private var activeDirectUsbDeviceName: String? = null
     private var cachedMusicVolumeBeforeMute: Int? = null
     private var equalizer: Equalizer? = null
     // private var audioConverter: AudioConverter? = null
     // Coroutine scope for background tasks
     private val mainScope = CoroutineScope(Dispatchers.Main)
 
-    // Initialize Android NDK context for cpal/oboe before Dart loads the library
+    // Load the Rust shared library before calling into native startup hooks.
     init {
         System.loadLibrary("rust_lib_flick_player")
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        if (!nativeInitRustAndroidContext(applicationContext)) {
+            Log.e("Flick", "Failed to initialize Rust Android audio context")
+        } else {
+            Log.i("Flick", "Rust Android audio context initialized")
+        }
     }
 
     override fun provideFlutterEngine(context: android.content.Context): FlutterEngine? {
@@ -454,6 +469,40 @@ class MainActivity: FlutterActivity() {
                 }
                 "getRouteMuted" -> {
                     result.success(getRouteMuted())
+                }
+                "activateDirectUsb" -> {
+                    val deviceName = call.argument<String>("deviceName")
+                    if (deviceName != null) {
+                        result.success(activateDirectUsb(deviceName))
+                    } else {
+                        result.error("INVALID_ARGUMENT", "deviceName is required", null)
+                    }
+                }
+                "setDirectUsbPlaybackFormat" -> {
+                    val sampleRate = call.argument<Int>("sampleRate")
+                    val bitDepth = call.argument<Int>("bitDepth")
+                    val channels = call.argument<Int>("channels")
+                    if (sampleRate != null && bitDepth != null && channels != null) {
+                        result.success(
+                            nativeSetRustDirectUsbPlaybackFormat(
+                                sampleRate,
+                                bitDepth,
+                                channels,
+                            )
+                        )
+                    } else {
+                        result.error(
+                            "INVALID_ARGUMENT",
+                            "sampleRate, bitDepth, and channels are required",
+                            null,
+                        )
+                    }
+                }
+                "clearDirectUsbPlaybackFormat" -> {
+                    result.success(nativeSetRustDirectUsbPlaybackFormat(0, 0, 0))
+                }
+                "deactivateDirectUsb" -> {
+                    result.success(deactivateDirectUsb())
                 }
                 else -> result.notImplemented()
             }
@@ -1755,6 +1804,83 @@ class MainActivity: FlutterActivity() {
         }
     }
 
+    private fun activateDirectUsb(deviceName: String): Boolean {
+        return try {
+            val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false
+            val device = usbManager.deviceList?.get(deviceName) ?: return false
+            if (!usbManager.hasPermission(device)) {
+                Log.e("UAC2", "Cannot activate direct USB without permission for $deviceName")
+                return false
+            }
+
+            val existingConnection = directUsbConnections[deviceName]
+            val connection = existingConnection ?: usbManager.openDevice(device)
+            if (connection == null) {
+                Log.e("UAC2", "Failed to open USB device for direct playback: $deviceName")
+                return false
+            }
+
+            val fileDescriptor = connection.fileDescriptor
+            if (fileDescriptor < 0) {
+                if (existingConnection == null) {
+                    connection.close()
+                }
+                Log.e("UAC2", "USB device returned invalid file descriptor: $deviceName")
+                return false
+            }
+
+            val registered = nativeRegisterRustDirectUsbDevice(
+                fileDescriptor,
+                device.vendorId,
+                device.productId,
+                device.productName ?: "USB Audio Device",
+                device.manufacturerName ?: "",
+                device.serialNumber,
+                device.deviceName,
+            )
+
+            if (!registered) {
+                if (existingConnection == null) {
+                    connection.close()
+                }
+                Log.e("UAC2", "Rust rejected direct USB registration for $deviceName")
+                return false
+            }
+
+            if (activeDirectUsbDeviceName != null && activeDirectUsbDeviceName != deviceName) {
+                closeDirectUsbConnection(activeDirectUsbDeviceName)
+            }
+
+            directUsbConnections[deviceName] = connection
+            activeDirectUsbDeviceName = deviceName
+            Log.i("UAC2", "Direct USB DAC activated for $deviceName")
+            true
+        } catch (e: Exception) {
+            Log.e("UAC2", "Failed to activate direct USB DAC: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun deactivateDirectUsb(): Boolean {
+        return try {
+            nativeClearRustDirectUsbPlayback()
+            closeDirectUsbConnection(activeDirectUsbDeviceName)
+            activeDirectUsbDeviceName = null
+            true
+        } catch (e: Exception) {
+            Log.e("UAC2", "Failed to deactivate direct USB DAC: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun closeDirectUsbConnection(deviceName: String?) {
+        if (deviceName == null) return
+        try {
+            directUsbConnections.remove(deviceName)?.close()
+        } catch (_: Exception) {
+        }
+    }
+
     private fun getRouteStatus(
         preferredDeviceName: String? = null,
         preferredProductName: String? = null,
@@ -2021,6 +2147,15 @@ class MainActivity: FlutterActivity() {
                     UsbManager.ACTION_USB_DEVICE_DETACHED -> {
                         // Invalidate cache on device detach
                         uac2DeviceCache = null
+                        val detachedDevice: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE)
+                        }
+                        if (detachedDevice?.deviceName == activeDirectUsbDeviceName) {
+                            deactivateDirectUsb()
+                        }
                         // Notify Flutter if channel is available
                         uac2Channel?.invokeMethod("onDeviceDetached", null)
                     }
@@ -2046,9 +2181,27 @@ class MainActivity: FlutterActivity() {
         unregisterReceiverSafely(usbPermissionReceiver)
         usbHotplugReceiver = null
         usbPermissionReceiver = null
+        deactivateDirectUsb()
     }
 
     companion object {
         private const val ACTION_USB_PERMISSION = "com.ultraelectronica.flick.USB_PERMISSION"
     }
+
+    private external fun nativeInitRustAndroidContext(context: Context): Boolean
+    private external fun nativeRegisterRustDirectUsbDevice(
+        fd: Int,
+        vendorId: Int,
+        productId: Int,
+        productName: String,
+        manufacturer: String,
+        serial: String?,
+        deviceName: String?,
+    ): Boolean
+    private external fun nativeSetRustDirectUsbPlaybackFormat(
+        sampleRate: Int,
+        bitDepth: Int,
+        channels: Int,
+    ): Boolean
+    private external fun nativeClearRustDirectUsbPlayback(): Boolean
 }

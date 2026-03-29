@@ -311,6 +311,11 @@ class PlayerService {
 
     _justAudioPlayer.positionStream.listen((pos) {
       if (_usingRustBackend) return;
+      final activeIndex = _justAudioPlayer.currentIndex;
+      if (activeIndex != null && activeIndex != _currentIndex) {
+        _syncCurrentSongFromIndex(activeIndex);
+      }
+
       // When repeat-one loops, just_audio may not fire completed; detect
       // position wrapping back to start so the notification progress bar resets.
       final prev = _lastPosition;
@@ -357,29 +362,43 @@ class PlayerService {
       if (_isRebuildingPlaylist || _suppressSequenceStateUpdates) return;
 
       if (sequenceState.currentIndex != null) {
-        final newIndex = sequenceState.currentIndex!;
-        if (newIndex != _currentIndex && newIndex < _playlist.length) {
-          _setCurrentIndex(newIndex);
-          _consumeQueueEntryAt(newIndex);
-          final newSong = _playlist[newIndex];
-          if (newSong != currentSongNotifier.value) {
-            debugPrint(
-              'Gapless transition: ${currentSongNotifier.value?.title} -> ${newSong.title}',
-            );
-            currentSongNotifier.value = newSong;
-            _recentlyPlayedRepository.recordPlay(newSong.id);
-            positionNotifier.value = Duration.zero;
-            unawaited(
-              _syncUac2PlaybackStatus(
-                newSong,
-                isPlaying: isPlayingNotifier.value,
-              ),
-            );
-            _updateNotificationState();
-          }
-        }
+        _syncCurrentSongFromIndex(sequenceState.currentIndex!);
       }
     });
+
+    // Some engines/transition paths may emit currentIndex without a matching
+    // sequenceState transition callback timing. Keep UI in sync either way.
+    _justAudioPlayer.currentIndexStream.listen((newIndex) {
+      if (_usingRustBackend) return;
+      if (_isRebuildingPlaylist || _suppressSequenceStateUpdates) return;
+      if (newIndex == null) return;
+      _syncCurrentSongFromIndex(newIndex);
+    });
+  }
+
+  void _syncCurrentSongFromIndex(int newIndex) {
+    if (newIndex < 0 || newIndex >= _playlist.length) return;
+
+    // Keep index and queue state synced even when _currentIndex was
+    // already moved by next()/previous() before stream events arrive.
+    if (newIndex != _currentIndex) {
+      _setCurrentIndex(newIndex);
+    }
+    _consumeQueueEntryAt(newIndex);
+
+    final newSong = _playlist[newIndex];
+    if (newSong != currentSongNotifier.value) {
+      debugPrint(
+        'Track transition: ${currentSongNotifier.value?.title} -> ${newSong.title}',
+      );
+      currentSongNotifier.value = newSong;
+      _recentlyPlayedRepository.recordPlay(newSong.id);
+      positionNotifier.value = Duration.zero;
+      unawaited(
+        _syncUac2PlaybackStatus(newSong, isPlaying: isPlayingNotifier.value),
+      );
+      _updateNotificationState();
+    }
   }
 
   void _setupRustAudioListeners() {
@@ -929,16 +948,17 @@ class PlayerService {
     }
 
     if (_currentIndex < _playlist.length - 1) {
-      _setCurrentIndex(_currentIndex + 1);
+      final targetIndex = _currentIndex + 1;
       debugPrint('next(): Advancing to index $_currentIndex');
       await _justAudioPlayer.seekToNext();
+      _syncCurrentSongFromIndex(targetIndex);
     } else if (loopModeNotifier.value == LoopMode.all) {
-      _setCurrentIndex(0);
       debugPrint('next(): LoopMode.all, wrapping to index 0');
       await _justAudioPlayer.seek(Duration.zero, index: 0);
       if (!isPlayingNotifier.value) {
         await _justAudioPlayer.play();
       }
+      _syncCurrentSongFromIndex(0);
     } else {
       debugPrint('next(): End of playlist, pausing');
       await pause();
@@ -967,8 +987,9 @@ class PlayerService {
       await seek(Duration.zero);
     } else {
       if (_currentIndex > 0) {
-        _setCurrentIndex(_currentIndex - 1);
+        final targetIndex = _currentIndex - 1;
         await _justAudioPlayer.seekToPrevious();
+        _syncCurrentSongFromIndex(targetIndex);
       } else {
         await seek(Duration.zero);
       }

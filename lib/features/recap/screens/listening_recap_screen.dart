@@ -180,18 +180,13 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Center(
-                                      child: ConstrainedBox(
-                                        constraints: BoxConstraints(
-                                          maxWidth: math.min(
-                                            context.screenWidth -
-                                                (AppConstants.spacingLg * 2),
-                                            420,
-                                          ),
-                                        ),
+                                      child: FittedBox(
+                                        fit: BoxFit.contain,
                                         child: RepaintBoundary(
                                           key: _cardBoundaryKey,
                                           child: _ListeningRecapHeroCard(
                                             recap: recap,
+                                            posterSized: true,
                                           ),
                                         ),
                                       ),
@@ -551,180 +546,211 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
 
 class _ListeningRecapHeroCard extends StatelessWidget {
   final ListeningRecap recap;
+  final bool posterSized;
 
-  const _ListeningRecapHeroCard({required this.recap});
+  const _ListeningRecapHeroCard({
+    required this.recap,
+    this.posterSized = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: 0.72,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: DecoratedBox(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF08111D), Color(0xFF141925), Color(0xFF21161A)],
-            ),
+    final card = ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF08111D), Color(0xFF141925), Color(0xFF21161A)],
           ),
-          child: Stack(
-            children: [
-              Positioned(
-                top: -80,
-                left: -20,
-                child: _GlowOrb(
-                  size: 220,
-                  colors: const [Color(0xFF5A9BFF), Color(0x005A9BFF)],
-                ),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -80,
+              left: -20,
+              child: _GlowOrb(
+                size: 220,
+                colors: const [Color(0xFF5A9BFF), Color(0x005A9BFF)],
               ),
-              Positioned(
-                bottom: -110,
-                right: -10,
-                child: _GlowOrb(
-                  size: 260,
-                  colors: const [Color(0xFFFFB35A), Color(0x00FFB35A)],
-                ),
+            ),
+            Positioned(
+              bottom: -110,
+              right: -10,
+              child: _GlowOrb(
+                size: 260,
+                colors: const [Color(0xFFFFB35A), Color(0x00FFB35A)],
               ),
-              Positioned(
-                top: 24,
-                right: 24,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppConstants.spacingSm,
-                    vertical: AppConstants.spacingXs,
+            ),
+            Positioned(
+              top: 24,
+              right: 24,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppConstants.spacingSm,
+                  vertical: AppConstants.spacingXs,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(AppConstants.radiusRound),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.16),
                   ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(
-                      AppConstants.radiusRound,
-                    ),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.16),
-                    ),
-                  ),
-                  child: Text(
-                    recap.period.label.toUpperCase(),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.4,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white.withValues(alpha: 0.9),
-                    ),
+                ),
+                child: Text(
+                  recap.period.label.toUpperCase(),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    letterSpacing: 1.4,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white.withValues(alpha: 0.9),
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(AppConstants.spacingLg),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppConstants.spacingSm,
-                        vertical: AppConstants.spacingXs,
+            ),
+            Padding(
+              padding: const EdgeInsets.all(AppConstants.spacingLg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppConstants.spacingSm,
+                      vertical: AppConstants.spacingXs,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusRound,
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(
-                          AppConstants.radiusRound,
-                        ),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.14),
-                        ),
-                      ),
-                      child: Text(
-                        'Flick Replay',
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontWeight: FontWeight.w700,
-                            ),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.14),
                       ),
                     ),
-                    const SizedBox(height: AppConstants.spacingLg),
-                    Text(
-                      _heroHeadline(recap),
-                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        height: 0.92,
+                    child: Text(
+                      'Flick Replay',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.92),
                         fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        fontSize: context.responsiveText(38),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.spacingLg),
+                  Text(
+                    _heroHeadline(recap),
+                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      height: 0.92,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      fontSize: context.responsiveText(38),
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.spacingSm),
+                  Text(
+                    _heroHeadlineCaption(recap),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.35,
+                      color: Colors.white.withValues(alpha: 0.82),
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.spacingSm),
+                  Text(
+                    _formatRecapRange(recap),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.72),
+                    ),
+                  ),
+                  const Spacer(),
+                  Align(
+                    child: _HeroAlbumArt(
+                      imagePath:
+                          recap.topSong?.song.albumArt ??
+                          recap.topAlbum?.representativeSong.albumArt,
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.spacingMd),
+                  if (recap.topSong != null) ...[
+                    Text(
+                      recap.topSong!.song.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      recap.topSong!.song.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.7),
                       ),
                     ),
                     const SizedBox(height: AppConstants.spacingSm),
-                    Text(
-                      _formatRecapRange(recap),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.72),
-                      ),
-                    ),
-                    const Spacer(),
-                    Align(
-                      child: _HeroAlbumArt(
-                        imagePath:
-                            recap.topSong?.song.albumArt ??
-                            recap.topAlbum?.representativeSong.albumArt,
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingMd),
-                    if (recap.topSong != null) ...[
-                      Text(
-                        recap.topSong!.song.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        recap.topSong!.song.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.7),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: AppConstants.spacingXs,
+                      runSpacing: AppConstants.spacingXs,
+                      children: [
+                        _PosterStatChip(
+                          label:
+                              'Top song · ${_formatPlayCount(recap.topSong!.plays)}',
                         ),
-                      ),
-                    ] else ...[
-                      Text(
-                        'No plays yet',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        recap.period.emptyMessage,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.7),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: AppConstants.spacingLg),
-                    _RecapMetricGrid(recap: recap),
-                    const SizedBox(height: AppConstants.spacingMd),
+                      ],
+                    ),
+                  ] else ...[
                     Text(
-                      _heroClosingLine(recap),
+                      'No plays yet',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      recap.period.emptyMessage,
+                      textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        height: 1.45,
-                        color: Colors.white.withValues(alpha: 0.84),
+                        color: Colors.white.withValues(alpha: 0.7),
                       ),
                     ),
                   ],
-                ),
+                  const SizedBox(height: AppConstants.spacingLg),
+                  _RecapMetricGrid(recap: recap),
+                  const SizedBox(height: AppConstants.spacingMd),
+                  Text(
+                    _heroClosingLine(recap),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.45,
+                      color: Colors.white.withValues(alpha: 0.84),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
+    );
+
+    if (posterSized) {
+      return SizedBox(
+        width: _RecapPosterDimensions.posterWidth,
+        height: _RecapPosterDimensions.posterHeight,
+        child: card,
+      );
+    }
+
+    return AspectRatio(
+      aspectRatio: _RecapPosterDimensions.aspectRatio,
+      child: card,
     );
   }
 }
@@ -883,13 +909,14 @@ class _ListeningRecapPosterScreenState
                   const SizedBox(height: AppConstants.spacingLg),
                   Expanded(
                     child: Center(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxWidth: math.min(context.screenWidth - 48, 420),
-                        ),
+                      child: FittedBox(
+                        fit: BoxFit.contain,
                         child: RepaintBoundary(
                           key: _posterBoundaryKey,
-                          child: _ListeningRecapHeroCard(recap: widget.recap),
+                          child: _ListeningRecapHeroCard(
+                            recap: widget.recap,
+                            posterSized: true,
+                          ),
                         ),
                       ),
                     ),
@@ -1025,9 +1052,6 @@ class _RecapRankingPosterScreenState extends State<_RecapRankingPosterScreen> {
 }
 
 class _RecapRankingPosterCard extends StatelessWidget {
-  static const double posterWidth = 420;
-  static const double posterHeight = 760;
-
   final ListeningRecap recap;
   final _RecapRankingPosterType type;
 
@@ -1041,8 +1065,8 @@ class _RecapRankingPosterCard extends StatelessWidget {
     };
 
     return SizedBox(
-      width: posterWidth,
-      height: posterHeight,
+      width: _RecapPosterDimensions.posterWidth,
+      height: _RecapPosterDimensions.posterHeight,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(28),
         child: DecoratedBox(
@@ -1416,6 +1440,12 @@ class _RecapRankingPosterCard extends StatelessWidget {
   }
 }
 
+class _RecapPosterDimensions {
+  static const double posterWidth = 420;
+  static const double posterHeight = 760;
+  static const double aspectRatio = posterWidth / posterHeight;
+}
+
 class _RecapBackdrop extends StatelessWidget {
   const _RecapBackdrop();
 
@@ -1539,7 +1569,7 @@ class _RecapMetricGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final metrics = [
-      _MetricData(label: 'Plays', value: '${recap.totalPlays}'),
+      _MetricData(label: 'Total Plays', value: '${recap.totalPlays}'),
       _MetricData(
         label: 'Listen Time',
         value: _formatCompactDuration(recap.totalListeningTime),
@@ -2197,8 +2227,15 @@ String _heroHeadline(ListeningRecap recap) {
     return '${recap.period.label}\nwaiting';
   }
 
-  final listens = recap.totalPlays == 1 ? 'play' : 'plays';
-  return '${recap.totalPlays} $listens\nlocked in';
+  return '${recap.totalPlays} total\nplays';
+}
+
+String _heroHeadlineCaption(ListeningRecap recap) {
+  if (!recap.hasData) {
+    return 'Your ${recap.period.label.toLowerCase()} recap will appear here.';
+  }
+
+  return 'Across every song in this ${recap.period.label.toLowerCase()} period.';
 }
 
 String _heroClosingLine(ListeningRecap recap) {
@@ -2207,11 +2244,12 @@ String _heroClosingLine(ListeningRecap recap) {
   }
 
   if (recap.topArtist != null && recap.topSong != null) {
-    return '${recap.topArtist!.artist} led the rotation, and "${recap.topSong!.song.title}" finished as your most replayed track.';
+    final topSongPlays = _formatPlayCount(recap.topSong!.plays);
+    return '${recap.topArtist!.artist} led the rotation, and "${recap.topSong!.song.title}" finished as your most replayed track with $topSongPlays out of ${recap.totalPlays} total.';
   }
 
   if (recap.topSong != null) {
-    return '"${recap.topSong!.song.title}" was the clear standout in this ${recap.period.label.toLowerCase()} recap.';
+    return '"${recap.topSong!.song.title}" led this ${recap.period.label.toLowerCase()} recap with ${_formatPlayCount(recap.topSong!.plays)} out of ${recap.totalPlays} total.';
   }
 
   return 'Your listening pattern is starting to take shape.';

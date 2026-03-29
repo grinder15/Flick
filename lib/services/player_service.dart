@@ -47,6 +47,8 @@ class PlayerService {
   bool _rustListenersAttached = false;
   Future<bool>? _rustInitInFlight;
   bool _suppressSequenceStateUpdates = false;
+  DateTime? _autoSyncGuardUntil;
+  String? _autoSyncGuardSongId;
 
   // Timer to periodically save position
   Timer? _positionSaveTimer;
@@ -304,16 +306,19 @@ class PlayerService {
         _updateNotificationState();
       }
 
-      if (state.processingState == just_audio.ProcessingState.completed) {
+      if (!_suppressSequenceStateUpdates &&
+          state.processingState == just_audio.ProcessingState.completed) {
         _onSongFinished();
       }
     });
 
     _justAudioPlayer.positionStream.listen((pos) {
       if (_usingRustBackend) return;
-      final activeIndex = _justAudioPlayer.currentIndex;
-      if (activeIndex != null && activeIndex != _currentIndex) {
-        _syncCurrentSongFromIndex(activeIndex);
+      if (!_suppressSequenceStateUpdates) {
+        final activeIndex = _justAudioPlayer.currentIndex;
+        if (activeIndex != null && activeIndex != _currentIndex) {
+          _syncCurrentSongFromIndex(activeIndex, fromListener: true);
+        }
       }
 
       // When repeat-one loops, just_audio may not fire completed; detect
@@ -321,6 +326,7 @@ class PlayerService {
       final prev = _lastPosition;
       _lastPosition = pos;
       positionNotifier.value = pos;
+      _updateAutoSyncGuardFromProgress(pos);
 
       // Update notification on loop wrap-around
       if (currentSongNotifier.value != null &&
@@ -362,7 +368,10 @@ class PlayerService {
       if (_isRebuildingPlaylist || _suppressSequenceStateUpdates) return;
 
       if (sequenceState.currentIndex != null) {
-        _syncCurrentSongFromIndex(sequenceState.currentIndex!);
+        _syncCurrentSongFromIndex(
+          sequenceState.currentIndex!,
+          fromListener: true,
+        );
       }
     });
 
@@ -372,12 +381,20 @@ class PlayerService {
       if (_usingRustBackend) return;
       if (_isRebuildingPlaylist || _suppressSequenceStateUpdates) return;
       if (newIndex == null) return;
-      _syncCurrentSongFromIndex(newIndex);
+      _syncCurrentSongFromIndex(newIndex, fromListener: true);
     });
   }
 
-  void _syncCurrentSongFromIndex(int newIndex) {
+  void _syncCurrentSongFromIndex(int newIndex, {bool fromListener = false}) {
     if (newIndex < 0 || newIndex >= _playlist.length) return;
+
+    final newSong = _playlist[newIndex];
+    if (fromListener && _shouldIgnoreAutoSyncedSong(newSong)) {
+      debugPrint(
+        'Ignoring transient auto-sync to ${newSong.title} during explicit play handoff',
+      );
+      return;
+    }
 
     // Keep index and queue state synced even when _currentIndex was
     // already moved by next()/previous() before stream events arrive.
@@ -386,7 +403,9 @@ class PlayerService {
     }
     _consumeQueueEntryAt(newIndex);
 
-    final newSong = _playlist[newIndex];
+    if (_autoSyncGuardSongId == newSong.id) {
+      _clearAutoSyncGuard();
+    }
     if (newSong != currentSongNotifier.value) {
       debugPrint(
         'Track transition: ${currentSongNotifier.value?.title} -> ${newSong.title}',
@@ -720,62 +739,65 @@ class PlayerService {
   /// Play a specific song.
   Future<void> play(Song song, {List<Song>? playlist}) async {
     try {
-      _positionSaveTimer?.cancel();
+      await _runWithSuppressedSequenceStateUpdates(() async {
+        _positionSaveTimer?.cancel();
 
-      if (_usingRustBackend) {
-        await _rustAudioService.stop();
-        _usingRustBackend = false;
-      }
+        if (_usingRustBackend) {
+          await _rustAudioService.stop();
+          _usingRustBackend = false;
+        } else {
+          await _justAudioPlayer.stop();
+        }
 
-      if (playlist != null) {
-        _replacePlaybackContext(playlist);
-        _setCurrentIndex(_playlist.indexOf(song));
-        _insertQueuedEntriesAfterCurrent();
-      } else {
-        if (!_playlist.contains(song)) {
-          _replacePlaybackContext([song]);
-          _setCurrentIndex(0);
+        if (playlist != null) {
+          _replacePlaybackContext(playlist);
+          _setCurrentIndex(_playlist.indexOf(song));
           _insertQueuedEntriesAfterCurrent();
         } else {
-          _setCurrentIndex(_playlist.indexOf(song));
-        }
-      }
-
-      currentSongNotifier.value = song;
-      _recentlyPlayedRepository.recordPlay(song.id);
-
-      positionNotifier.value = Duration.zero;
-      durationNotifier.value = Duration.zero;
-      await _savePosition();
-
-      if (song.filePath != null) {
-        final isFav = await _favoritesService.isFavorite(song.id);
-
-        await _notificationService.showNotification(
-          song: song,
-          isPlaying: true,
-          duration: song.duration,
-          position: Duration.zero,
-          isShuffle: isShuffleNotifier.value,
-          isFavorite: isFav,
-        );
-
-        // Prefer Rust backend up-front for formats that frequently fail or
-        // silently decode incorrectly on some Android decoder stacks.
-        if (_shouldUseRustFallback(song)) {
-          final usedRust = await _tryRustFallbackPlayback(song);
-          if (usedRust) {
-            return;
+          if (!_playlist.contains(song)) {
+            _replacePlaybackContext([song]);
+            _setCurrentIndex(0);
+            _insertQueuedEntriesAfterCurrent();
+          } else {
+            _setCurrentIndex(_playlist.indexOf(song));
           }
-          debugPrint(
-            'Rust preferred backend failed for ${song.title}; trying just_audio',
-          );
         }
 
-        // Build audio sources for gapless playback
-        final sources = await _buildAudioSources();
+        currentSongNotifier.value = song;
+        _armAutoSyncGuard(song);
+        _recentlyPlayedRepository.recordPlay(song.id);
 
-        await _runWithSuppressedSequenceStateUpdates(() async {
+        positionNotifier.value = Duration.zero;
+        durationNotifier.value = Duration.zero;
+        await _savePosition();
+
+        if (song.filePath != null) {
+          final isFav = await _favoritesService.isFavorite(song.id);
+
+          await _notificationService.showNotification(
+            song: song,
+            isPlaying: true,
+            duration: song.duration,
+            position: Duration.zero,
+            isShuffle: isShuffleNotifier.value,
+            isFavorite: isFav,
+          );
+
+          // Prefer Rust backend up-front for formats that frequently fail or
+          // silently decode incorrectly on some Android decoder stacks.
+          if (_shouldUseRustFallback(song)) {
+            final usedRust = await _tryRustFallbackPlayback(song);
+            if (usedRust) {
+              return;
+            }
+            debugPrint(
+              'Rust preferred backend failed for ${song.title}; trying just_audio',
+            );
+          }
+
+          // Build audio sources for gapless playback
+          final sources = await _buildAudioSources();
+
           await _justAudioPlayer.setAudioSources(
             sources,
             initialIndex: _currentIndex,
@@ -784,15 +806,15 @@ class PlayerService {
           await _justAudioPlayer.setSpeed(playbackSpeedNotifier.value);
           await _updateLoopMode();
           await _justAudioPlayer.play();
-        });
-        await reapplyEqualizer();
-        await _syncUac2PlaybackStatus(song, isPlaying: true);
+          await reapplyEqualizer();
+          await _syncUac2PlaybackStatus(song, isPlaying: true);
 
-        _positionSaveTimer = Timer.periodic(
-          const Duration(seconds: 5),
-          (_) => _savePosition(),
-        );
-      }
+          _positionSaveTimer = Timer.periodic(
+            const Duration(seconds: 5),
+            (_) => _savePosition(),
+          );
+        }
+      });
     } catch (e) {
       debugPrint("Error playing song with just_audio: $e");
       final usedRustFallback = await _tryRustFallbackPlayback(song);
@@ -1269,6 +1291,38 @@ class PlayerService {
   }
 
   bool get isSleepTimerActive => sleepTimerRemainingNotifier.value != null;
+
+  bool _shouldIgnoreAutoSyncedSong(Song song) {
+    final guardUntil = _autoSyncGuardUntil;
+    final guardedSongId = _autoSyncGuardSongId;
+    if (guardUntil == null || guardedSongId == null) {
+      return false;
+    }
+
+    if (DateTime.now().isAfter(guardUntil)) {
+      _clearAutoSyncGuard();
+      return false;
+    }
+
+    return song.id != guardedSongId;
+  }
+
+  void _armAutoSyncGuard(Song song) {
+    _autoSyncGuardSongId = song.id;
+    _autoSyncGuardUntil = DateTime.now().add(const Duration(seconds: 2));
+  }
+
+  void _updateAutoSyncGuardFromProgress(Duration position) {
+    if (_autoSyncGuardSongId == null) return;
+    if (position > const Duration(milliseconds: 250)) {
+      _clearAutoSyncGuard();
+    }
+  }
+
+  void _clearAutoSyncGuard() {
+    _autoSyncGuardSongId = null;
+    _autoSyncGuardUntil = null;
+  }
 
   void dispose() {
     _positionSaveTimer?.cancel();

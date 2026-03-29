@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
@@ -10,6 +11,7 @@ import 'package:flick/data/repositories/recently_played_repository.dart';
 import 'package:flick/services/equalizer_service.dart';
 import 'package:flick/services/rust_audio_service.dart';
 import 'package:flick/services/uac2_service.dart';
+import 'package:flick/services/alac_converter_service.dart';
 
 /// Loop mode for playback
 enum LoopMode { off, one, all }
@@ -42,6 +44,7 @@ class PlayerService {
     'com.ultraelectronica.flick/storage',
   );
   final Map<String, String> _stagedPlaybackPathCache = {};
+  final Map<String, String> _convertedPlaybackPathCache = {};
   bool _usingRustBackend = false;
   bool _rustBackendAvailable = false;
   bool _rustListenersAttached = false;
@@ -545,6 +548,9 @@ class PlayerService {
       return Uri.parse('');
     }
 
+    final sourceKey = filePath;
+    String resolvedPath = filePath;
+
     final parsed = Uri.tryParse(filePath);
     final isAndroidContentUri =
         !kIsWeb &&
@@ -559,11 +565,21 @@ class PlayerService {
         extensionHint: _preferredExtension(song),
       );
       if (stagedPath != null) {
-        return Uri.file(stagedPath);
+        resolvedPath = stagedPath;
       }
     }
 
-    return _toPlaybackUri(filePath);
+    if (_shouldConvertToWav(song)) {
+      final convertedPath = await _convertPlaybackPathToWav(
+        sourceKey: sourceKey,
+        sourcePath: resolvedPath,
+      );
+      if (convertedPath != null) {
+        return Uri.file(convertedPath);
+      }
+    }
+
+    return _toPlaybackUri(resolvedPath);
   }
 
   bool _shouldStageForPlayback(Song song) {
@@ -646,12 +662,44 @@ class PlayerService {
     return Uri.file(rawPath);
   }
 
+  bool _shouldConvertToWav(Song song) {
+    final normalized = song.fileType.replaceAll('.', '').trim().toUpperCase();
+    return normalized == 'AIFF' || normalized == 'AIF';
+  }
+
+  Future<String?> _convertPlaybackPathToWav({
+    required String sourceKey,
+    required String sourcePath,
+  }) async {
+    final cached = _convertedPlaybackPathCache[sourceKey];
+    if (cached != null && cached.isNotEmpty) {
+      final cachedFile = Uri.file(cached).toFilePath();
+      if (await File(cachedFile).exists()) {
+        return cached;
+      }
+      _convertedPlaybackPathCache.remove(sourceKey);
+    }
+
+    final playbackUri = _toPlaybackUri(sourcePath);
+    if (playbackUri.scheme != 'file') {
+      return null;
+    }
+
+    try {
+      final convertedPath = await AlacConverterService.convertToWavFile(
+        playbackUri.toFilePath(),
+      );
+      _convertedPlaybackPathCache[sourceKey] = convertedPath;
+      return convertedPath;
+    } catch (e) {
+      debugPrint('Failed to convert playback path to WAV: $e');
+      return null;
+    }
+  }
+
   bool _shouldUseRustFallback(Song song) {
     final normalized = song.fileType.replaceAll('.', '').trim().toUpperCase();
-    return normalized == 'ALAC' ||
-        normalized == 'AIFF' ||
-        normalized == 'AIF' ||
-        normalized == 'M4A';
+    return normalized == 'ALAC' || normalized == 'M4A';
   }
 
   Future<String?> _resolveRustPath(Song song) async {
@@ -1341,6 +1389,10 @@ class PlayerService {
     bufferedPositionNotifier.dispose();
     playbackSpeedNotifier.dispose();
     sleepTimerRemainingNotifier.dispose();
+
+    for (final convertedPath in _convertedPlaybackPathCache.values) {
+      unawaited(_deleteTemporaryPlaybackFile(convertedPath));
+    }
   }
 
   Future<T> _runWithSuppressedSequenceStateUpdates<T>(
@@ -1352,6 +1404,17 @@ class PlayerService {
       return await action();
     } finally {
       _suppressSequenceStateUpdates = previousValue;
+    }
+  }
+
+  Future<void> _deleteTemporaryPlaybackFile(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('Failed to delete temporary playback file: $e');
     }
   }
 }

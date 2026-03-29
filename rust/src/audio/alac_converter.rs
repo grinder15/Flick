@@ -1,6 +1,6 @@
-//! ALAC/M4A to WAV/PCM real-time converter
+//! ALAC/M4A/AIFF to WAV/PCM real-time converter
 //!
-//! This module provides lossless conversion of ALAC and M4A files to WAV/PCM format
+//! This module provides lossless conversion of ALAC, M4A, and AIFF files to WAV/PCM format
 //! while preserving the original bit depth (16/24/32-bit).
 //!
 //! # Architecture
@@ -11,7 +11,7 @@
 //! - Thread-safe session management
 
 use anyhow::{Context, Result};
-use std::io::{Cursor, Seek};
+use std::io::Cursor;
 use symphonia::core::audio::{AudioBufferRef, Signal};
 use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
@@ -41,22 +41,7 @@ pub struct ConversionSession {
 impl ConversionSession {
     /// Create a new conversion session from file bytes
     pub fn new(file_bytes: Vec<u8>) -> Result<Self> {
-        let cursor = Cursor::new(file_bytes);
-        let media_source = MediaSourceStream::new(Box::new(cursor), Default::default());
-
-        // Probe the format
-        let mut hint = Hint::new();
-        hint.with_extension("m4a");
-
-        let format_opts = FormatOptions::default();
-        let metadata_opts = MetadataOptions::default();
-        let probe = get_probe();
-
-        let probed = probe
-            .format(&hint, media_source, &format_opts, &metadata_opts)
-            .context("Failed to probe audio format")?;
-
-        let mut format_reader = probed.format;
+        let format_reader = probe_format_reader(&file_bytes)?;
 
         // Find the first audio track
         let track = format_reader
@@ -169,8 +154,33 @@ impl ConversionSession {
     }
 }
 
+fn probe_format_reader(file_bytes: &[u8]) -> Result<Box<dyn FormatReader>> {
+    let format_opts = FormatOptions::default();
+    let metadata_opts = MetadataOptions::default();
+    let probe = get_probe();
+    let mut last_error: Option<anyhow::Error> = None;
+
+    // Try content-based probing first, then a few known extensions for
+    // containers that can benefit from a stronger hint.
+    for extension_hint in [None, Some("m4a"), Some("alac"), Some("aiff"), Some("aif")] {
+        let cursor = Cursor::new(file_bytes.to_vec());
+        let media_source = MediaSourceStream::new(Box::new(cursor), Default::default());
+        let mut hint = Hint::new();
+        if let Some(extension_hint) = extension_hint {
+            hint.with_extension(extension_hint);
+        }
+
+        match probe.format(&hint, media_source, &format_opts, &metadata_opts) {
+            Ok(probed) => return Ok(probed.format),
+            Err(error) => last_error = Some(anyhow::Error::new(error)),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Failed to probe audio format")))
+}
+
 /// Convert AudioBufferRef to interleaved PCM bytes preserving bit depth
-fn audio_buffer_to_pcm_bytes(buffer: AudioBufferRef, bit_depth: u16) -> Result<Vec<u8>> {
+fn audio_buffer_to_pcm_bytes(buffer: AudioBufferRef, _bit_depth: u16) -> Result<Vec<u8>> {
     match buffer {
         // 8-bit signed integer
         AudioBufferRef::S8(buf) => {

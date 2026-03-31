@@ -18,6 +18,7 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
   double _volume = 1.0;
   bool _muted = false;
   bool _loading = true;
+  bool _muteUpdateInFlight = false;
 
   @override
   void initState() {
@@ -46,10 +47,25 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
   }
 
   Future<void> _toggleMute() async {
-    final newMuted = !_muted;
-    setState(() => _muted = newMuted);
     final deviceStatusNotifier = ref.read(uac2DeviceStatusProvider);
-    await deviceStatusNotifier.setMute(newMuted);
+    final currentMuted = deviceStatusNotifier.status?.muted ?? _muted;
+    final newMuted = !currentMuted;
+
+    setState(() {
+      _muted = newMuted;
+      _muteUpdateInFlight = true;
+    });
+
+    final success = await deviceStatusNotifier.setMute(newMuted);
+    final refreshedMuted = success
+        ? await deviceStatusNotifier.getMute()
+        : null;
+
+    if (!mounted) return;
+    setState(() {
+      _muted = success ? (refreshedMuted ?? newMuted) : currentMuted;
+      _muteUpdateInFlight = false;
+    });
   }
 
   @override
@@ -57,7 +73,9 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
     final deviceStatusNotifier = ref.watch(uac2DeviceStatusProvider);
     final deviceStatus = deviceStatusNotifier.status;
     final effectiveVolume = deviceStatus?.volume ?? _volume;
-    final effectiveMuted = deviceStatus?.muted ?? _muted;
+    final effectiveMuted = _muteUpdateInFlight
+        ? _muted
+        : (deviceStatus?.muted ?? _muted);
 
     if (deviceStatus == null ||
         deviceStatus.state == Uac2State.idle ||
@@ -103,17 +121,17 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
                           : 'Device DAC Volume',
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: context.adaptiveTextPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        color: context.adaptiveTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     if ((deviceStatus.routeLabel?.isNotEmpty ?? false))
                       Text(
                         deviceStatus.routeLabel!,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: context.adaptiveTextTertiary,
-                            ),
+                          color: context.adaptiveTextTertiary,
+                        ),
                       ),
                   ],
                 ),
@@ -123,7 +141,7 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
                   effectiveMuted ? LucideIcons.volumeX : LucideIcons.volume2,
                   size: 20,
                 ),
-                onPressed: _toggleMute,
+                onPressed: _muteUpdateInFlight ? null : _toggleMute,
                 color: effectiveMuted
                     ? Colors.red.shade400
                     : context.adaptiveTextSecondary,
@@ -162,9 +180,9 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
                 child: Text(
                   '${(effectiveVolume * 100).round()}%',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.adaptiveTextSecondary,
-                        fontWeight: FontWeight.w500,
-                      ),
+                    color: context.adaptiveTextSecondary,
+                    fontWeight: FontWeight.w500,
+                  ),
                   textAlign: TextAlign.right,
                 ),
               ),

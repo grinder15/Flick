@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
@@ -16,6 +17,124 @@ import 'package:flick/services/alac_converter_service.dart';
 
 /// Loop mode for playback
 enum LoopMode { off, one, all }
+
+@visibleForTesting
+List<Song> buildShufflePlaybackOrder({
+  required List<Song> songs,
+  required Song? current,
+  math.Random? random,
+}) {
+  final reordered = List<Song>.from(songs);
+  if (reordered.length < 2) return reordered;
+
+  if (current == null) {
+    reordered.shuffle(random);
+    return reordered;
+  }
+
+  final currentIndex = reordered.indexWhere((song) => song.id == current.id);
+  if (currentIndex == -1) {
+    reordered.shuffle(random);
+    return reordered;
+  }
+
+  final currentSong = reordered.removeAt(currentIndex);
+  reordered.shuffle(random);
+  return <Song>[currentSong, ...reordered];
+}
+
+@visibleForTesting
+List<Song> restorePlaybackOrder({
+  required List<Song> originalPlaylist,
+  required Song? current,
+  required int insertionIndex,
+}) {
+  final restored = List<Song>.from(originalPlaylist);
+  if (current == null) {
+    return restored;
+  }
+
+  final alreadyPresent = restored.any((song) => song.id == current.id);
+  if (!alreadyPresent) {
+    restored.insert(insertionIndex.clamp(0, restored.length), current);
+  }
+  return restored;
+}
+
+@visibleForTesting
+String canonicalPlaybackFileType({required String fileType, String? filePath}) {
+  final pathExtension = extractPlaybackPathExtension(filePath);
+  final candidates = <String>[
+    if (pathExtension.isNotEmpty) pathExtension,
+    if (fileType.trim().isNotEmpty) fileType,
+  ];
+
+  for (final candidate in candidates) {
+    final normalized = _normalizePlaybackFileTypeCandidate(candidate);
+    if (normalized.isNotEmpty) {
+      return normalized;
+    }
+  }
+
+  return '';
+}
+
+@visibleForTesting
+String extractPlaybackPathExtension(String? path) {
+  if (path == null || path.isEmpty) return '';
+
+  final withoutQuery = path.split('?').first.split('#').first;
+  final dotIndex = withoutQuery.lastIndexOf('.');
+  if (dotIndex < 0 || dotIndex >= withoutQuery.length - 1) return '';
+  return withoutQuery.substring(dotIndex + 1).toLowerCase();
+}
+
+String _normalizePlaybackFileTypeCandidate(String rawValue) {
+  var token = rawValue.trim().toLowerCase();
+  if (token.isEmpty) return '';
+
+  final separatorIndex = token.indexOf(';');
+  if (separatorIndex >= 0) {
+    token = token.substring(0, separatorIndex);
+  }
+
+  final slashIndex = token.lastIndexOf('/');
+  if (slashIndex >= 0 && slashIndex < token.length - 1) {
+    token = token.substring(slashIndex + 1);
+  }
+
+  token = token.replaceFirst(RegExp(r'^\.+'), '');
+  token = token.trim();
+
+  switch (token) {
+    case 'aif':
+    case 'aiff':
+    case 'x-aiff':
+      return 'aiff';
+    case 'alac':
+    case 'm4a':
+    case 'mp4':
+    case 'x-m4a':
+      return 'm4a';
+    case 'ogg':
+    case 'oga':
+    case 'vorbis':
+      return 'ogg';
+    case 'ogx':
+      return 'ogx';
+    case 'opus':
+      return 'opus';
+    case 'wave':
+      return 'wav';
+    default:
+      return token;
+  }
+}
+
+@visibleForTesting
+bool shouldOptimisticallySyncSkipForLoopMode(LoopMode loopMode) {
+  return loopMode != LoopMode.one;
+}
 
 /// Singleton service to manage global audio playback state.
 ///
@@ -47,19 +166,27 @@ class PlayerService {
   );
   final Map<String, String> _stagedPlaybackPathCache = {};
   final Map<String, String> _convertedPlaybackPathCache = {};
+  final Set<String> _unsupportedWavConversionSources = <String>{};
   bool _usingRustBackend = false;
   bool _rustBackendAvailable = false;
   bool _justAudioListenersAttached = false;
   bool _rustListenersAttached = false;
+  bool _uac2RouteListenerAttached = false;
   bool _audioInitialized = false;
   Future<void>? _audioInitInFlight;
+  Future<void>? _playStartupInFlight;
   Future<bool>? _rustInitInFlight;
+  Future<void>? _backendHandoffInFlight;
   bool _suppressSequenceStateUpdates = false;
+  bool _backendHandoffRecheckRequested = false;
+  bool _routeRecheckAfterPlayStartup = false;
   DateTime? _autoSyncGuardUntil;
   String? _autoSyncGuardSongId;
+  double _currentVolume = 1.0;
 
   // Timer to periodically save position
   Timer? _positionSaveTimer;
+  Timer? _backendHandoffDebounceTimer;
 
   // State Notifiers
   final ValueNotifier<Song?> currentSongNotifier = ValueNotifier(null);
@@ -107,6 +234,7 @@ class PlayerService {
   List<Song> get queue =>
       List.unmodifiable(_queuedEntries.map((entry) => entry.song));
   int get currentIndex => _currentIndex;
+  bool get isUsingRustBackend => _usingRustBackend;
   List<Song> get upNext {
     if (_playlist.isEmpty) return const [];
     final startIndex = (_currentIndex + 1).clamp(0, _playlist.length);
@@ -217,6 +345,8 @@ class PlayerService {
     try {
       _setupJustAudioListeners();
       _setupRustAudioListeners();
+      _setupUac2RouteListener();
+      await _justAudioPlayer.setVolume(_currentVolume);
       await _updateLoopMode();
       _audioInitialized = true;
 
@@ -267,6 +397,12 @@ class PlayerService {
       await Future.delayed(const Duration(milliseconds: 50));
     }
     return false;
+  }
+
+  bool _isRustStatePlaying(RustPlaybackState state) {
+    return state == RustPlaybackState.playing ||
+        state == RustPlaybackState.crossfading ||
+        state == RustPlaybackState.buffering;
   }
 
   Uac2AudioFormat? _deriveUac2FormatFromSong(Song? song) {
@@ -555,6 +691,246 @@ class PlayerService {
     };
   }
 
+  void _setupUac2RouteListener() {
+    if (_uac2RouteListenerAttached) return;
+    _uac2RouteListenerAttached = true;
+    _uac2Service.addStatusListener(_handleUac2StatusChanged);
+  }
+
+  void _handleUac2StatusChanged(Uac2DeviceStatus? status) {
+    if (!Platform.isAndroid) return;
+    final song = currentSongNotifier.value;
+    if (song?.filePath == null) return;
+
+    _backendHandoffDebounceTimer?.cancel();
+    _backendHandoffDebounceTimer = Timer(
+      const Duration(milliseconds: 350),
+      () => unawaited(
+        _reconcileBackendWithPreferredRoute(
+          reason:
+              'UAC2 route update (${status?.routeType.name ?? 'unavailable'})',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _reconcileBackendWithPreferredRoute({
+    required String reason,
+  }) async {
+    if (_playStartupInFlight != null) {
+      _routeRecheckAfterPlayStartup = true;
+      return;
+    }
+
+    final inFlight = _backendHandoffInFlight;
+    if (inFlight != null) {
+      _backendHandoffRecheckRequested = true;
+      return;
+    }
+
+    final operation = _performBackendRouteReconciliation(reason: reason);
+    _backendHandoffInFlight = operation;
+    try {
+      await operation;
+    } finally {
+      _backendHandoffInFlight = null;
+      if (_backendHandoffRecheckRequested) {
+        _backendHandoffRecheckRequested = false;
+        unawaited(
+          _reconcileBackendWithPreferredRoute(
+            reason: 'pending backend route recheck',
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _performBackendRouteReconciliation({
+    required String reason,
+  }) async {
+    final song = currentSongNotifier.value;
+    if (song == null || song.filePath == null) return;
+
+    final shouldUseRust = await _shouldPreferRustBackend(song);
+    if (shouldUseRust == _usingRustBackend) {
+      return;
+    }
+
+    final resumePlayback = isPlayingNotifier.value;
+    final position = positionNotifier.value;
+
+    if (shouldUseRust) {
+      if (!resumePlayback) {
+        return;
+      }
+      await _handoffJustAudioPlaybackToRust(
+        song: song,
+        position: position,
+        resumePlayback: resumePlayback,
+        reason: reason,
+      );
+      return;
+    }
+
+    await _handoffRustPlaybackToJustAudio(
+      song: song,
+      position: position,
+      resumePlayback: resumePlayback,
+      reason: reason,
+    );
+  }
+
+  Future<void> _loadJustAudioAtPosition(Duration position) async {
+    final sources = await _buildAudioSources();
+    final resumeIndex = _currentIndex >= 0 ? _currentIndex : 0;
+    await _runWithSuppressedSequenceStateUpdates(() async {
+      await _justAudioPlayer.setAudioSources(
+        sources,
+        initialIndex: resumeIndex,
+        preload: true,
+      );
+      await _justAudioPlayer.setSpeed(playbackSpeedNotifier.value);
+      await _justAudioPlayer.setVolume(_currentVolume);
+      await _updateLoopMode();
+      await _justAudioPlayer.seek(position, index: resumeIndex);
+    });
+  }
+
+  Future<bool> _handoffRustPlaybackToJustAudio({
+    required Song song,
+    required Duration position,
+    required bool resumePlayback,
+    required String reason,
+  }) async {
+    try {
+      if (resumePlayback) {
+        await _rustAudioService.pause();
+      }
+
+      await _loadJustAudioAtPosition(position);
+      await _rustAudioService.stop();
+      _usingRustBackend = false;
+
+      if (resumePlayback) {
+        await _justAudioPlayer.play();
+        await reapplyEqualizer();
+      }
+
+      isPlayingNotifier.value = resumePlayback;
+      positionNotifier.value = position;
+      durationNotifier.value = song.duration;
+      bufferedPositionNotifier.value = Duration.zero;
+      _ensurePositionSaveTimer();
+      unawaited(_syncUac2PlaybackStatus(song, isPlaying: resumePlayback));
+      unawaited(_updateNotificationState());
+
+      debugPrint(
+        'Switched playback backend to just_audio for ${song.title} ($reason)',
+      );
+      return true;
+    } catch (e) {
+      _usingRustBackend = true;
+      try {
+        await _justAudioPlayer.stop();
+      } catch (_) {}
+      if (resumePlayback) {
+        try {
+          await _rustAudioService.resume();
+        } catch (_) {}
+      }
+      debugPrint(
+        'Failed to switch playback backend to just_audio for ${song.title} ($reason): $e',
+      );
+      return false;
+    }
+  }
+
+  Future<bool> _handoffJustAudioPlaybackToRust({
+    required Song song,
+    required Duration position,
+    required bool resumePlayback,
+    required String reason,
+  }) async {
+    final rustAvailable = await _ensureRustBackendAvailable();
+    if (!rustAvailable) {
+      return false;
+    }
+
+    final path = await _resolveRustPath(song);
+    if (path == null || path.isEmpty) {
+      debugPrint('Rust handoff skipped: failed to resolve playable path');
+      return false;
+    }
+
+    try {
+      if (resumePlayback) {
+        await _justAudioPlayer.pause();
+      }
+
+      await _uac2Service.syncPlaybackStatus(
+        song: song,
+        isPlaying: false,
+        formatOverride: _deriveUac2FormatFromSong(song),
+      );
+      await _rustAudioService.play(path);
+      if (position > Duration.zero) {
+        await _rustAudioService.seek(position);
+      }
+      if (!resumePlayback) {
+        await _rustAudioService.pause();
+      }
+
+      final started = await _waitForRustPlaybackStart();
+      if (!started) {
+        throw StateError('Rust playback did not start within timeout');
+      }
+
+      await _justAudioPlayer.stop();
+      _usingRustBackend = true;
+      await _rustAudioService.setPlaybackSpeed(playbackSpeedNotifier.value);
+      await _rustAudioService.setVolume(_currentVolume);
+      await _rustAudioService.setCrossfade(
+        enabled: _rustAudioService.crossfadeEnabledNotifier.value,
+        durationSecs: _rustAudioService.crossfadeDurationNotifier.value,
+      );
+      await reapplyEqualizer();
+
+      final rustState = _rustAudioService.stateNotifier.value;
+      isPlayingNotifier.value =
+          resumePlayback && _isRustStatePlaying(rustState);
+      positionNotifier.value = position;
+      durationNotifier.value =
+          _rustAudioService.durationNotifier.value > Duration.zero
+          ? _rustAudioService.durationNotifier.value
+          : song.duration;
+      bufferedPositionNotifier.value = Duration.zero;
+      _ensurePositionSaveTimer();
+      unawaited(
+        _syncUac2PlaybackStatus(song, isPlaying: isPlayingNotifier.value),
+      );
+      unawaited(_updateNotificationState());
+
+      debugPrint(
+        'Switched playback backend to Rust for ${song.title} ($reason)',
+      );
+      return true;
+    } catch (e) {
+      try {
+        await _rustAudioService.stop();
+      } catch (_) {}
+      if (resumePlayback) {
+        try {
+          await _justAudioPlayer.play();
+        } catch (_) {}
+      }
+      _usingRustBackend = false;
+      debugPrint(
+        'Failed to switch playback backend to Rust for ${song.title} ($reason): $e',
+      );
+      return false;
+    }
+  }
+
   Future<void> _toggleFavoriteFromNotification() async {
     final song = currentSongNotifier.value;
     if (song != null) {
@@ -648,14 +1024,22 @@ class PlayerService {
   }
 
   Future<Uri> _resolvePlaybackUri(Song song) async {
-    final filePath = song.filePath;
-    if (filePath == null || filePath.isEmpty) {
+    final resolvedPath = await _resolvePreparedPlaybackPath(song);
+    if (resolvedPath == null || resolvedPath.isEmpty) {
       return Uri.parse('');
     }
 
-    final sourceKey = filePath;
-    String resolvedPath = filePath;
+    return _toPlaybackUri(resolvedPath);
+  }
 
+  Future<String?> _resolvePreparedPlaybackPath(Song song) async {
+    final filePath = song.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      return null;
+    }
+
+    final sourceKey = filePath;
+    var resolvedPath = filePath;
     final parsed = Uri.tryParse(filePath);
     final isAndroidContentUri =
         !kIsWeb &&
@@ -680,27 +1064,16 @@ class PlayerService {
         sourcePath: resolvedPath,
       );
       if (convertedPath != null) {
-        return Uri.file(convertedPath);
+        resolvedPath = convertedPath;
       }
     }
 
-    return _toPlaybackUri(resolvedPath);
+    return resolvedPath;
   }
 
   bool _shouldStageForPlayback(Song song) {
-    final normalized = song.fileType.replaceAll('.', '').trim().toUpperCase();
-    if (normalized == 'ALAC' || normalized == 'AIFF' || normalized == 'AIF') {
-      return true;
-    }
-
-    // M4A can be either AAC (usually fine) or ALAC. Use resolution metadata as
-    // a proxy to avoid staging every AAC M4A in large playlists.
-    if (normalized == 'M4A') {
-      final resolution = song.resolution?.toLowerCase() ?? '';
-      return resolution.contains('-bit');
-    }
-
-    return false;
+    final normalized = _playbackFileType(song);
+    return normalized == 'm4a' || normalized == 'aiff';
   }
 
   Future<String?> _stageContentUriForPlayback(
@@ -728,28 +1101,20 @@ class PlayerService {
   }
 
   String _preferredExtension(Song song) {
-    final fileType = song.fileType.replaceAll('.', '').trim().toLowerCase();
-    if (fileType == 'aiff' || fileType == 'aif') return 'aiff';
-    if (fileType == 'alac' || fileType == 'm4a') return 'm4a';
+    final fileType = _playbackFileType(song);
+    if (fileType == 'aiff' || fileType == 'm4a') return fileType;
     if (RegExp(r'^[a-z0-9]+$').hasMatch(fileType) && fileType.isNotEmpty) {
       return fileType;
     }
 
     final filePath = song.filePath;
     if (filePath != null) {
-      final extension = _extractExtension(filePath);
+      final extension = extractPlaybackPathExtension(filePath);
       if (extension.isNotEmpty) {
         return extension;
       }
     }
     return 'm4a';
-  }
-
-  String _extractExtension(String path) {
-    final withoutQuery = path.split('?').first;
-    final dotIndex = withoutQuery.lastIndexOf('.');
-    if (dotIndex < 0 || dotIndex >= withoutQuery.length - 1) return '';
-    return withoutQuery.substring(dotIndex + 1).toLowerCase();
   }
 
   Uri _toPlaybackUri(String rawPath) {
@@ -768,14 +1133,18 @@ class PlayerService {
   }
 
   bool _shouldConvertToWav(Song song) {
-    final normalized = song.fileType.replaceAll('.', '').trim().toUpperCase();
-    return normalized == 'AIFF' || normalized == 'AIF';
+    final normalized = _playbackFileType(song);
+    return normalized == 'm4a' || normalized == 'aiff';
   }
 
   Future<String?> _convertPlaybackPathToWav({
     required String sourceKey,
     required String sourcePath,
   }) async {
+    if (_unsupportedWavConversionSources.contains(sourceKey)) {
+      return null;
+    }
+
     final cached = _convertedPlaybackPathCache[sourceKey];
     if (cached != null && cached.isNotEmpty) {
       final cachedFile = Uri.file(cached).toFilePath();
@@ -790,21 +1159,38 @@ class PlayerService {
       return null;
     }
 
+    final localPath = playbackUri.toFilePath();
+    final canConvert = await AlacConverterService.canConvertToWavFile(
+      localPath,
+    );
+    if (!canConvert) {
+      _unsupportedWavConversionSources.add(sourceKey);
+      return null;
+    }
+
     try {
       final convertedPath = await AlacConverterService.convertToWavFile(
-        playbackUri.toFilePath(),
+        localPath,
       );
       _convertedPlaybackPathCache[sourceKey] = convertedPath;
+      _unsupportedWavConversionSources.remove(sourceKey);
       return convertedPath;
     } catch (e) {
+      _unsupportedWavConversionSources.add(sourceKey);
       debugPrint('Failed to convert playback path to WAV: $e');
       return null;
     }
   }
 
   bool _requiresRustFormatFallback(Song song) {
-    final normalized = song.fileType.replaceAll('.', '').trim().toUpperCase();
-    return normalized == 'ALAC' || normalized == 'M4A';
+    return _playbackFileType(song) == 'm4a';
+  }
+
+  String _playbackFileType(Song song) {
+    return canonicalPlaybackFileType(
+      fileType: song.fileType,
+      filePath: song.filePath,
+    );
   }
 
   Future<bool> _shouldPreferRustBackend(Song song) async {
@@ -820,27 +1206,27 @@ class PlayerService {
   }
 
   Future<String?> _resolveRustPath(Song song) async {
-    final filePath = song.filePath;
-    if (filePath == null || filePath.isEmpty) return null;
+    final resolvedPath = await _resolvePreparedPlaybackPath(song);
+    if (resolvedPath == null || resolvedPath.isEmpty) return null;
 
-    final parsed = Uri.tryParse(filePath);
-    if (parsed?.scheme == 'content') {
-      return _stageContentUriForPlayback(
-        filePath,
-        extensionHint: _preferredExtension(song),
-      );
-    }
-
-    final uri = _toPlaybackUri(filePath);
+    final uri = _toPlaybackUri(resolvedPath);
     if (uri.scheme == 'file') {
       return uri.toFilePath();
     }
 
     if (uri.scheme.isEmpty) {
-      return filePath;
+      return resolvedPath;
     }
 
     return null;
+  }
+
+  Future<void> _prepareImmediatePlaybackAsset(Song song) async {
+    if (!_shouldStageForPlayback(song) && !_shouldConvertToWav(song)) {
+      return;
+    }
+
+    await _resolvePreparedPlaybackPath(song);
   }
 
   Future<bool> _tryRustFallbackPlayback(Song song, {bool force = false}) async {
@@ -885,7 +1271,7 @@ class PlayerService {
           : song.duration;
       bufferedPositionNotifier.value = Duration.zero;
       await _rustAudioService.setPlaybackSpeed(playbackSpeedNotifier.value);
-      await _rustAudioService.setVolume(_rustAudioService.volumeNotifier.value);
+      await _rustAudioService.setVolume(_currentVolume);
       await _rustAudioService.setCrossfade(
         enabled: _rustAudioService.crossfadeEnabledNotifier.value,
         durationSecs: _rustAudioService.crossfadeDurationNotifier.value,
@@ -896,10 +1282,7 @@ class PlayerService {
         _syncUac2PlaybackStatus(song, isPlaying: isPlayingNotifier.value),
       );
 
-      _positionSaveTimer = Timer.periodic(
-        const Duration(seconds: 5),
-        (_) => _savePosition(),
-      );
+      _ensurePositionSaveTimer();
 
       debugPrint('Using Rust fallback backend for ${song.title} @ $path');
       return true;
@@ -916,6 +1299,8 @@ class PlayerService {
   /// Play a specific song.
   Future<void> play(Song song, {List<Song>? playlist}) async {
     await initAudio();
+    final startupCompleter = Completer<void>();
+    _playStartupInFlight = startupCompleter.future;
 
     try {
       await _runWithSuppressedSequenceStateUpdates(() async {
@@ -951,6 +1336,8 @@ class PlayerService {
         unawaited(_savePosition());
 
         if (song.filePath != null) {
+          await _prepareImmediatePlaybackAsset(song);
+
           // Prefer the native backend for USB DAC playback and for formats that
           // are unreliable on the platform decoder stack.
           if (await _shouldPreferRustBackend(song)) {
@@ -972,16 +1359,14 @@ class PlayerService {
             preload: true, // Enable gapless playback by preloading next track
           );
           await _justAudioPlayer.setSpeed(playbackSpeedNotifier.value);
+          await _justAudioPlayer.setVolume(_currentVolume);
           await _updateLoopMode();
           await _justAudioPlayer.play();
           await reapplyEqualizer();
           unawaited(_updateNotificationState());
           unawaited(_syncUac2PlaybackStatus(song, isPlaying: true));
 
-          _positionSaveTimer = Timer.periodic(
-            const Duration(seconds: 5),
-            (_) => _savePosition(),
-          );
+          _ensurePositionSaveTimer();
         }
       });
     } catch (e) {
@@ -992,6 +1377,21 @@ class PlayerService {
       );
       if (!usedRustFallback) {
         debugPrint("Playback failed on both backends for ${song.title}");
+      }
+    } finally {
+      if (!startupCompleter.isCompleted) {
+        startupCompleter.complete();
+      }
+      if (identical(_playStartupInFlight, startupCompleter.future)) {
+        _playStartupInFlight = null;
+      }
+      if (_routeRecheckAfterPlayStartup) {
+        _routeRecheckAfterPlayStartup = false;
+        unawaited(
+          _reconcileBackendWithPreferredRoute(
+            reason: 'post-play startup route recheck',
+          ),
+        );
       }
     }
   }
@@ -1096,11 +1496,34 @@ class PlayerService {
 
     final song = currentSongNotifier.value;
 
+    if (song != null && song.filePath != null) {
+      final shouldUseRust = await _shouldPreferRustBackend(song);
+      if (shouldUseRust != _usingRustBackend) {
+        final switched = shouldUseRust
+            ? await _handoffJustAudioPlaybackToRust(
+                song: song,
+                position: positionNotifier.value,
+                resumePlayback: true,
+                reason: 'resume on preferred output route',
+              )
+            : await _handoffRustPlaybackToJustAudio(
+                song: song,
+                position: positionNotifier.value,
+                resumePlayback: true,
+                reason: 'resume on preferred output route',
+              );
+        if (switched) {
+          return;
+        }
+      }
+    }
+
     // Immediately update the playing state for responsive UI
     isPlayingNotifier.value = true;
 
     if (_usingRustBackend) {
       await _rustAudioService.resume();
+      _ensurePositionSaveTimer();
       await _syncUac2PlaybackStatus(song, isPlaying: true);
       _updateNotificationState();
       return;
@@ -1108,19 +1531,11 @@ class PlayerService {
 
     if (song?.filePath != null &&
         _justAudioPlayer.processingState == just_audio.ProcessingState.idle) {
-      // Rebuild playlist if needed
-      final sources = await _buildAudioSources();
-      final resumeIndex = _currentIndex >= 0 ? _currentIndex : 0;
-      await _runWithSuppressedSequenceStateUpdates(() async {
-        await _justAudioPlayer.setAudioSources(
-          sources,
-          initialIndex: resumeIndex,
-          preload: true,
-        );
-        await _justAudioPlayer.seek(positionNotifier.value, index: resumeIndex);
-      });
+      await _loadJustAudioAtPosition(positionNotifier.value);
     }
     await _justAudioPlayer.play();
+    await reapplyEqualizer();
+    _ensurePositionSaveTimer();
     await _syncUac2PlaybackStatus(song, isPlaying: true);
     _updateNotificationState();
   }
@@ -1145,6 +1560,10 @@ class PlayerService {
       await _justAudioPlayer.seek(position);
     }
     _updateNotificationState();
+  }
+
+  bool _shouldOptimisticallySyncJustAudioSkip() {
+    return shouldOptimisticallySyncSkipForLoopMode(loopModeNotifier.value);
   }
 
   Future<void> next() async {
@@ -1172,7 +1591,9 @@ class PlayerService {
       final targetIndex = _currentIndex + 1;
       debugPrint('next(): Advancing to index $_currentIndex');
       await _justAudioPlayer.seekToNext();
-      _syncCurrentSongFromIndex(targetIndex);
+      if (_shouldOptimisticallySyncJustAudioSkip()) {
+        _syncCurrentSongFromIndex(targetIndex);
+      }
     } else if (loopModeNotifier.value == LoopMode.all) {
       debugPrint('next(): LoopMode.all, wrapping to index 0');
       await _justAudioPlayer.seek(Duration.zero, index: 0);
@@ -1210,7 +1631,9 @@ class PlayerService {
       if (_currentIndex > 0) {
         final targetIndex = _currentIndex - 1;
         await _justAudioPlayer.seekToPrevious();
-        _syncCurrentSongFromIndex(targetIndex);
+        if (_shouldOptimisticallySyncJustAudioSkip()) {
+          _syncCurrentSongFromIndex(targetIndex);
+        }
       } else {
         await seek(Duration.zero);
       }
@@ -1279,25 +1702,20 @@ class PlayerService {
       }
     }
 
-    if (enable) {
-      basePlaylist.shuffle();
-    } else {
-      basePlaylist
-        ..clear()
-        ..addAll(_originalPlaylist);
-      if (current != null &&
-          !basePlaylist.any((song) => song.id == current.id)) {
-        final insertionIndex = _currentIndex.clamp(0, basePlaylist.length);
-        basePlaylist.insert(insertionIndex, current);
-      }
-    }
+    final reorderedBasePlaylist = enable
+        ? buildShufflePlaybackOrder(songs: basePlaylist, current: current)
+        : restorePlaybackOrder(
+            originalPlaylist: _originalPlaylist,
+            current: current,
+            insertionIndex: _currentIndex,
+          );
 
     _playlist
       ..clear()
-      ..addAll(basePlaylist);
+      ..addAll(reorderedBasePlaylist);
     _playlistQueueEntryIds
       ..clear()
-      ..addAll(List<int?>.filled(basePlaylist.length, null));
+      ..addAll(List<int?>.filled(reorderedBasePlaylist.length, null));
     if (current != null) {
       _setCurrentIndex(_playlist.indexWhere((song) => song.id == current.id));
     }
@@ -1324,10 +1742,12 @@ class PlayerService {
   // ==================== Volume ====================
 
   Future<void> setVolume(double volume) async {
+    final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
+    _currentVolume = clampedVolume;
     if (_usingRustBackend) {
-      await _rustAudioService.setVolume(volume);
+      await _rustAudioService.setVolume(clampedVolume);
     } else {
-      await _justAudioPlayer.setVolume(volume);
+      await _justAudioPlayer.setVolume(clampedVolume);
     }
   }
 
@@ -1517,10 +1937,22 @@ class PlayerService {
     _autoSyncGuardUntil = null;
   }
 
+  void _ensurePositionSaveTimer() {
+    _positionSaveTimer?.cancel();
+    _positionSaveTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _savePosition(),
+    );
+  }
+
   void dispose() {
     _positionSaveTimer?.cancel();
+    _backendHandoffDebounceTimer?.cancel();
     cancelSleepTimer();
     _notificationService.hideNotification();
+    if (_uac2RouteListenerAttached) {
+      _uac2Service.removeStatusListener(_handleUac2StatusChanged);
+    }
     if (_usingRustBackend) {
       unawaited(_rustAudioService.stop());
     }

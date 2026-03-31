@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -137,6 +138,7 @@ class Uac2Service {
   Uac2AudioFormat? _lastKnownFormat;
   bool _lastKnownIsPlaying = false;
   bool _lastKnownHasSong = false;
+  Timer? _androidRouteRefreshDebounceTimer;
 
   Uac2DeviceStatus? get currentDeviceStatus => _currentDeviceStatus;
 
@@ -193,13 +195,27 @@ class Uac2Service {
         case 'onDeviceAttached':
         case 'onDeviceDetached':
           if (_currentDeviceStatus != null || _lastKnownHasSong) {
-            await _refreshAndroidRouteStatus();
+            _scheduleAndroidRouteRefresh();
           }
           return;
         default:
           return;
       }
     });
+  }
+
+  void _scheduleAndroidRouteRefresh() {
+    _androidRouteRefreshDebounceTimer?.cancel();
+    _androidRouteRefreshDebounceTimer = Timer(
+      const Duration(milliseconds: 250),
+      () => unawaited(
+        _refreshAndroidRouteStatus(
+          formatOverride: _lastKnownFormat,
+          isPlaying: _lastKnownIsPlaying,
+          hasActiveSong: _lastKnownHasSong,
+        ),
+      ),
+    );
   }
 
   Future<List<Uac2DeviceInfo>> listDevices() async {
@@ -290,19 +306,40 @@ class Uac2Service {
 
   Future<bool> selectDevice(Uac2DeviceInfo device) async {
     try {
+      final resolvedDevice = Platform.isAndroid
+          ? await _resolveConnectedAndroidDevice(device)
+          : device;
+
       _updateStatus(
-        Uac2DeviceStatus(device: device, state: Uac2State.connecting),
+        Uac2DeviceStatus(
+          device: resolvedDevice ?? device,
+          state: Uac2State.connecting,
+        ),
       );
 
       if (Platform.isAndroid) {
-        final deviceIdentifier = device.deviceName ?? device.serial ?? '';
+        final androidDevice = resolvedDevice;
+        final deviceIdentifier = androidDevice?.deviceName;
+        if (androidDevice == null ||
+            deviceIdentifier == null ||
+            deviceIdentifier.isEmpty) {
+          _updateStatus(
+            Uac2DeviceStatus(
+              device: _sanitizeAndroidDeviceForLookup(device),
+              state: Uac2State.error,
+              errorMessage: 'USB device not found',
+            ),
+          );
+          return false;
+        }
+
         final hasPermission = await this.hasPermission(deviceIdentifier);
         if (!hasPermission) {
           final granted = await requestPermission(deviceIdentifier);
           if (!granted) {
             _updateStatus(
               Uac2DeviceStatus(
-                device: device,
+                device: androidDevice,
                 state: Uac2State.error,
                 errorMessage: 'Permission denied',
               ),
@@ -318,7 +355,7 @@ class Uac2Service {
         if (activated != true) {
           _updateStatus(
             Uac2DeviceStatus(
-              device: device,
+              device: androidDevice,
               state: Uac2State.error,
               errorMessage: 'Failed to activate direct USB DAC',
             ),
@@ -326,9 +363,9 @@ class Uac2Service {
           return false;
         }
 
-        await _preferencesService.saveSelectedDevice(device);
+        await _preferencesService.saveSelectedDevice(androidDevice);
         await _refreshAndroidRouteStatus(
-          preferredDevice: device,
+          preferredDevice: androidDevice,
           formatOverride: _lastKnownFormat,
           isPlaying: _lastKnownIsPlaying,
           hasActiveSong: _lastKnownHasSong,
@@ -478,12 +515,14 @@ class Uac2Service {
           'volume': volume,
         });
         if (result == true) {
+          _updateStatus(_currentDeviceStatus!.copyWith(volume: volume));
           await _refreshAndroidRouteStatus();
         }
         return result ?? false;
       }
       if (!rust_uac2.uac2IsAvailable()) return false;
       await rust_uac2.uac2SetVolume(volume: volume);
+      _updateStatus(_currentDeviceStatus!.copyWith(volume: volume));
       return true;
     } catch (e) {
       debugPrint('Uac2Service.setVolume failed: $e');
@@ -519,12 +558,14 @@ class Uac2Service {
           'muted': muted,
         });
         if (result == true) {
+          _updateStatus(_currentDeviceStatus!.copyWith(muted: muted));
           await _refreshAndroidRouteStatus();
         }
         return result ?? false;
       }
       if (!rust_uac2.uac2IsAvailable()) return false;
       await rust_uac2.uac2SetMute(muted: muted);
+      _updateStatus(_currentDeviceStatus!.copyWith(muted: muted));
       return true;
     } catch (e) {
       debugPrint('Uac2Service.setMute failed: $e');
@@ -924,18 +965,35 @@ class Uac2Service {
       return preferredDevice;
     }
 
-    if (preferredDevice.deviceName?.isNotEmpty ?? false) {
-      return preferredDevice;
+    final devices = await _listDevicesAndroid();
+
+    final preferredDeviceName = preferredDevice.deviceName;
+    if (preferredDeviceName?.isNotEmpty ?? false) {
+      for (final device in devices) {
+        if (device.deviceName == preferredDeviceName) {
+          return device;
+        }
+      }
     }
 
-    final devices = await _listDevicesAndroid();
     for (final device in devices) {
       if (_isSameAndroidDevice(device, preferredDevice)) {
         return device;
       }
     }
 
-    return preferredDevice;
+    return _sanitizeAndroidDeviceForLookup(preferredDevice);
+  }
+
+  Uac2DeviceInfo _sanitizeAndroidDeviceForLookup(Uac2DeviceInfo device) {
+    return Uac2DeviceInfo(
+      vendorId: device.vendorId,
+      productId: device.productId,
+      serial: device.serial,
+      productName: device.productName,
+      manufacturer: device.manufacturer,
+      deviceName: null,
+    );
   }
 
   bool _shouldActivateAndroidDirectUsb(Uac2DeviceInfo preferredDevice) {

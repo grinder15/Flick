@@ -56,6 +56,8 @@ extension SongFileTypeFilterExtension on SongFileTypeFilter {
             normalized == 'MP4';
       case SongFileTypeFilter.ogg:
         return normalized == 'OGG' ||
+            normalized == 'OGX' ||
+            normalized == 'OPUS' ||
             normalized == 'VORBIS' ||
             normalized == 'OGA';
       case SongFileTypeFilter.alac:
@@ -115,10 +117,12 @@ class SongsState {
           final albumCompare = (a.album ?? '').compareTo(b.album ?? '');
           if (albumCompare != 0) return albumCompare;
 
-          final discA =
-              (a.discNumber != null && a.discNumber! > 0) ? a.discNumber! : 1;
-          final discB =
-              (b.discNumber != null && b.discNumber! > 0) ? b.discNumber! : 1;
+          final discA = (a.discNumber != null && a.discNumber! > 0)
+              ? a.discNumber!
+              : 1;
+          final discB = (b.discNumber != null && b.discNumber! > 0)
+              ? b.discNumber!
+              : 1;
           final discCompare = discA.compareTo(discB);
           if (discCompare != 0) return discCompare;
 

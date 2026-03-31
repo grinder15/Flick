@@ -502,7 +502,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
         return []; // Will be populated from actual data
       case SongSortOption.fileType:
         // For file type sorting, show common formats
-        return ['FLAC', 'MP3', 'WAV', 'AAC', 'OGG', 'ALAC', '#'];
+        return ['FLAC', 'MP3', 'WAV', 'AAC', 'OGG', 'OGX', 'OPUS', 'ALAC', '#'];
       default:
         // For text-based sorting (title, artist, albumArtist)
         return SongFastIndexOverlay.defaultTokens;

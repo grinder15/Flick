@@ -868,7 +868,7 @@ class MainActivity: FlutterActivity() {
         val uri = Uri.parse(uriString)
         val documentFile = DocumentFile.fromTreeUri(this, uri) ?: return emptyList()
         
-        val audioExtensions = setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "alac", "aif", "aiff")
+        val audioExtensions = setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "oga", "ogx", "opus", "wma", "alac", "aif", "aiff")
         val result = mutableListOf<Map<String, Any?>>()
 
         fun scanDirectory(dir: DocumentFile) {
@@ -1814,6 +1814,9 @@ class MainActivity: FlutterActivity() {
             }
 
             val existingConnection = directUsbConnections[deviceName]
+            if (activeDirectUsbDeviceName == deviceName && existingConnection != null) {
+                return true
+            }
             val connection = existingConnection ?: usbManager.openDevice(device)
             if (connection == null) {
                 Log.e("UAC2", "Failed to open USB device for direct playback: $deviceName")

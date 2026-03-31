@@ -478,12 +478,14 @@ class Uac2Service {
           'volume': volume,
         });
         if (result == true) {
+          _updateStatus(_currentDeviceStatus!.copyWith(volume: volume));
           await _refreshAndroidRouteStatus();
         }
         return result ?? false;
       }
       if (!rust_uac2.uac2IsAvailable()) return false;
       await rust_uac2.uac2SetVolume(volume: volume);
+      _updateStatus(_currentDeviceStatus!.copyWith(volume: volume));
       return true;
     } catch (e) {
       debugPrint('Uac2Service.setVolume failed: $e');
@@ -519,12 +521,14 @@ class Uac2Service {
           'muted': muted,
         });
         if (result == true) {
+          _updateStatus(_currentDeviceStatus!.copyWith(muted: muted));
           await _refreshAndroidRouteStatus();
         }
         return result ?? false;
       }
       if (!rust_uac2.uac2IsAvailable()) return false;
       await rust_uac2.uac2SetMute(muted: muted);
+      _updateStatus(_currentDeviceStatus!.copyWith(muted: muted));
       return true;
     } catch (e) {
       debugPrint('Uac2Service.setMute failed: $e');

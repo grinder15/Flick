@@ -349,11 +349,6 @@ class PlayerService {
 
     final future = () async {
       await initAudio();
-
-      if (!kIsWeb && !Platform.isIOS) {
-        await _ensureRustBackendAvailable();
-      }
-
       await _uac2Service.initialize();
     }();
 
@@ -1202,10 +1197,6 @@ class PlayerService {
     }
   }
 
-  bool _requiresRustFormatFallback(Song song) {
-    return _playbackFileType(song) == 'm4a';
-  }
-
   String _playbackFileType(Song song) {
     return canonicalPlaybackFileType(
       fileType: song.fileType,
@@ -1214,15 +1205,18 @@ class PlayerService {
   }
 
   Future<bool> _shouldPreferRustBackend(Song song) async {
-    if (_requiresRustFormatFallback(song)) {
+    if (_rustAudioService.isHighResModeEnabled) {
       return true;
     }
 
-    if (!Platform.isAndroid) {
-      return false;
+    if (Platform.isAndroid) {
+      return _uac2Service.isAndroidExternalUsbRouteActive();
     }
 
-    return _uac2Service.isAndroidExternalUsbRouteActive();
+    final preferredSampleRate = _deriveUac2FormatFromSong(song)?.sampleRate;
+    return _rustAudioService.isDacAvailable(
+      preferredSampleRate: preferredSampleRate,
+    );
   }
 
   Future<String?> _resolveRustPath(Song song) async {

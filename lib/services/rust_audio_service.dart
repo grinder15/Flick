@@ -109,6 +109,60 @@ class RustAudioService {
     }
   }
 
+  /// Update the current route capability hint used by the Rust engine manager.
+  Future<void> setCapabilityInfo(rust_audio.AudioCapabilityInfo info) async {
+    if (!isNativeAvailable) return;
+
+    try {
+      rust_audio.audioSetCapabilityInfo(info: info);
+    } catch (e) {
+      debugPrint('Error updating audio capability info: $e');
+    }
+  }
+
+  /// Get the merged capability snapshot after local detection and platform hints.
+  Future<rust_audio.AudioCapabilityInfo> getCapabilityInfo({
+    int? preferredSampleRate,
+  }) async {
+    if (!isNativeAvailable) {
+      return const rust_audio.AudioCapabilityInfo(
+        capabilities: [rust_audio.AudioCapabilityType.standard],
+        routeType: 'unknown',
+        routeLabel: null,
+        maxSampleRate: null,
+      );
+    }
+
+    try {
+      return await rust_audio.audioGetCapabilityInfo(
+        preferredSampleRate: preferredSampleRate,
+      );
+    } catch (e) {
+      debugPrint('Error reading audio capability info: $e');
+      return const rust_audio.AudioCapabilityInfo(
+        capabilities: [rust_audio.AudioCapabilityType.standard],
+        routeType: 'unknown',
+        routeLabel: null,
+        maxSampleRate: null,
+      );
+    }
+  }
+
+  bool capabilityInfoPrefersRust(rust_audio.AudioCapabilityInfo info) {
+    return info.capabilities.contains(rust_audio.AudioCapabilityType.usbDac) ||
+        info.capabilities.contains(
+          rust_audio.AudioCapabilityType.hiResInternal,
+        );
+  }
+
+  /// Resolve whether the native Rust backend should be preferred for playback.
+  Future<bool> shouldPreferRustEngine({int? preferredSampleRate}) async {
+    final info = await getCapabilityInfo(
+      preferredSampleRate: preferredSampleRate,
+    );
+    return capabilityInfoPrefersRust(info);
+  }
+
   /// Get the current playback state.
   RustPlaybackState get state => stateNotifier.value;
 

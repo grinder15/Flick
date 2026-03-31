@@ -1209,12 +1209,14 @@ class PlayerService {
       return true;
     }
 
+    final preferredSampleRate = _deriveUac2FormatFromSong(song)?.sampleRate;
+
     if (Platform.isAndroid) {
-      return _uac2Service.isAndroidExternalUsbRouteActive();
+      final capabilityInfo = await _uac2Service.getAndroidAudioCapabilityInfo();
+      await _rustAudioService.setCapabilityInfo(capabilityInfo);
     }
 
-    final preferredSampleRate = _deriveUac2FormatFromSong(song)?.sampleRate;
-    return _rustAudioService.isDacAvailable(
+    return _rustAudioService.shouldPreferRustEngine(
       preferredSampleRate: preferredSampleRate,
     );
   }
@@ -1352,8 +1354,8 @@ class PlayerService {
         if (song.filePath != null) {
           await _prepareImmediatePlaybackAsset(song);
 
-          // Prefer the native backend for USB DAC playback and for formats that
-          // are unreliable on the platform decoder stack.
+          // Prefer the native backend when the active route exposes a
+          // high-capability path, such as USB DAC or hi-res internal playback.
           if (await _shouldPreferRustBackend(song)) {
             final usedRust = await _tryRustFallbackPlayback(song, force: true);
             if (usedRust) {

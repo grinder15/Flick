@@ -98,10 +98,12 @@ class PlayerService {
   bool _uac2RouteListenerAttached = false;
   bool _audioInitialized = false;
   Future<void>? _audioInitInFlight;
+  Future<void>? _playStartupInFlight;
   Future<bool>? _rustInitInFlight;
   Future<void>? _backendHandoffInFlight;
   bool _suppressSequenceStateUpdates = false;
   bool _backendHandoffRecheckRequested = false;
+  bool _routeRecheckAfterPlayStartup = false;
   DateTime? _autoSyncGuardUntil;
   String? _autoSyncGuardSongId;
   double _currentVolume = 1.0;
@@ -639,6 +641,11 @@ class PlayerService {
   Future<void> _reconcileBackendWithPreferredRoute({
     required String reason,
   }) async {
+    if (_playStartupInFlight != null) {
+      _routeRecheckAfterPlayStartup = true;
+      return;
+    }
+
     final inFlight = _backendHandoffInFlight;
     if (inFlight != null) {
       _backendHandoffRecheckRequested = true;
@@ -1206,6 +1213,8 @@ class PlayerService {
   /// Play a specific song.
   Future<void> play(Song song, {List<Song>? playlist}) async {
     await initAudio();
+    final startupCompleter = Completer<void>();
+    _playStartupInFlight = startupCompleter.future;
 
     try {
       await _runWithSuppressedSequenceStateUpdates(() async {
@@ -1280,6 +1289,21 @@ class PlayerService {
       );
       if (!usedRustFallback) {
         debugPrint("Playback failed on both backends for ${song.title}");
+      }
+    } finally {
+      if (!startupCompleter.isCompleted) {
+        startupCompleter.complete();
+      }
+      if (identical(_playStartupInFlight, startupCompleter.future)) {
+        _playStartupInFlight = null;
+      }
+      if (_routeRecheckAfterPlayStartup) {
+        _routeRecheckAfterPlayStartup = false;
+        unawaited(
+          _reconcileBackendWithPreferredRoute(
+            reason: 'post-play startup route recheck',
+          ),
+        );
       }
     }
   }

@@ -12,7 +12,9 @@ import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -151,12 +153,13 @@ class MusicNotificationService : Service() {
             notificationManager.notify(NOTIFICATION_ID, notification)
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Keep service running when task is removed
+        android.util.Log.d("MusicNotification", "Task removed, shutting down app process")
+        shutdownForTaskRemoval()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -170,6 +173,26 @@ class MusicNotificationService : Service() {
         }
         mediaSession.release()
         isForegroundServiceStarted = false
+    }
+
+    private fun shutdownForTaskRemoval() {
+        try {
+            if (isForegroundServiceStarted) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+            }
+        } catch (_: Exception) {
+        }
+
+        try {
+            FlutterEngineCache.getInstance().remove("main_engine")
+        } catch (_: Exception) {
+        }
+
+        stopSelf()
+
+        Handler(Looper.getMainLooper()).post {
+            android.os.Process.killProcess(android.os.Process.myPid())
+        }
     }
 
     private fun createNotificationChannel() {

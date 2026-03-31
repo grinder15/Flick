@@ -22,6 +22,21 @@ void audioInit() => RustLib.instance.api.crateApiAudioApiAudioInit();
 bool audioIsInitialized() =>
     RustLib.instance.api.crateApiAudioApiAudioIsInitialized();
 
+/// Enable or disable high-res mode. When enabled, the Rust engine is allowed
+/// to initialize even if a DAC is not currently detected.
+void audioSetHighResMode({required bool enabled}) =>
+    RustLib.instance.api.crateApiAudioApiAudioSetHighResMode(enabled: enabled);
+
+/// Return the currently selected engine.
+String audioGetActiveEngine() =>
+    RustLib.instance.api.crateApiAudioApiAudioGetActiveEngine();
+
+/// Detect whether a DAC is present before attempting Rust engine initialization.
+Future<bool> audioIsDacAvailable({int? preferredSampleRate}) =>
+    RustLib.instance.api.crateApiAudioApiAudioIsDacAvailable(
+      preferredSampleRate: preferredSampleRate,
+    );
+
 /// Play an audio file.
 Future<void> audioPlay({required String path}) =>
     RustLib.instance.api.crateApiAudioApiAudioPlay(path: path);

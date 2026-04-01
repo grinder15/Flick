@@ -75,6 +75,8 @@ class MainActivity: FlutterActivity() {
     private var volumeObserverDebounceRunnable: Runnable? = null
     private var suppressVolumeObserver = false
     private var suppressVolumeObserverRunnable: Runnable? = null
+    private var lastObservedVolume: Int = -1
+    private var lastObservedMuted: Boolean = false
     // private var audioConverter: AudioConverter? = null
     // Coroutine scope for background tasks
     private val mainScope = CoroutineScope(Dispatchers.Main)
@@ -2374,6 +2376,12 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun registerVolumeContentObserver() {
+        // Seed cached values so the first real change is detected
+        val audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        val seedVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        lastObservedVolume = seedVolume
+        lastObservedMuted = seedVolume == 0
+
         volumeContentObserver = object : ContentObserver(volumeObserverHandler) {
             override fun onChange(selfChange: Boolean) {
                 if (suppressVolumeObserver) return
@@ -2382,10 +2390,17 @@ class MainActivity: FlutterActivity() {
                 volumeObserverDebounceRunnable = Runnable {
                     val volume = getRouteVolume()
                     val muted = getRouteMuted()
-                    uac2Channel?.invokeMethod("onVolumeChanged", mapOf(
-                        "volume" to volume,
-                        "muted" to muted,
-                    ))
+                    val volRaw = (getSystemService(AUDIO_SERVICE) as AudioManager)
+                        .getStreamVolume(AudioManager.STREAM_MUSIC)
+                    // Only notify Flutter if volume or mute actually changed
+                    if (volRaw != lastObservedVolume || muted != lastObservedMuted) {
+                        lastObservedVolume = volRaw
+                        lastObservedMuted = muted
+                        uac2Channel?.invokeMethod("onVolumeChanged", mapOf(
+                            "volume" to volume,
+                            "muted" to muted,
+                        ))
+                    }
                 }
                 volumeObserverHandler.postDelayed(volumeObserverDebounceRunnable!!, 150)
             }

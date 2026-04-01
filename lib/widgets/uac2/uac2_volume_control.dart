@@ -16,10 +16,22 @@ class Uac2VolumeControl extends ConsumerStatefulWidget {
 
 class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
   bool _muteUpdateInFlight = false;
+
   /// Volume level to restore when unmuting via button.
   double _preMuteVolume = 1.0;
 
-  Future<void> _setVolume(double volume) async {
+  /// Optimistic volume while the user is dragging the slider.
+  double? _draggingVolume;
+
+  /// Called on every slider tick during drag — optimistic UI only, no platform call.
+  void _onSliderChanged(double volume) {
+    setState(() => _draggingVolume = volume);
+  }
+
+  /// Called when the user lifts the finger — commits the value to the platform.
+  Future<void> _onSliderChangeEnd(double volume) async {
+    setState(() => _draggingVolume = null);
+
     final notifier = ref.read(uac2DeviceStatusProvider.notifier);
     final wasMuted = ref.read(uac2DeviceStatusProvider)?.muted ?? false;
 
@@ -29,7 +41,8 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
     }
     // Dragging to 0 → auto-mute
     if (!wasMuted && volume == 0.0) {
-      _preMuteVolume = ref.read(uac2DeviceStatusProvider)?.volume ?? 1.0;
+      final currentVol = ref.read(uac2DeviceStatusProvider)?.volume ?? 1.0;
+      _preMuteVolume = currentVol > 0.0 ? currentVol : 1.0;
       await notifier.setMute(true);
     }
     await notifier.setVolume(volume);
@@ -44,7 +57,8 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
 
     if (newMuted) {
       // Muting: save current volume for restore, then mute + set volume to 0
-      _preMuteVolume = (ref.read(uac2DeviceStatusProvider)?.volume ?? 1.0).clamp(0.01, 1.0);
+      _preMuteVolume = (ref.read(uac2DeviceStatusProvider)?.volume ?? 1.0)
+          .clamp(0.01, 1.0);
       final success = await notifier.setMute(true);
       if (success) await notifier.setVolume(0.0);
     } else {
@@ -66,7 +80,7 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
       return const SizedBox.shrink();
     }
 
-    final effectiveVolume = deviceStatus.volume ?? 1.0;
+    final effectiveVolume = _draggingVolume ?? (deviceStatus.volume ?? 1.0);
     final effectiveMuted = deviceStatus.muted ?? false;
 
     return Container(
@@ -140,7 +154,8 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
                   max: 1.0,
                   divisions: 100,
                   label: '${(effectiveVolume * 100).round()}%',
-                  onChanged: _setVolume,
+                  onChanged: _onSliderChanged,
+                  onChangeEnd: _onSliderChangeEnd,
                   activeColor: AppColors.accent,
                   inactiveColor: AppColors.textTertiary.withValues(alpha: 0.3),
                 ),

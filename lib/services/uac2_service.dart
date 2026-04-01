@@ -220,13 +220,18 @@ class Uac2Service {
           _scheduleAndroidRouteRefresh();
           return;
         case 'onVolumeChanged':
-          final volume = (call.arguments['volume'] as num?)?.toDouble();
-          final muted = call.arguments['muted'] as bool?;
-          if (_currentDeviceStatus != null && (volume != null || muted != null)) {
-            _updateStatus(_currentDeviceStatus!.copyWith(
-              volume: volume ?? _currentDeviceStatus!.volume,
-              muted: muted ?? _currentDeviceStatus!.muted,
-            ));
+          final args = call.arguments as Map<dynamic, dynamic>?;
+          if (args == null) return;
+          final volume = (args['volume'] as num?)?.toDouble();
+          final muted = args['muted'] as bool?;
+          if (_currentDeviceStatus != null &&
+              (volume != null || muted != null)) {
+            _updateStatus(
+              _currentDeviceStatus!.copyWith(
+                volume: volume ?? _currentDeviceStatus!.volume,
+                muted: muted ?? _currentDeviceStatus!.muted,
+              ),
+            );
           }
           return;
         default:

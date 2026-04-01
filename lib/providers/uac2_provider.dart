@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/services/uac2_preferences_service.dart';
+import 'package:flick/providers/player_provider.dart';
 
 final uac2ServiceProvider = Provider<Uac2Service>((ref) {
   return Uac2Service.instance;
@@ -17,8 +18,10 @@ final uac2DevicesProvider = FutureProvider<List<Uac2DeviceInfo>>((ref) async {
 });
 
 class Uac2DeviceStatusNotifier extends Notifier<Uac2DeviceStatus?> {
-  late final Uac2Service _service;
-  late final void Function(Uac2DeviceStatus?) _statusCallback;
+  // Not `late final` — Notifier.build() can be re-invoked when dependencies
+  // change, which requires re-assignment.
+  late Uac2Service _service;
+  late void Function(Uac2DeviceStatus?) _statusCallback;
 
   @override
   Uac2DeviceStatus? build() {
@@ -68,8 +71,8 @@ class Uac2DeviceStatusNotifier extends Notifier<Uac2DeviceStatus?> {
 
 final uac2DeviceStatusProvider =
     NotifierProvider<Uac2DeviceStatusNotifier, Uac2DeviceStatus?>(
-  Uac2DeviceStatusNotifier.new,
-);
+      Uac2DeviceStatusNotifier.new,
+    );
 
 class SelectedUac2Device extends Notifier<Uac2DeviceInfo?> {
   @override
@@ -111,14 +114,27 @@ final uac2EnabledProvider = NotifierProvider<Uac2Enabled, bool>(
   Uac2Enabled.new,
 );
 
+/// Whether the Rust audio backend is currently active.
+/// Reactively listens to [PlayerService.usingRustBackendNotifier].
+final rustBackendActiveProvider = Provider<bool>((ref) {
+  final notifier = ref.watch(playerServiceProvider).usingRustBackendNotifier;
+  // Bridge ValueNotifier → Riverpod: invalidate this provider when value changes.
+  // ref.onDispose ensures the listener is removed on provider teardown / hot-restart.
+  void listener() => ref.invalidateSelf();
+  notifier.addListener(listener);
+  ref.onDispose(() => notifier.removeListener(listener));
+  return notifier.value;
+});
+
 final uac2BitPerfectIndicatorProvider = Provider<bool>((ref) {
   final status = ref.watch(uac2DeviceStatusProvider);
   if (status == null || status.state != Uac2State.streaming) {
     return false;
   }
+  final isRustActive = ref.watch(rustBackendActiveProvider);
   if (status.routeType == Uac2RouteType.externalUsb ||
       status.routeType == Uac2RouteType.dock) {
-    return false;
+    return isRustActive;
   }
   return true;
 });

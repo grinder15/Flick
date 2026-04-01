@@ -594,6 +594,7 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
 
   Widget _buildStatusCard(BuildContext context, Uac2DeviceStatus status) {
     final isBitPerfect = ref.watch(uac2BitPerfectIndicatorProvider);
+    final isRustBackend = ref.watch(rustBackendActiveProvider);
 
     return Container(
       padding: const EdgeInsets.all(AppConstants.spacingMd),
@@ -616,7 +617,7 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
             _buildInfoRow(
               context,
               'Playback Path',
-              _getPlaybackPathLabel(status),
+              _getPlaybackPathLabel(status, isRustBackend: isRustBackend),
               Icons.alt_route,
             ),
           ],
@@ -652,9 +653,11 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
               _buildInfoRow(
                 context,
                 'DAC Output',
-                'Unconfirmed',
+                isRustBackend ? 'Active' : 'Unconfirmed',
                 Icons.usb,
-                valueColor: Colors.amber.shade300,
+                valueColor: isRustBackend
+                    ? Colors.green.shade400
+                    : Colors.amber.shade300,
               ),
             ],
           ],
@@ -662,7 +665,9 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
             _buildDivider(),
             _buildBitPerfectIndicator(context),
           ],
-          if (status.warningMessage != null) ...[
+          // Suppress route-mismatch warning when bit-perfect (Rust direct USB)
+          // is active — the "Android may resample" caveat does not apply.
+          if (status.warningMessage != null && !isBitPerfect) ...[
             _buildDivider(),
             _buildWarningMessage(context, status.warningMessage!),
           ],
@@ -840,18 +845,23 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
     }
   }
 
-  String _getPlaybackPathLabel(Uac2DeviceStatus status) {
+  String _getPlaybackPathLabel(
+    Uac2DeviceStatus status, {
+    bool isRustBackend = false,
+  }) {
     switch (status.routeType) {
       case Uac2RouteType.internalDac:
         return 'Device DAC';
       case Uac2RouteType.externalUsb:
-        return 'Android USB route';
+        return isRustBackend ? 'Direct USB (bit-perfect)' : 'Android USB route';
       case Uac2RouteType.wired:
         return 'Wired output';
       case Uac2RouteType.bluetooth:
         return 'Bluetooth output';
       case Uac2RouteType.dock:
-        return 'Android dock route';
+        return isRustBackend
+            ? 'Direct dock (bit-perfect)'
+            : 'Android dock route';
       case Uac2RouteType.unknown:
         return status.routeLabel ?? 'Unknown';
     }

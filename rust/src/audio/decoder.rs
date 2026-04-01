@@ -158,8 +158,17 @@ impl DecoderThread {
         output_sample_rate: u32,
         start_position_secs: Option<f64>,
     ) -> Result<(AudioSource, Self), DecoderError> {
-        // Probe the file first (on the calling thread)
         let probe_result = probe_file(&path)?;
+        Self::spawn_from_probe_result(probe_result, output_sample_rate, start_position_secs)
+    }
+
+    /// Spawn a decoder thread using a probe result that has already been created.
+    pub fn spawn_from_probe_result(
+        probe_result: ProbeResult,
+        output_sample_rate: u32,
+        start_position_secs: Option<f64>,
+    ) -> Result<(AudioSource, Self), DecoderError> {
+        let path = probe_result.source_info.path.clone();
         let mut source_info = probe_result.source_info.clone();
         source_info.output_sample_rate = output_sample_rate;
         source_info.total_samples = (source_info.duration_secs

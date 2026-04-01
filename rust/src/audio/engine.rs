@@ -165,9 +165,33 @@ impl AudioEngineHandle {
         self.send_command(AudioCommand::Play { path })
     }
 
+    /// Play a track using a pre-created source and decoder thread.
+    pub fn play_prepared(
+        &self,
+        source: AudioSource,
+        decoder_thread: DecoderThread,
+    ) -> Result<(), String> {
+        self.send_command(AudioCommand::PlayPrepared {
+            source,
+            decoder_thread,
+        })
+    }
+
     /// Queue the next track for gapless playback.
     pub fn queue_next(&self, path: PathBuf) -> Result<(), String> {
         self.send_command(AudioCommand::QueueNext { path })
+    }
+
+    /// Queue the next track using a pre-created source and decoder thread.
+    pub fn queue_next_prepared(
+        &self,
+        source: AudioSource,
+        decoder_thread: DecoderThread,
+    ) -> Result<(), String> {
+        self.send_command(AudioCommand::QueueNextPrepared {
+            source,
+            decoder_thread,
+        })
     }
 
     /// Pause playback.
@@ -1128,8 +1152,33 @@ fn command_processing_loop(
                             sample_rate,
                         );
                     }
+                    AudioCommand::PlayPrepared {
+                        source,
+                        decoder_thread,
+                    } => {
+                        handle_play_prepared(
+                            source,
+                            decoder_thread,
+                            &callback_data,
+                            &state,
+                            &decoders,
+                            &event_tx,
+                        );
+                    }
                     AudioCommand::QueueNext { path } => {
                         handle_queue_next(path, &callback_data, &decoders, &event_tx, sample_rate);
+                    }
+                    AudioCommand::QueueNextPrepared {
+                        source,
+                        decoder_thread,
+                    } => {
+                        handle_queue_next_prepared(
+                            source,
+                            decoder_thread,
+                            &callback_data,
+                            &decoders,
+                            &event_tx,
+                        );
                     }
                     AudioCommand::Pause => {
                         callback_data.set_paused(true);
@@ -1252,27 +1301,15 @@ fn handle_play(
 
     // Spawn decoder
     match DecoderThread::spawn(path.clone(), sample_rate) {
-        Ok((mut source, decoder_thread)) => {
-            // Wait for initial buffering
-            let mut attempts = 0;
-            while !source.has_enough_buffer() && attempts < 100 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                attempts += 1;
-            }
-
-            source.set_ready();
-            source.set_playing();
-
-            // Set the source
-            callback_data.sources.lock().set_current(source);
-            callback_data.set_paused(false);
-
-            // Store decoder
-            decoders.lock().push(decoder_thread);
-
-            // Update state
-            state.store(PlaybackState::Playing as u8, Ordering::Relaxed);
-            let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Playing));
+        Ok((source, decoder_thread)) => {
+            start_playback_source(
+                source,
+                decoder_thread,
+                callback_data,
+                state,
+                decoders,
+                event_tx,
+            );
         }
         Err(e) => {
             let _ = event_tx.try_send(AudioEvent::Error {
@@ -1281,6 +1318,30 @@ fn handle_play(
             state.store(PlaybackState::Idle as u8, Ordering::Relaxed);
         }
     }
+}
+
+fn handle_play_prepared(
+    source: AudioSource,
+    decoder_thread: DecoderThread,
+    callback_data: &AudioCallbackData,
+    state: &Arc<AtomicU8>,
+    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    event_tx: &Sender<AudioEvent>,
+) {
+    state.store(PlaybackState::Buffering as u8, Ordering::Relaxed);
+    let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Buffering));
+
+    callback_data.sources.lock().stop();
+    callback_data.crossfader.lock().reset();
+
+    start_playback_source(
+        source,
+        decoder_thread,
+        callback_data,
+        state,
+        decoders,
+        event_tx,
+    );
 }
 
 fn handle_queue_next(
@@ -1292,25 +1353,8 @@ fn handle_queue_next(
 ) {
     // Spawn decoder for next track
     match DecoderThread::spawn(path.clone(), sample_rate) {
-        Ok((mut source, decoder_thread)) => {
-            // Wait for initial buffering
-            let mut attempts = 0;
-            while !source.has_enough_buffer() && attempts < 100 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                attempts += 1;
-            }
-
-            source.set_ready();
-
-            // Queue the source
-            callback_data.sources.lock().queue_next(source);
-
-            // Store decoder
-            decoders.lock().push(decoder_thread);
-
-            let _ = event_tx.try_send(AudioEvent::NextTrackReady {
-                path: path.to_string_lossy().to_string(),
-            });
+        Ok((source, decoder_thread)) => {
+            queue_playback_source(source, decoder_thread, callback_data, decoders, event_tx);
         }
         Err(e) => {
             let _ = event_tx.try_send(AudioEvent::Error {
@@ -1318,6 +1362,51 @@ fn handle_queue_next(
             });
         }
     }
+}
+
+fn handle_queue_next_prepared(
+    source: AudioSource,
+    decoder_thread: DecoderThread,
+    callback_data: &AudioCallbackData,
+    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    event_tx: &Sender<AudioEvent>,
+) {
+    queue_playback_source(source, decoder_thread, callback_data, decoders, event_tx);
+}
+
+fn start_playback_source(
+    mut source: AudioSource,
+    decoder_thread: DecoderThread,
+    callback_data: &AudioCallbackData,
+    state: &Arc<AtomicU8>,
+    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    event_tx: &Sender<AudioEvent>,
+) {
+    source.set_ready();
+    source.set_playing();
+
+    callback_data.sources.lock().set_current(source);
+    callback_data.set_paused(false);
+    decoders.lock().push(decoder_thread);
+
+    state.store(PlaybackState::Playing as u8, Ordering::Relaxed);
+    let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Playing));
+}
+
+fn queue_playback_source(
+    mut source: AudioSource,
+    decoder_thread: DecoderThread,
+    callback_data: &AudioCallbackData,
+    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    event_tx: &Sender<AudioEvent>,
+) {
+    let queued_path = source.info.path.to_string_lossy().to_string();
+    source.set_ready();
+
+    callback_data.sources.lock().queue_next(source);
+    decoders.lock().push(decoder_thread);
+
+    let _ = event_tx.try_send(AudioEvent::NextTrackReady { path: queued_path });
 }
 
 fn handle_skip_to_next(
@@ -1382,12 +1471,6 @@ fn handle_seek(
 
     match DecoderThread::spawn_with_seek(path.clone(), sample_rate, Some(target_secs)) {
         Ok((mut source, decoder_thread)) => {
-            let mut attempts = 0;
-            while !source.has_enough_buffer() && attempts < 100 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                attempts += 1;
-            }
-
             source.set_ready();
             if !was_paused {
                 source.set_playing();

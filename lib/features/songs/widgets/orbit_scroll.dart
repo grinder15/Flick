@@ -57,7 +57,6 @@ class OrbitScroll extends StatefulWidget {
 class _OrbitScrollState extends State<OrbitScroll>
     with SingleTickerProviderStateMixin {
   static const double _dragItemExtent = 96.0;
-  static const double _tapSlop = 12.0;
 
   late final AnimationController _controller;
   double _scrollOffset = 0.0;
@@ -65,13 +64,8 @@ class _OrbitScrollState extends State<OrbitScroll>
   DateTime _lastScrollTime = DateTime.now();
   final Map<int, _Position> _positionCache = {};
   final Map<int, _ItemTransform> _transformCache = {};
-  List<_OrbitHitTarget> _visibleHitTargets = const [];
   Size? _lastLayoutSize;
   int? _lastReportedIndex;
-  Offset? _pointerDownPosition;
-  int? _activePointer;
-  bool _didPointerMove = false;
-  bool _suppressTapActivation = false;
   bool _animationTraversalHapticsEnabled = false;
   bool _animationSettleHapticEnabled = false;
 
@@ -348,23 +342,16 @@ class _OrbitScrollState extends State<OrbitScroll>
           onVerticalDragUpdate: _onVerticalDragUpdate,
           onVerticalDragEnd: _onVerticalDragEnd,
           behavior: HitTestBehavior.opaque,
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: _onPointerDown,
-            onPointerMove: _onPointerMove,
-            onPointerUp: _onPointerUp,
-            onPointerCancel: _onPointerCancel,
-            child: ColoredBox(
-              color: Colors.transparent,
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  _buildSelectionAura(metrics),
-                  _buildFocusCradle(metrics),
-                  _buildOrbitPath(metrics),
-                  ..._buildSongItems(metrics),
-                ],
-              ),
+          child: ColoredBox(
+            color: Colors.transparent,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _buildSelectionAura(metrics),
+                _buildFocusCradle(metrics),
+                _buildOrbitPath(metrics),
+                ..._buildSongItems(metrics),
+              ],
             ),
           ),
         );
@@ -491,7 +478,6 @@ class _OrbitScrollState extends State<OrbitScroll>
 
   List<Widget> _buildSongItems(_OrbitLayoutMetrics metrics) {
     final items = <Widget>[];
-    final hitTargets = <_OrbitHitTarget>[];
     final visibleRange = _isScrolling
         ? (metrics.visibleItemCount ~/ 2) + 1
         : metrics.visibleItemCount ~/ 2;
@@ -526,12 +512,6 @@ class _OrbitScrollState extends State<OrbitScroll>
         }
       }
 
-      final cardWidth = SongCard.baseWidthForScreenWidth(metrics.size.width);
-      final cardHeight = SongCard.baseHeightForScreenWidth(
-        metrics.size.width,
-        isSelected: transform.isSelected,
-      );
-
       items.add(
         Positioned(
           left: transform.position.x,
@@ -557,7 +537,6 @@ class _OrbitScrollState extends State<OrbitScroll>
                   },
                   onActivate: () => widget.onSongActivated?.call(actualIndex),
                   onLongPress: () {
-                    _suppressTapActivation = true;
                     _animateTo(
                       actualIndex.toDouble(),
                       traversalHaptics: false,
@@ -574,106 +553,9 @@ class _OrbitScrollState extends State<OrbitScroll>
           ),
         ),
       );
-
-      hitTargets.add(
-        _OrbitHitTarget(
-          index: actualIndex,
-          center: Offset(transform.position.x, transform.position.y),
-          rect: Rect.fromCenter(
-            center: Offset(transform.position.x, transform.position.y),
-            width: cardWidth * transform.scale,
-            height: cardHeight * transform.scale,
-          ),
-        ),
-      );
     }
 
-    _visibleHitTargets = hitTargets;
     return items;
-  }
-
-  void _onPointerDown(PointerDownEvent event) {
-    _activePointer = event.pointer;
-    _pointerDownPosition = event.localPosition;
-    _didPointerMove = false;
-  }
-
-  void _onPointerMove(PointerMoveEvent event) {
-    if (event.pointer != _activePointer || _pointerDownPosition == null) {
-      return;
-    }
-
-    if (!_didPointerMove &&
-        (event.localPosition - _pointerDownPosition!).distance > _tapSlop) {
-      _didPointerMove = true;
-    }
-  }
-
-  void _onPointerUp(PointerUpEvent event) {
-    if (event.pointer != _activePointer) {
-      return;
-    }
-
-    final shouldHandleTap = !_didPointerMove && !_suppressTapActivation;
-    _resetPointerTracking();
-
-    if (!shouldHandleTap) {
-      _suppressTapActivation = false;
-      return;
-    }
-
-    _handleTapAt(event.localPosition);
-  }
-
-  void _onPointerCancel(PointerCancelEvent event) {
-    if (event.pointer == _activePointer) {
-      _resetPointerTracking();
-      _suppressTapActivation = false;
-    }
-  }
-
-  void _resetPointerTracking() {
-    _activePointer = null;
-    _pointerDownPosition = null;
-    _didPointerMove = false;
-  }
-
-  void _handleTapAt(Offset localPosition) {
-    if (widget.songs.isEmpty || _visibleHitTargets.isEmpty) {
-      return;
-    }
-
-    _OrbitHitTarget? bestTarget;
-    double? bestScore;
-
-    for (final target in _visibleHitTargets) {
-      final expandedRect = target.rect.inflate(12);
-      if (!expandedRect.contains(localPosition)) {
-        continue;
-      }
-
-      final score = target.normalizedDistanceTo(localPosition);
-      if (bestScore == null || score < bestScore) {
-        bestScore = score;
-        bestTarget = target;
-      }
-    }
-
-    if (bestTarget == null) {
-      return;
-    }
-
-    if (bestTarget.index != widget.selectedIndex) {
-      AppHaptics.tap();
-      _animateTo(
-        bestTarget.index.toDouble(),
-        traversalHaptics: false,
-        settleHaptic: false,
-      );
-      return;
-    }
-
-    widget.onSongActivated?.call(bestTarget.index);
   }
 
   _ItemTransform? _buildTransform({
@@ -774,24 +656,6 @@ class _ItemTransform {
     required this.rotation,
     required this.isSelected,
   });
-}
-
-class _OrbitHitTarget {
-  final int index;
-  final Offset center;
-  final Rect rect;
-
-  const _OrbitHitTarget({
-    required this.index,
-    required this.center,
-    required this.rect,
-  });
-
-  double normalizedDistanceTo(Offset point) {
-    final normalizedDx = (point.dx - center.dx).abs() / rect.width;
-    final normalizedDy = (point.dy - center.dy).abs() / rect.height;
-    return (normalizedDx * normalizedDx) + (normalizedDy * normalizedDy);
-  }
 }
 
 class _OrbitPathPainter extends CustomPainter {

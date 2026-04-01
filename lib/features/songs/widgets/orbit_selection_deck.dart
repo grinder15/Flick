@@ -130,7 +130,7 @@ class OrbitSelectionDeck extends StatelessWidget {
                                     ),
                                     _DeckPill(
                                       icon: LucideIcons.hand,
-                                      label: 'Tap to focus',
+                                      label: 'Tap to play',
                                       foregroundColor:
                                           context.adaptiveTextSecondary,
                                       backgroundColor: Colors.white.withValues(
@@ -308,7 +308,7 @@ class OrbitSelectionDeck extends StatelessWidget {
                             const SizedBox(width: AppConstants.spacingXs),
                             Expanded(
                               child: Text(
-                                'Tap once to focus. Tap the selected card or press play to open it. Swipe a card to queue or save.',
+                                'Tap any card to play it. Swipe a card to queue or save, or use the deck controls below.',
                                 style: metadataTheme.bodySmall?.copyWith(
                                   color: context.adaptiveTextTertiary,
                                   height: 1.3,

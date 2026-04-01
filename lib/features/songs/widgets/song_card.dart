@@ -101,11 +101,11 @@ class _SongCardState extends State<SongCard> {
       child: Semantics(
         button: true,
         label: '${widget.song.title} by ${widget.song.artist}',
-        hint: widget.isSelected
-            ? 'Double tap to play. Swipe left to queue. Swipe right to favorite.'
-            : 'Double tap to focus this song.',
+        hint:
+            'Double tap to play. Swipe left to queue. Swipe right to favorite.',
         onTap: _handleTap,
         child: GestureDetector(
+          onTap: _handleTap,
           onLongPress: widget.onLongPress,
           onHorizontalDragUpdate: _onHorizontalDragUpdate,
           onHorizontalDragEnd: _onHorizontalDragEnd,
@@ -150,13 +150,12 @@ class _SongCardState extends State<SongCard> {
   }
 
   void _handleTap() {
-    if (widget.isSelected) {
-      widget.onActivate?.call();
-      return;
+    if (!widget.isSelected) {
+      AppHaptics.tap();
+      widget.onFocusRequested?.call();
     }
 
-    AppHaptics.tap();
-    widget.onFocusRequested?.call();
+    widget.onActivate?.call();
   }
 
   void _onHorizontalDragUpdate(DragUpdateDetails details) {
@@ -412,8 +411,8 @@ class _SongCardState extends State<SongCard> {
                         const SizedBox(height: AppConstants.spacingXs),
                         Text(
                           widget.isSelected
-                              ? 'Tap selected card to play. Swipe to queue or save.'
-                              : 'Tap to focus this song.',
+                              ? 'Tap to play. Swipe to queue or save.'
+                              : 'Tap to play this song.',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(

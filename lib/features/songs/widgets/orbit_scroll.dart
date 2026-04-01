@@ -3,10 +3,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
+
 import 'package:flick/core/theme/app_colors.dart';
-import 'package:flick/core/constants/app_constants.dart';
-import 'package:flick/models/song.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/features/songs/widgets/song_card.dart';
+import 'package:flick/models/song.dart';
 
 class OrbitScrollController {
   void Function(int index, bool animate)? _jumpToIndex;
@@ -26,36 +27,27 @@ class OrbitScrollController {
 
 /// Orbital scrolling widget that displays songs in a curved arc.
 class OrbitScroll extends StatefulWidget {
-  /// List of songs to display
   final List<Song> songs;
-
-  /// Index of the currently selected song
   final int selectedIndex;
-
-  /// Callback when a song is selected
-  final ValueChanged<int>? onSongSelected;
-
-  /// Callback when the selected song changes via scrolling
+  final ValueChanged<int>? onSongActivated;
   final ValueChanged<int>? onSelectedIndexChanged;
-
-  /// Callback when a song card is swiped left.
+  final ValueChanged<int>? onSongLongPressed;
   final ValueChanged<int>? onSongSwipedLeft;
-
-  /// Callback when a song card is swiped right.
   final ValueChanged<int>? onSongSwipedRight;
-
-  /// Controller for external jump-to-index actions.
   final OrbitScrollController? controller;
+  final String? currentSongId;
 
   const OrbitScroll({
     super.key,
     required this.songs,
     this.selectedIndex = 0,
-    this.onSongSelected,
+    this.onSongActivated,
     this.onSelectedIndexChanged,
+    this.onSongLongPressed,
     this.onSongSwipedLeft,
     this.onSongSwipedRight,
     this.controller,
+    this.currentSongId,
   });
 
   @override
@@ -64,43 +56,60 @@ class OrbitScroll extends StatefulWidget {
 
 class _OrbitScrollState extends State<OrbitScroll>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  static const double _dragItemExtent = 96.0;
+  static const double _tapSlop = 12.0;
 
-  // The physics state
+  late final AnimationController _controller;
   double _scrollOffset = 0.0;
-
-  // Track if we're actively scrolling to reduce visible range when idle
   bool _isScrolling = false;
   DateTime _lastScrollTime = DateTime.now();
-
-  // Cache for transform calculations
   final Map<int, _Position> _positionCache = {};
   final Map<int, _ItemTransform> _transformCache = {};
+  List<_OrbitHitTarget> _visibleHitTargets = const [];
+  Size? _lastLayoutSize;
+  int? _lastReportedIndex;
+  Offset? _pointerDownPosition;
+  int? _activePointer;
+  bool _didPointerMove = false;
+  bool _suppressTapActivation = false;
+  bool _animationTraversalHapticsEnabled = false;
+  bool _animationSettleHapticEnabled = false;
 
   @override
   void initState() {
     super.initState();
     _scrollOffset = widget.selectedIndex.toDouble();
+    _lastReportedIndex = widget.selectedIndex;
     _controller = AnimationController.unbounded(
       vsync: this,
       duration: const Duration(milliseconds: 500),
-    );
-    _controller.addListener(_onPhysicsTick);
+    )..addListener(_onPhysicsTick);
     widget.controller?._attach(_jumpToIndex);
   }
 
   @override
-  void didUpdateWidget(OrbitScroll oldWidget) {
+  void didUpdateWidget(covariant OrbitScroll oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
       oldWidget.controller?._detach();
       widget.controller?._attach(_jumpToIndex);
     }
-    if (widget.selectedIndex != oldWidget.selectedIndex) {
-      // If the index changed externally, snap/spring to it
-      if ((widget.selectedIndex.toDouble() - _scrollOffset).abs() > 0.05) {
-        _animateTo(widget.selectedIndex.toDouble());
-      }
+
+    if (oldWidget.songs.length != widget.songs.length) {
+      _positionCache.clear();
+      _transformCache.clear();
+      _lastReportedIndex = widget.selectedIndex
+          .clamp(0, math.max(widget.songs.length - 1, 0))
+          .toInt();
+    }
+
+    if (widget.selectedIndex != oldWidget.selectedIndex &&
+        (widget.selectedIndex.toDouble() - _scrollOffset).abs() > 0.05) {
+      _animateTo(
+        widget.selectedIndex.toDouble(),
+        traversalHaptics: false,
+        settleHaptic: false,
+      );
     }
   }
 
@@ -112,52 +121,66 @@ class _OrbitScrollState extends State<OrbitScroll>
   }
 
   void _jumpToIndex(int index, bool animate) {
-    if (widget.songs.isEmpty) return;
+    if (widget.songs.isEmpty) {
+      return;
+    }
 
-    final clampedIndex = index.clamp(0, widget.songs.length - 1);
+    final clampedIndex = index.clamp(0, widget.songs.length - 1).toInt();
     if (animate) {
-      _animateTo(clampedIndex.toDouble());
+      _animateTo(
+        clampedIndex.toDouble(),
+        traversalHaptics: false,
+        settleHaptic: false,
+      );
       return;
     }
 
     _controller.stop();
-    setState(() {
-      _scrollOffset = clampedIndex.toDouble();
-      _isScrolling = false;
-      _lastScrollTime = DateTime.now();
-    });
-    widget.onSelectedIndexChanged?.call(clampedIndex);
+    _clearAnimationHapticFlags();
+    _applyScrollOffset(
+      clampedIndex.toDouble(),
+      haptic: false,
+      isScrolling: false,
+    );
   }
 
   void _onPhysicsTick() {
     if (_controller.isAnimating) {
-      final newOffset = _controller.value;
-      if ((newOffset - _scrollOffset).abs() > 0.001) {
-        setState(() {
-          _scrollOffset = newOffset;
-          _isScrolling = true;
-          _lastScrollTime = DateTime.now();
-        });
-      }
-    } else if (_isScrolling) {
-      final now = DateTime.now();
-      if (now.difference(_lastScrollTime).inMilliseconds > 100) {
-        setState(() {
-          _isScrolling = false;
-        });
-      }
+      _applyScrollOffset(
+        _controller.value,
+        haptic: _animationTraversalHapticsEnabled,
+      );
+      return;
+    }
+
+    if (_isScrolling &&
+        DateTime.now().difference(_lastScrollTime).inMilliseconds > 100) {
+      setState(() {
+        _isScrolling = false;
+      });
     }
   }
 
-  // --- Gesture Handling ---
-
   void _onVerticalDragStart(DragStartDetails details) {
     _controller.stop();
+    _clearAnimationHapticFlags();
+    _lastScrollTime = DateTime.now();
+    if (!_isScrolling) {
+      setState(() {
+        _isScrolling = true;
+      });
+    }
   }
 
   void _onVerticalDragUpdate(DragUpdateDetails details) {
+    if (widget.songs.isEmpty) {
+      return;
+    }
+
     final delta = details.primaryDelta ?? 0.0;
-    if (delta == 0) return;
+    if (delta == 0) {
+      return;
+    }
 
     final direction = delta > 0
         ? ScrollDirection.forward
@@ -176,29 +199,23 @@ class _OrbitScrollState extends State<OrbitScroll>
       direction: direction,
     ).dispatch(context);
 
-    const itemHeight = 90.0;
-    var itemDelta = -(delta / itemHeight);
-
-    double newOffset = _scrollOffset + itemDelta;
-    if (newOffset < -0.5 || newOffset > widget.songs.length - 0.5) {
-      itemDelta = itemDelta * 0.4;
-      newOffset = _scrollOffset + itemDelta;
+    var itemDelta = -(delta / _dragItemExtent);
+    double nextOffset = _scrollOffset + itemDelta;
+    if (nextOffset < -0.5 || nextOffset > widget.songs.length - 0.5) {
+      itemDelta *= 0.38;
+      nextOffset = _scrollOffset + itemDelta;
     }
 
-    if ((newOffset - _scrollOffset).abs() > 0.001) {
-      setState(() {
-        _scrollOffset = newOffset;
-        _isScrolling = true;
-        _lastScrollTime = DateTime.now();
-      });
-    }
+    _applyScrollOffset(nextOffset, haptic: true);
   }
 
   void _onVerticalDragEnd(DragEndDetails details) {
-    // _dragStart = null; // This variable is not defined in the provided context. Removing it.
+    if (widget.songs.isEmpty) {
+      return;
+    }
+
     final velocity = details.primaryVelocity ?? 0.0;
 
-    // Dispatch end notification (idle)
     UserScrollNotification(
       metrics: FixedScrollMetrics(
         minScrollExtent: 0,
@@ -212,115 +229,178 @@ class _OrbitScrollState extends State<OrbitScroll>
       direction: ScrollDirection.idle,
     ).dispatch(context);
 
-    // Pixels per second
-    // Convert to items per second
-    const itemHeight = 90.0;
-    final velocityItemsPerSec = -velocity / itemHeight;
-
-    // 1. Predict landing point
-    // We use a FrictionSimulation to see where it WOULD land.
+    final velocityItemsPerSecond = -velocity / _dragItemExtent;
     final simulation = FrictionSimulation(
-      0.15, // Drag coefficient (higher = stops faster)
+      0.15,
       _scrollOffset,
-      velocityItemsPerSec,
+      velocityItemsPerSecond,
     );
+    final projectedOffset = simulation.x(2.0);
+    final targetIndex = projectedOffset
+        .round()
+        .clamp(0, widget.songs.length - 1)
+        .toInt();
 
-    final finalTime = 2.0; // Simulate far enough ahead
-    final projectedOffset = simulation.x(finalTime);
-
-    // 2. Snap to nearest valid item
-    final targetIndex = projectedOffset.round().clamp(
-      0,
-      widget.songs.length - 1,
+    _animateTo(
+      targetIndex.toDouble(),
+      velocity: velocityItemsPerSecond,
+      traversalHaptics: false,
+      settleHaptic: true,
     );
-
-    // 3. Spring to that target
-    _animateTo(targetIndex.toDouble(), velocity: velocityItemsPerSec);
   }
 
-  void _animateTo(double target, {double velocity = 0.0}) {
-    // Create a spring simulation from current => target
-    final description = SpringDescription.withDampingRatio(
-      mass: 1.0,
-      stiffness: 100.0, // Reasonable stiffness for UI
-      ratio: 1.0, // Critically damped (no bounce unless overshooting)
-    );
+  void _animateTo(
+    double target, {
+    double velocity = 0.0,
+    bool traversalHaptics = false,
+    bool settleHaptic = false,
+  }) {
+    if (widget.songs.isEmpty) {
+      return;
+    }
+
+    _animationTraversalHapticsEnabled = traversalHaptics;
+    _animationSettleHapticEnabled = settleHaptic;
 
     final simulation = SpringSimulation(
-      description,
+      SpringDescription.withDampingRatio(
+        mass: 1.0,
+        stiffness: 120.0,
+        ratio: 1.0,
+      ),
       _scrollOffset,
       target,
       velocity,
     );
 
     _controller.animateWith(simulation).whenComplete(() {
-      // Ensure we explicitly set the final state to avoid micro-drifts
+      _applyScrollOffset(
+        target,
+        haptic: _animationSettleHapticEnabled,
+        isScrolling: false,
+      );
+      _clearAnimationHapticFlags();
+    });
+  }
+
+  void _clearAnimationHapticFlags() {
+    _animationTraversalHapticsEnabled = false;
+    _animationSettleHapticEnabled = false;
+  }
+
+  void _applyScrollOffset(
+    double nextOffset, {
+    bool haptic = false,
+    bool isScrolling = true,
+  }) {
+    if (widget.songs.isEmpty) {
+      return;
+    }
+
+    final clampedOffset = nextOffset
+        .clamp(-0.5, widget.songs.length - 0.5)
+        .toDouble();
+    final didChange =
+        (clampedOffset - _scrollOffset).abs() > 0.001 ||
+        _isScrolling != isScrolling;
+
+    if (didChange) {
       setState(() {
-        _scrollOffset = target;
-        _isScrolling = false;
+        _scrollOffset = clampedOffset;
+        _isScrolling = isScrolling;
         _lastScrollTime = DateTime.now();
       });
-      final finalIndex = target.round();
-      if (finalIndex >= 0 && finalIndex < widget.songs.length) {
-        widget.onSelectedIndexChanged?.call(finalIndex);
-      }
-    });
+    }
+
+    _notifySelectionIfNeeded(haptic: haptic);
+  }
+
+  void _notifySelectionIfNeeded({bool haptic = false}) {
+    if (widget.songs.isEmpty) {
+      return;
+    }
+
+    final nextIndex = _scrollOffset
+        .round()
+        .clamp(0, widget.songs.length - 1)
+        .toInt();
+    if (nextIndex == _lastReportedIndex) {
+      return;
+    }
+
+    _lastReportedIndex = nextIndex;
+    if (haptic) {
+      AppHaptics.selection();
+    }
+    widget.onSelectedIndexChanged?.call(nextIndex);
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = Size(constraints.maxWidth, constraints.maxHeight);
+        _refreshGeometryCache(size);
+        final metrics = _OrbitLayoutMetrics(size);
 
-    // Calculate orbit parameters
-    final orbitRadius = size.width * AppConstants.orbitRadiusRatio;
-    final orbitCenterX = size.width * AppConstants.orbitCenterOffsetRatio;
-    final orbitCenterY =
-        size.height * 0.42; // Higher on screen for better visibility
-
-    return GestureDetector(
-      onVerticalDragStart: _onVerticalDragStart,
-      onVerticalDragUpdate: _onVerticalDragUpdate,
-      onVerticalDragEnd: _onVerticalDragEnd,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.transparent,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // Background glow
-            _buildSelectionGlow(orbitCenterX, orbitCenterY, orbitRadius),
-
-            // Path
-            _buildOrbitPath(orbitCenterX, orbitCenterY, orbitRadius),
-
-            // Songs
-            ..._buildSongItems(orbitCenterX, orbitCenterY, orbitRadius),
-          ],
-        ),
-      ),
+        return GestureDetector(
+          onVerticalDragStart: _onVerticalDragStart,
+          onVerticalDragUpdate: _onVerticalDragUpdate,
+          onVerticalDragEnd: _onVerticalDragEnd,
+          behavior: HitTestBehavior.opaque,
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: _onPointerDown,
+            onPointerMove: _onPointerMove,
+            onPointerUp: _onPointerUp,
+            onPointerCancel: _onPointerCancel,
+            child: ColoredBox(
+              color: Colors.transparent,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  _buildSelectionAura(metrics),
+                  _buildFocusCradle(metrics),
+                  _buildOrbitPath(metrics),
+                  ..._buildSongItems(metrics),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildSelectionGlow(double centerX, double centerY, double radius) {
-    final x = centerX + radius;
-    final y = centerY;
+  void _refreshGeometryCache(Size size) {
+    if (_lastLayoutSize == size) {
+      return;
+    }
+
+    _lastLayoutSize = size;
+    _positionCache.clear();
+    _transformCache.clear();
+  }
+
+  Widget _buildSelectionAura(_OrbitLayoutMetrics metrics) {
     return Positioned(
-      left: x - 120, // Slightly larger glow
-      top: y - 120,
-      child: RepaintBoundary(
-        child: Container(
-          width: 240,
-          height: 240,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(
-              colors: [
-                AppColors.accent.withValues(alpha: 0.15),
-                Colors.transparent,
-              ],
-              stops: const [0.0, 0.7],
+      left: metrics.focusX - (metrics.auraWidth / 2),
+      top: metrics.focusY - (metrics.auraHeight / 2),
+      child: IgnorePointer(
+        child: RepaintBoundary(
+          child: Container(
+            width: metrics.auraWidth,
+            height: metrics.auraHeight,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              gradient: RadialGradient(
+                colors: [
+                  AppColors.accent.withValues(alpha: 0.18),
+                  Colors.white.withValues(alpha: 0.05),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.38, 1.0],
+              ),
             ),
           ),
         ),
@@ -328,27 +408,96 @@ class _OrbitScrollState extends State<OrbitScroll>
     );
   }
 
-  Widget _buildOrbitPath(double centerX, double centerY, double radius) {
-    return RepaintBoundary(
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _OrbitPathPainter(
-          centerX: centerX,
-          centerY: centerY,
-          radius: radius,
+  Widget _buildFocusCradle(_OrbitLayoutMetrics metrics) {
+    return Positioned.fromRect(
+      rect: metrics.stageRect,
+      child: IgnorePointer(
+        child: RepaintBoundary(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(metrics.stageRect.height / 2),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white.withValues(alpha: 0.06),
+                  Colors.white.withValues(alpha: 0.02),
+                  Colors.transparent,
+                ],
+                stops: const [0.0, 0.42, 1.0],
+              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.24),
+                  blurRadius: 30,
+                  offset: const Offset(0, 18),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    width: metrics.stageRect.width * 0.72,
+                    height: 2,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(999),
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.transparent,
+                          Colors.white.withValues(alpha: 0.14),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Container(
+                    width: 48,
+                    margin: const EdgeInsets.only(right: 22),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [
+                          Colors.transparent,
+                          Colors.white.withValues(alpha: 0.06),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  List<Widget> _buildSongItems(double centerX, double centerY, double radius) {
-    final List<Widget> items = [];
+  Widget _buildOrbitPath(_OrbitLayoutMetrics metrics) {
+    return RepaintBoundary(
+      child: CustomPaint(
+        size: Size.infinite,
+        painter: _OrbitPathPainter(metrics: metrics),
+      ),
+    );
+  }
 
-    final visibleRange = AppConstants.orbitVisibleItems ~/ 2;
-
+  List<Widget> _buildSongItems(_OrbitLayoutMetrics metrics) {
+    final items = <Widget>[];
+    final hitTargets = <_OrbitHitTarget>[];
+    final visibleRange = _isScrolling
+        ? (metrics.visibleItemCount ~/ 2) + 1
+        : metrics.visibleItemCount ~/ 2;
     final orderedIndices = List.generate(
-      visibleRange * 2 + 1,
-      (i) => i - visibleRange,
+      (visibleRange * 2) + 1,
+      (index) => index - visibleRange,
     )..sort((a, b) => b.abs().compareTo(a.abs()));
 
     final centerIndex = _scrollOffset.round();
@@ -356,58 +505,32 @@ class _OrbitScrollState extends State<OrbitScroll>
 
     for (final relativeIndex in orderedIndices) {
       final actualIndex = centerIndex + relativeIndex;
-
-      if (actualIndex < 0 || actualIndex >= widget.songs.length) continue;
+      if (actualIndex < 0 || actualIndex >= widget.songs.length) {
+        continue;
+      }
 
       final diff = actualIndex.toDouble() - _scrollOffset;
-
       _ItemTransform? transform;
       if (useCache) {
-        final cacheKey = (diff * 100).toInt();
-        transform = _transformCache[cacheKey];
+        transform = _transformCache[(diff * 100).toInt()];
       }
 
       if (transform == null) {
-        final position = _calculateItemPosition(diff, centerX, centerY, radius);
-        final distanceFromCenter = diff.abs();
-
-        double scale;
-        if (distanceFromCenter < 1.0) {
-          scale =
-              AppConstants.orbitSelectedScale -
-              (AppConstants.orbitSelectedScale -
-                      AppConstants.orbitAdjacentScale) *
-                  distanceFromCenter;
-        } else if (distanceFromCenter < 2.0) {
-          scale =
-              AppConstants.orbitAdjacentScale -
-              (AppConstants.orbitAdjacentScale -
-                      AppConstants.orbitDistantScale) *
-                  (distanceFromCenter - 1.0);
-        } else {
-          scale =
-              AppConstants.orbitDistantScale -
-              (distanceFromCenter - 2.0) * 0.12;
-        }
-        scale = scale.clamp(0.0, 1.25);
-
-        if (scale < 0.1) continue;
-
-        final opacity = (1.0 - (distanceFromCenter * 0.25)).clamp(0.0, 1.0);
-        final isSelected = distanceFromCenter < 0.4;
-
-        transform = _ItemTransform(
-          position: position,
-          scale: scale,
-          opacity: opacity,
-          isSelected: isSelected,
+        transform = _buildTransform(
+          diff: diff,
+          metrics: metrics,
+          cacheResult: useCache,
         );
-
-        if (useCache) {
-          final cacheKey = (diff * 100).toInt();
-          _transformCache[cacheKey] = transform;
+        if (transform == null) {
+          continue;
         }
       }
+
+      final cardWidth = SongCard.baseWidthForScreenWidth(metrics.size.width);
+      final cardHeight = SongCard.baseHeightForScreenWidth(
+        metrics.size.width,
+        isSelected: transform.isSelected,
+      );
 
       items.add(
         Positioned(
@@ -415,53 +538,212 @@ class _OrbitScrollState extends State<OrbitScroll>
           top: transform.position.y,
           child: FractionalTranslation(
             translation: const Offset(-0.5, -0.5),
-            child: RepaintBoundary(
-              child: SongCard(
-                song: widget.songs[actualIndex],
-                scale: transform.scale,
-                opacity: transform.opacity,
-                isSelected: transform.isSelected,
-                onTap: () {
-                  _animateTo(actualIndex.toDouble());
-                  widget.onSongSelected?.call(actualIndex);
-                },
-                onSwipeLeft: () => widget.onSongSwipedLeft?.call(actualIndex),
-                onSwipeRight: () => widget.onSongSwipedRight?.call(actualIndex),
+            child: Transform.rotate(
+              angle: transform.rotation,
+              child: RepaintBoundary(
+                child: SongCard(
+                  song: widget.songs[actualIndex],
+                  scale: transform.scale,
+                  opacity: transform.opacity,
+                  isSelected: transform.isSelected,
+                  isNowPlaying:
+                      widget.currentSongId == widget.songs[actualIndex].id,
+                  onFocusRequested: () {
+                    _animateTo(
+                      actualIndex.toDouble(),
+                      traversalHaptics: false,
+                      settleHaptic: false,
+                    );
+                  },
+                  onActivate: () => widget.onSongActivated?.call(actualIndex),
+                  onLongPress: () {
+                    _suppressTapActivation = true;
+                    _animateTo(
+                      actualIndex.toDouble(),
+                      traversalHaptics: false,
+                      settleHaptic: false,
+                    );
+                    widget.onSongLongPressed?.call(actualIndex);
+                  },
+                  onSwipeLeft: () => widget.onSongSwipedLeft?.call(actualIndex),
+                  onSwipeRight: () =>
+                      widget.onSongSwipedRight?.call(actualIndex),
+                ),
               ),
             ),
           ),
         ),
       );
+
+      hitTargets.add(
+        _OrbitHitTarget(
+          index: actualIndex,
+          center: Offset(transform.position.x, transform.position.y),
+          rect: Rect.fromCenter(
+            center: Offset(transform.position.x, transform.position.y),
+            width: cardWidth * transform.scale,
+            height: cardHeight * transform.scale,
+          ),
+        ),
+      );
     }
 
+    _visibleHitTargets = hitTargets;
     return items;
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    _activePointer = event.pointer;
+    _pointerDownPosition = event.localPosition;
+    _didPointerMove = false;
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (event.pointer != _activePointer || _pointerDownPosition == null) {
+      return;
+    }
+
+    if (!_didPointerMove &&
+        (event.localPosition - _pointerDownPosition!).distance > _tapSlop) {
+      _didPointerMove = true;
+    }
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    if (event.pointer != _activePointer) {
+      return;
+    }
+
+    final shouldHandleTap = !_didPointerMove && !_suppressTapActivation;
+    _resetPointerTracking();
+
+    if (!shouldHandleTap) {
+      _suppressTapActivation = false;
+      return;
+    }
+
+    _handleTapAt(event.localPosition);
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    if (event.pointer == _activePointer) {
+      _resetPointerTracking();
+      _suppressTapActivation = false;
+    }
+  }
+
+  void _resetPointerTracking() {
+    _activePointer = null;
+    _pointerDownPosition = null;
+    _didPointerMove = false;
+  }
+
+  void _handleTapAt(Offset localPosition) {
+    if (widget.songs.isEmpty || _visibleHitTargets.isEmpty) {
+      return;
+    }
+
+    _OrbitHitTarget? bestTarget;
+    double? bestScore;
+
+    for (final target in _visibleHitTargets) {
+      final expandedRect = target.rect.inflate(12);
+      if (!expandedRect.contains(localPosition)) {
+        continue;
+      }
+
+      final score = target.normalizedDistanceTo(localPosition);
+      if (bestScore == null || score < bestScore) {
+        bestScore = score;
+        bestTarget = target;
+      }
+    }
+
+    if (bestTarget == null) {
+      return;
+    }
+
+    if (bestTarget.index != widget.selectedIndex) {
+      AppHaptics.tap();
+      _animateTo(
+        bestTarget.index.toDouble(),
+        traversalHaptics: false,
+        settleHaptic: false,
+      );
+      return;
+    }
+
+    widget.onSongActivated?.call(bestTarget.index);
+  }
+
+  _ItemTransform? _buildTransform({
+    required double diff,
+    required _OrbitLayoutMetrics metrics,
+    required bool cacheResult,
+  }) {
+    final distanceFromCenter = diff.abs();
+    final position = _calculateItemPosition(diff, metrics);
+
+    double scale;
+    if (distanceFromCenter < 1.0) {
+      scale =
+          metrics.selectedScale -
+          (metrics.selectedScale - metrics.adjacentScale) * distanceFromCenter;
+    } else if (distanceFromCenter < 2.4) {
+      scale =
+          metrics.adjacentScale -
+          (metrics.adjacentScale - metrics.distantScale) *
+              ((distanceFromCenter - 1.0) / 1.4);
+    } else {
+      scale = metrics.distantScale - (distanceFromCenter - 2.4) * 0.1;
+    }
+
+    scale = scale.clamp(0.0, metrics.selectedScale).toDouble();
+    if (scale < 0.14) {
+      return null;
+    }
+
+    final focusProgress =
+        (1 - (distanceFromCenter / metrics.maxVisibleDistance))
+            .clamp(0.0, 1.0)
+            .toDouble();
+
+    final transform = _ItemTransform(
+      position: _Position(
+        position.x + (focusProgress * 4),
+        position.y - (focusProgress * 6),
+      ),
+      scale: scale,
+      opacity: (0.18 + (focusProgress * 0.82)).clamp(0.0, 1.0).toDouble(),
+      rotation: (diff * 0.055).clamp(-0.1, 0.1).toDouble(),
+      isSelected: distanceFromCenter < 0.34,
+    );
+
+    if (cacheResult) {
+      _transformCache[(diff * 100).toInt()] = transform;
+    }
+
+    return transform;
   }
 
   _Position _calculateItemPosition(
     double relativeIndex,
-    double centerX,
-    double centerY,
-    double radius,
+    _OrbitLayoutMetrics metrics,
   ) {
     final cacheKey = (relativeIndex * 100).toInt();
-
-    final existing = _positionCache[cacheKey];
-    if (existing != null) {
-      return existing;
+    final cached = _positionCache[cacheKey];
+    if (cached != null) {
+      return cached;
     }
 
-    // Split effect: push adjacent items away from the center highlighted item
-    double adjustedIndex = relativeIndex;
-    final double splitAmount =
-        0.55; // Determines how much the items split apart
+    var adjustedIndex = relativeIndex;
     adjustedIndex +=
-        relativeIndex.sign * splitAmount * math.min(relativeIndex.abs(), 1.0);
-
-    final angle = adjustedIndex * AppConstants.orbitItemSpacing;
-    final x = centerX + radius * math.cos(angle);
-    final y = centerY + radius * math.sin(angle);
-
-    final position = _Position(x, y);
+        relativeIndex.sign * 0.34 * math.min(relativeIndex.abs(), 1.0);
+    final angle = adjustedIndex * metrics.itemAngleSpacing;
+    final position = _Position(
+      metrics.centerX + (metrics.radiusX * math.cos(angle)),
+      metrics.centerY + (metrics.radiusY * math.sin(angle)),
+    );
 
     if (!_isScrolling) {
       _positionCache[cacheKey] = position;
@@ -474,54 +756,169 @@ class _OrbitScrollState extends State<OrbitScroll>
 class _Position {
   final double x;
   final double y;
+
   const _Position(this.x, this.y);
 }
 
-/// Cached transform data for orbit items
 class _ItemTransform {
   final _Position position;
   final double scale;
   final double opacity;
+  final double rotation;
   final bool isSelected;
 
   const _ItemTransform({
     required this.position,
     required this.scale,
     required this.opacity,
+    required this.rotation,
     required this.isSelected,
   });
 }
 
-class _OrbitPathPainter extends CustomPainter {
-  final double centerX;
-  final double centerY;
-  final double radius;
+class _OrbitHitTarget {
+  final int index;
+  final Offset center;
+  final Rect rect;
 
-  _OrbitPathPainter({
-    required this.centerX,
-    required this.centerY,
-    required this.radius,
+  const _OrbitHitTarget({
+    required this.index,
+    required this.center,
+    required this.rect,
   });
+
+  double normalizedDistanceTo(Offset point) {
+    final normalizedDx = (point.dx - center.dx).abs() / rect.width;
+    final normalizedDy = (point.dy - center.dy).abs() / rect.height;
+    return (normalizedDx * normalizedDx) + (normalizedDy * normalizedDy);
+  }
+}
+
+class _OrbitPathPainter extends CustomPainter {
+  final _OrbitLayoutMetrics metrics;
+
+  const _OrbitPathPainter({required this.metrics});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = AppColors.glassBorder.withValues(alpha: 0.15)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.0;
-
-    final rect = Rect.fromCircle(
-      center: Offset(centerX, centerY),
-      radius: radius,
+    final orbitRect = Rect.fromCenter(
+      center: Offset(metrics.centerX, metrics.centerY),
+      width: metrics.radiusX * 2,
+      height: metrics.radiusY * 2,
+    );
+    final innerRect = Rect.fromCenter(
+      center: Offset(metrics.centerX, metrics.centerY),
+      width: (metrics.radiusX - 18) * 2,
+      height: (metrics.radiusY - 14) * 2,
     );
 
-    canvas.drawArc(rect, -math.pi / 2.5, 2 * math.pi / 2.5, false, paint);
+    final basePaint = Paint()
+      ..color = AppColors.glassBorder.withValues(alpha: 0.16)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    final innerPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.06)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+    final focusPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.18)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+    final tickPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.1)
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawArc(orbitRect, -1.1, 2.2, false, basePaint);
+    canvas.drawArc(innerRect, -1.05, 2.1, false, innerPaint);
+    canvas.drawArc(innerRect, -0.26, 0.52, false, focusPaint);
+
+    for (final angle in <double>[-0.52, -0.26, 0.0, 0.26, 0.52]) {
+      final start = Offset(
+        metrics.centerX + (metrics.radiusX - 12) * math.cos(angle),
+        metrics.centerY + (metrics.radiusY - 10) * math.sin(angle),
+      );
+      final end = Offset(
+        metrics.centerX + (metrics.radiusX + 8) * math.cos(angle),
+        metrics.centerY + (metrics.radiusY + 6) * math.sin(angle),
+      );
+      canvas.drawLine(start, end, tickPaint);
+    }
+
+    canvas.drawCircle(
+      Offset(metrics.focusX, metrics.focusY),
+      4,
+      Paint()..color = Colors.white.withValues(alpha: 0.22),
+    );
   }
 
   @override
   bool shouldRepaint(covariant _OrbitPathPainter oldDelegate) {
-    return centerX != oldDelegate.centerX ||
-        centerY != oldDelegate.centerY ||
-        radius != oldDelegate.radius;
+    return oldDelegate.metrics != metrics;
   }
+}
+
+class _OrbitLayoutMetrics {
+  final Size size;
+
+  const _OrbitLayoutMetrics(this.size);
+
+  bool get isCompact => size.width < 360;
+  bool get isTablet => size.width >= 600;
+
+  double get focusX =>
+      size.width *
+      (isTablet
+          ? 0.58
+          : isCompact
+          ? 0.56
+          : 0.54);
+  double get focusY =>
+      size.height *
+      (isTablet
+          ? 0.47
+          : isCompact
+          ? 0.44
+          : 0.45);
+  double get radiusX => size.width * (isTablet ? 0.92 : 0.88);
+  double get radiusY =>
+      (size.height * (isTablet ? 0.68 : 0.62)).clamp(152.0, 252.0).toDouble();
+  double get centerX => focusX - radiusX;
+  double get centerY => focusY;
+
+  double get itemAngleSpacing => isTablet
+      ? 0.24
+      : isCompact
+      ? 0.29
+      : 0.27;
+  int get visibleItemCount => isTablet ? 7 : 5;
+  double get selectedScale => isTablet ? 1.12 : 1.08;
+  double get adjacentScale => isTablet ? 0.82 : 0.72;
+  double get distantScale => isTablet ? 0.58 : 0.48;
+  double get maxVisibleDistance => (visibleItemCount / 2) + 0.6;
+
+  Rect get stageRect => Rect.fromCenter(
+    center: Offset(focusX, focusY + 4),
+    width: (SongCard.baseWidthForScreenWidth(size.width) + 64)
+        .clamp(320.0, 584.0)
+        .toDouble(),
+    height:
+        (SongCard.baseHeightForScreenWidth(size.width, isSelected: true) + 46)
+            .clamp(180.0, 240.0)
+            .toDouble(),
+  );
+
+  double get auraWidth => stageRect.width + 140;
+  double get auraHeight => stageRect.height + 92;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _OrbitLayoutMetrics &&
+          runtimeType == other.runtimeType &&
+          other.size == size;
+
+  @override
+  int get hashCode => size.hashCode;
 }

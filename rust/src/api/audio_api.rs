@@ -4,7 +4,7 @@
 //! Now available on all platforms including Android (using CPAL with Oboe backend).
 
 use crate::audio::commands::{AudioEvent, PlaybackState};
-use crate::audio::decoder::probe_file;
+use crate::audio::decoder::{probe_file, DecoderThread};
 use crate::audio::manager::{AudioCapability, AudioCapabilitySnapshot, AudioEngine, EngineManager};
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
@@ -27,10 +27,23 @@ fn ensure_audio_engine(preferred_sample_rate: Option<u32>) -> Result<(), String>
     ENGINE_MANAGER.ensure_rust_engine(preferred_sample_rate)
 }
 
-fn probe_output_sample_rate(path: &PathBuf) -> Option<u32> {
-    probe_file(path.as_path())
-        .map(|probe| probe.source_info.original_sample_rate)
-        .ok()
+fn spawn_engine_prewarm(preferred_sample_rate: Option<u32>) {
+    let _ = std::thread::Builder::new()
+        .name("audio-engine-prewarm".to_string())
+        .spawn(move || {
+            let _ = ENGINE_MANAGER.ensure_rust_engine(preferred_sample_rate);
+        });
+}
+
+fn prepare_decoder_source(
+    path: &PathBuf,
+    output_sample_rate: u32,
+) -> Result<(crate::audio::source::AudioSource, DecoderThread), String> {
+    let probe_result = probe_file(path.as_path())
+        .map_err(|error| format!("Failed to probe {}: {}", path.display(), error))?;
+
+    DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)
+        .map_err(|error| format!("Failed to decode {}: {}", path.display(), error))
 }
 
 // ============================================================================
@@ -157,6 +170,7 @@ pub fn audio_is_native_available() -> bool {
 #[flutter_rust_bridge::frb(sync)]
 pub fn audio_init() -> Result<(), String> {
     ENGINE_MANAGER.init();
+    spawn_engine_prewarm(None);
     Ok(())
 }
 
@@ -171,12 +185,17 @@ pub fn audio_is_initialized() -> bool {
 #[flutter_rust_bridge::frb(sync)]
 pub fn audio_set_high_res_mode(enabled: bool) {
     ENGINE_MANAGER.set_high_res_mode(enabled);
+    if enabled {
+        spawn_engine_prewarm(None);
+    }
 }
 
 /// Update the current platform capability snapshot used for engine selection.
 #[flutter_rust_bridge::frb(sync)]
 pub fn audio_set_capability_info(info: AudioCapabilityInfo) {
+    let preferred_sample_rate = info.max_sample_rate;
     ENGINE_MANAGER.set_capability_snapshot(info.into());
+    spawn_engine_prewarm(preferred_sample_rate);
 }
 
 /// Inspect the current capability snapshot after native detection and platform hints are merged.
@@ -203,20 +222,41 @@ pub fn audio_is_dac_available(preferred_sample_rate: Option<u32>) -> Result<bool
     ENGINE_MANAGER.is_dac_available(preferred_sample_rate)
 }
 
+/// Prepare the Rust audio engine for the requested output rate before playback starts.
+pub fn audio_prepare_engine(preferred_sample_rate: Option<u32>) -> Result<(), String> {
+    ensure_audio_engine(preferred_sample_rate)
+}
+
 /// Play an audio file.
 pub fn audio_play(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
-    ensure_audio_engine(probe_output_sample_rate(&path))?;
-    with_audio_engine(|handle| handle.play(path))
+    let probe_result = probe_file(path.as_path())
+        .map_err(|error| format!("Failed to probe {}: {}", path.display(), error))?;
+    ensure_audio_engine(Some(probe_result.source_info.original_sample_rate))?;
+    let output_sample_rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
+    let (source, decoder_thread) =
+        DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)
+            .map_err(|error| format!("Failed to decode {}: {}", path.display(), error))?;
+    with_audio_engine(|handle| handle.play_prepared(source, decoder_thread))
 }
 
 /// Queue the next track for gapless playback.
 pub fn audio_queue_next(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
     if !audio_is_initialized() {
-        ensure_audio_engine(probe_output_sample_rate(&path))?;
+        let probe_result = probe_file(path.as_path())
+            .map_err(|error| format!("Failed to probe {}: {}", path.display(), error))?;
+        ensure_audio_engine(Some(probe_result.source_info.original_sample_rate))?;
+        let output_sample_rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
+        let (source, decoder_thread) =
+            DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)
+                .map_err(|error| format!("Failed to decode {}: {}", path.display(), error))?;
+        return with_audio_engine(|handle| handle.queue_next_prepared(source, decoder_thread));
     }
-    with_audio_engine(|handle| handle.queue_next(path))
+
+    let output_sample_rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
+    let (source, decoder_thread) = prepare_decoder_source(&path, output_sample_rate)?;
+    with_audio_engine(|handle| handle.queue_next_prepared(source, decoder_thread))
 }
 
 /// Pause playback.

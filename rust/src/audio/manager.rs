@@ -1,5 +1,6 @@
 use crate::audio::engine::{create_audio_engine, desired_output_signature, AudioEngineHandle};
 use parking_lot::Mutex;
+use std::sync::OnceLock;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -104,25 +105,29 @@ impl Default for EngineManagerState {
 }
 
 pub struct EngineManager {
-    runtime: Runtime,
+    runtime: OnceLock<Runtime>,
     init_gate: AsyncMutex<()>,
     state: Mutex<EngineManagerState>,
 }
 
 impl EngineManager {
     pub fn new() -> Self {
-        let runtime = Builder::new_multi_thread()
-            .worker_threads(2)
-            .thread_name("audio-engine-manager")
-            .enable_all()
-            .build()
-            .expect("failed to create engine manager runtime");
-
         Self {
-            runtime,
+            runtime: OnceLock::new(),
             init_gate: AsyncMutex::new(()),
             state: Mutex::new(EngineManagerState::default()),
         }
+    }
+
+    fn runtime(&self) -> &Runtime {
+        self.runtime.get_or_init(|| {
+            Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("audio-engine-manager")
+                .enable_all()
+                .build()
+                .expect("failed to create engine manager runtime")
+        })
     }
 
     pub fn init(&self) {
@@ -153,7 +158,7 @@ impl EngineManager {
     }
 
     pub fn selection(&self, preferred_sample_rate: Option<u32>) -> Result<EngineSelection, String> {
-        self.runtime
+        self.runtime()
             .block_on(self.selection_async(preferred_sample_rate))
     }
 
@@ -161,7 +166,7 @@ impl EngineManager {
         &self,
         preferred_sample_rate: Option<u32>,
     ) -> Result<AudioCapabilitySnapshot, String> {
-        self.runtime
+        self.runtime()
             .block_on(self.capability_snapshot_async(preferred_sample_rate))
     }
 
@@ -171,7 +176,7 @@ impl EngineManager {
     }
 
     pub fn ensure_rust_engine(&self, preferred_sample_rate: Option<u32>) -> Result<(), String> {
-        self.runtime
+        self.runtime()
             .block_on(self.ensure_rust_engine_async(preferred_sample_rate))
     }
 
@@ -193,7 +198,7 @@ impl EngineManager {
     }
 
     pub fn shutdown(&self) -> Result<(), String> {
-        self.runtime.block_on(self.shutdown_async())
+        self.runtime().block_on(self.shutdown_async())
     }
 
     async fn selection_async(

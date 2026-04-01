@@ -154,7 +154,7 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
     String? path,
     String? audioSourcePath,
   ) async {
-    if (path != null && path.isNotEmpty && File(path).existsSync()) {
+    if (path != null && path.isNotEmpty && await File(path).exists()) {
       return path;
     }
 

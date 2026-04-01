@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -97,6 +98,17 @@ class MusicNotificationService : Service() {
         }
     }
 
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                android.util.Log.d(
+                    "MusicNotification",
+                    "[AudioFocus] ACTION_AUDIO_BECOMING_NOISY observed; active engine handles pause"
+                )
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -116,6 +128,13 @@ class MusicNotificationService : Service() {
             registerReceiver(actionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(actionReceiver, filter)
+        }
+
+        val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            registerReceiver(noisyReceiver, noisyFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(noisyReceiver, noisyFilter)
         }
 
         FlutterEngineCache.getInstance().get("main_engine")?.let { engine ->
@@ -141,6 +160,8 @@ class MusicNotificationService : Service() {
             if (it.hasExtra("isShuffle")) isShuffleMode = it.getBooleanExtra("isShuffle", false)
             if (it.hasExtra("isFavorite")) isFavorite = it.getBooleanExtra("isFavorite", false)
         }
+
+        syncAudioFocusState()
 
         val notification = buildNotification()
 
@@ -168,6 +189,11 @@ class MusicNotificationService : Service() {
         super.onDestroy()
         try {
             unregisterReceiver(actionReceiver)
+        } catch (e: Exception) {
+            // Receiver was not registered
+        }
+        try {
+            unregisterReceiver(noisyReceiver)
         } catch (e: Exception) {
             // Receiver was not registered
         }
@@ -333,6 +359,13 @@ class MusicNotificationService : Service() {
         }
 
         mediaSession.setPlaybackState(stateBuilder.build())
+    }
+
+    private fun syncAudioFocusState() {
+        android.util.Log.d(
+            "MusicNotification",
+            "[AudioFocus] Notification service defers focus ownership to the active playback engine (isPlaying=$isPlaying)"
+        )
     }
 
     private fun buildNotification(): Notification {

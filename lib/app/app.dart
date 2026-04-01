@@ -342,7 +342,9 @@ class _MainShellState extends ConsumerState<MainShell>
     required int currentIndex,
     required Widget child,
   }) {
-    return TickerMode(enabled: currentIndex == tabIndex, child: child);
+    return RepaintBoundary(
+      child: TickerMode(enabled: currentIndex == tabIndex, child: child),
+    );
   }
 
   Widget _buildUnifiedBottomBar() {

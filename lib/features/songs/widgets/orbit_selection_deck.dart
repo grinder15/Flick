@@ -49,6 +49,7 @@ class OrbitSelectionDeck extends StatelessWidget {
 
         return GlassmorphismContainerStrong(
           borderRadius: borderRadius,
+          enableBlur: false,
           padding: EdgeInsets.zero,
           child: ClipRRect(
             borderRadius: borderRadius,

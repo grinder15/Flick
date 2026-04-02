@@ -74,8 +74,11 @@ dev_dependencies:
   riverpod_lint: ^3.0.3
 
 flutter_launcher_icons:
-  android: true
   image_path: "assets/icons/reverse_flick_logo.png"
+  android: "launcher_icon"
+  adaptive_icon_background: "#F5F5F5"
+  adaptive_icon_foreground: "assets/icons/reverse_flick_logo_transparent.png"
+  adaptive_icon_monochrome: "assets/icons/reverse_flick_logo.png"
 
 # Resolve conflict between riverpod_generator and isar_community_generator
 # (analyzer/test/source_gen chain with flutter_test). See e.g.:

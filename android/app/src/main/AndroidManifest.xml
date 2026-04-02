@@ -20,7 +20,7 @@
     <application
         android:label="Flick"
         android:name="${applicationName}"
-        android:icon="@mipmap/launcher_icon">
+        android:icon="@drawable/reverse_flick_logo">
         <activity
             android:name=".MainActivity"
             android:exported="true"

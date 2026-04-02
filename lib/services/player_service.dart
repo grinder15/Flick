@@ -400,13 +400,34 @@ class PlayerService {
       return;
     }
 
-    final future = initAudio();
+    final future = _prepareForAppLaunchInternal();
 
     _appLaunchPreparationInFlight = future;
     try {
       await future;
     } finally {
       _appLaunchPreparationInFlight = null;
+    }
+  }
+
+  Future<void> _prepareForAppLaunchInternal() async {
+    await initAudio();
+
+    if (!Platform.isAndroid) {
+      return;
+    }
+    if (_routeManager.selectedEngineType != AudioEngineType.android) {
+      return;
+    }
+    if (_justAudioPlayer != null) {
+      return;
+    }
+
+    debugPrint('[Engine] Prewarming Android engine for non-USB route');
+    try {
+      await _ensureAndroidEngineInitialized();
+    } catch (e) {
+      debugPrint('[Engine] Android prewarm skipped: $e');
     }
   }
 
@@ -424,9 +445,11 @@ class PlayerService {
     debugPrint('[Engine] Initializing audio manager');
 
     try {
-      await _routeManager.initialize();
+      await Future.wait<void>([
+        _routeManager.initialize(),
+        _configureAndroidAudioSession(),
+      ]);
       _playbackManager.publishIdleState(_routeManager.selectedEngineType);
-      await _configureAndroidAudioSession();
       _audioInitialized = true;
     } finally {
       _audioInitInFlight = null;
@@ -1465,9 +1488,10 @@ class PlayerService {
 
       if (song.filePath != null) {
         await _prepareImmediatePlaybackAsset(song);
-        final desiredEngine = await _routeManager.resolvePreferredEngineType(
-          refresh: true,
-        );
+        // Route changes are already pushed into AudioRouteManager via the
+        // device listener initialized in initAudio(). Re-querying the platform
+        // here adds latency to the first tap on speaker routes.
+        final desiredEngine = _routeManager.selectedEngineType;
         final activeEngine = await _ensureEngineReady(
           desiredEngine,
           reason: 'playback requested',
@@ -1604,9 +1628,9 @@ class PlayerService {
     }
 
     debugPrint('[Playback] resume() called');
-    final desiredEngine = await _routeManager.resolvePreferredEngineType(
-      refresh: true,
-    );
+    // Use the cached route selection maintained by AudioRouteManager's device
+    // listener rather than doing another blocking device probe on resume.
+    final desiredEngine = _routeManager.selectedEngineType;
     final activeEngine = await _ensureEngineReady(
       desiredEngine,
       reason: 'resume requested',

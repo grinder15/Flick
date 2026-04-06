@@ -46,7 +46,7 @@ class AndroidAudioEngine implements AudioEngine {
       StreamController<PlaybackState>.broadcast();
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   just_audio.AudioPlayer? _player;
-  PlaybackState _state = PlaybackState.empty(AudioEngineType.android);
+  PlaybackState _state = PlaybackState.empty(AudioEngineType.normalAndroid);
   Song? _loadedTrack;
   List<String> _playlistSignature = const <String>[];
   bool _awaitingInitialSeek = false;

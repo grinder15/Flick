@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flick/providers/equalizer_provider.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/services/uac2_service.dart';
 import 'package:flick/src/rust/api/audio_api.dart' as rust_audio;
 
 const MethodChannel _androidEqualizerChannel = MethodChannel(
@@ -28,14 +29,17 @@ Future<void> applyEqualizer(EqualizerState state) async {
       playerService.isUsingRustBackend &&
       rust_audio.audioIsNativeAvailable() &&
       rust_audio.audioIsInitialized();
+  final bypassForBitPerfect =
+      playerService.isBitPerfectProcessingLocked ||
+      Uac2Service.instance.isBitPerfectEnabledSync;
 
   // Android + just_audio: use native AudioEffect API with session ID.
   if (Platform.isAndroid && !useRustBackend) {
     final sessionId = playerService.androidAudioSessionId;
-    if (sessionId == null && state.enabled) return;
+    if (sessionId == null && state.enabled && !bypassForBitPerfect) return;
     try {
       await _androidEqualizerChannel.invokeMethod('setEqualizer', {
-        'enabled': state.enabled,
+        'enabled': bypassForBitPerfect ? false : state.enabled,
         'gainsDb': gains,
         'audioSessionId': sessionId,
       });
@@ -49,6 +53,28 @@ Future<void> applyEqualizer(EqualizerState state) async {
     return;
   }
   try {
+    if (bypassForBitPerfect) {
+      rust_audio.audioSetEqualizer(
+        enabled: false,
+        gainsDb: List<double>.filled(10, 0.0, growable: false),
+      );
+      await rust_audio.audioSetCompressor(
+        enabled: false,
+        thresholdDb: state.compressor.thresholdDb,
+        ratio: state.compressor.ratio,
+        attackMs: state.compressor.attackMs,
+        releaseMs: state.compressor.releaseMs,
+        makeupGainDb: state.compressor.makeupGainDb,
+      );
+      await rust_audio.audioSetLimiter(
+        enabled: false,
+        inputGainDb: state.limiter.inputGainDb,
+        ceilingDb: state.limiter.ceilingDb,
+        releaseMs: state.limiter.releaseMs,
+      );
+      return;
+    }
+
     rust_audio.audioSetEqualizer(
       enabled: state.enabled,
       gainsDb: List<double>.from(gains),

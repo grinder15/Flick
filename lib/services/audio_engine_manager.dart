@@ -20,8 +20,11 @@ class AudioEngineManager {
   PlaybackState? _latestState;
   AudioEngineType? _currentEngineType;
   bool _engineInitialized = false;
+  bool _engineHasLoadedTrack = false;
   bool _isTransitioning = false;
   int _attachToken = 0;
+
+  bool get canResumeCurrentTrack => _engineHasLoadedTrack;
 
   Future<void> attachEngine(
     AudioEngine engine, {
@@ -45,9 +48,10 @@ class AudioEngineManager {
     final activeToken = _attachToken;
     final engineLabel = engineType == null
         ? engine.runtimeType.toString()
-        : (engineType == AudioEngineType.android ? 'Android' : 'USB');
+        : engineType.logLabel;
     _currentEngineType = engineType;
     _engineInitialized = true;
+    _engineHasLoadedTrack = false;
     debugPrint('[Engine] Attached: $engineLabel');
 
     if (engineType != null) {
@@ -107,6 +111,7 @@ class AudioEngineManager {
       final engine = _requireEngine();
       debugPrint('[Playback] load(${track.id})');
       await engine.load(track);
+      _engineHasLoadedTrack = true;
       if (initialPosition > Duration.zero) {
         await engine.seek(initialPosition);
       }
@@ -138,6 +143,7 @@ class AudioEngineManager {
     final engine = _requireEngine();
     debugPrint('[Playback] load(${track.id})');
     await engine.load(track);
+    _engineHasLoadedTrack = true;
   }
 
   Future<void> play() async {
@@ -171,6 +177,7 @@ class AudioEngineManager {
     }
     _currentEngineType = null;
     _engineInitialized = false;
+    _engineHasLoadedTrack = false;
     await _controller.close();
   }
 
@@ -184,6 +191,7 @@ class AudioEngineManager {
     _currentEngine = null;
     _currentEngineType = null;
     _engineInitialized = false;
+    _engineHasLoadedTrack = false;
     _attachToken += 1;
     if (previousEngineType != null) {
       publishIdleState(previousEngineType);

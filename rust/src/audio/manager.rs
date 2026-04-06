@@ -145,6 +145,10 @@ impl EngineManager {
         }
     }
 
+    pub fn is_high_res_mode_enabled(&self) -> bool {
+        self.state.lock().high_res_mode
+    }
+
     pub fn set_capability_snapshot(&self, snapshot: AudioCapabilitySnapshot) {
         self.state.lock().capability_snapshot = snapshot.normalize();
     }

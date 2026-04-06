@@ -10,7 +10,10 @@ use crate::audio::dynamics::DynamicsChain;
 use crate::audio::equalizer::Equalizer;
 use crate::audio::source::{AudioSource, SourceProvider};
 #[cfg(all(feature = "uac2", target_os = "android"))]
-use crate::uac2::{android_direct_output_signature, create_android_usb_backend};
+use crate::uac2::{
+    android_direct_debug_state, android_direct_output_signature, create_android_usb_backend,
+    validate_android_direct_request,
+};
 
 #[cfg(not(target_os = "android"))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -520,14 +523,63 @@ pub fn create_audio_engine(
     preferred_sample_rate: Option<u32>,
 ) -> Result<AudioEngineHandle, String> {
     let target_sample_rate = preferred_sample_rate.unwrap_or(48_000);
-    let output_signature = desired_output_signature(Some(target_sample_rate));
-    let channels =
-        parse_android_output_channels(&output_signature).unwrap_or(ANDROID_DIRECT_CHANNELS);
+    #[cfg(feature = "uac2")]
+    validate_android_direct_request(Some(target_sample_rate))?;
+
+    // Determine channels and whether USB backend will be used
+    // Check the DAC state directly to avoid race conditions
+    #[cfg(feature = "uac2")]
+    let (will_attempt_usb, channels) = {
+        let debug_state = android_direct_debug_state();
+        
+        eprintln!(
+            "create_audio_engine: target_rate={} Hz, debug_state: registered={}, effective_rate={:?}, requested_rate={:?}, effective_ch={:?}, requested_ch={:?}",
+            target_sample_rate,
+            debug_state.registered,
+            debug_state.playback_format_sample_rate,
+            debug_state.requested_playback_sample_rate,
+            debug_state.playback_format_channels,
+            debug_state.requested_playback_channels,
+        );
+        
+        if !debug_state.registered {
+            eprintln!("create_audio_engine: DAC not registered, will use Oboe");
+            (false, ANDROID_DIRECT_CHANNELS)
+        } else {
+            // DAC is registered - attempt to use USB backend
+            // Check if a format is already set and matches our rate
+            let effective_matches = debug_state.playback_format_sample_rate == Some(target_sample_rate);
+            let requested_matches = debug_state.requested_playback_sample_rate == Some(target_sample_rate);
+            
+            let channels = if effective_matches {
+                debug_state.playback_format_channels
+                    .map(|c| c as usize)
+                    .unwrap_or(ANDROID_DIRECT_CHANNELS)
+            } else if requested_matches {
+                debug_state.requested_playback_channels
+                    .map(|c| c as usize)
+                    .unwrap_or(ANDROID_DIRECT_CHANNELS)
+            } else {
+                // No format set yet or doesn't match - use default channels
+                // The backend will negotiate the format when created
+                ANDROID_DIRECT_CHANNELS
+            };
+            
+            eprintln!(
+                "create_audio_engine: DAC registered, will attempt USB backend with {} channels (format_matches: effective={}, requested={})",
+                channels, effective_matches, requested_matches
+            );
+            (true, channels)
+        }
+    };
+
+    #[cfg(not(feature = "uac2"))]
+    let channels = ANDROID_DIRECT_CHANNELS;
 
     // Create finished tracks channel (from audio callback to command thread)
     let (finished_tx, finished_rx) = bounded::<AudioSource>(32);
 
-    // Create shared data
+    // Create shared data with correct channels
     let callback_data = Arc::new(AudioCallbackData::new(
         target_sample_rate,
         channels,
@@ -557,24 +609,34 @@ pub fn create_audio_engine(
     // Callback data for command thread
     let callback_data_for_thread = Arc::clone(&callback_data);
 
+    // Attempt to create USB backend if DAC state indicates it's available
     #[cfg(feature = "uac2")]
-    let direct_usb_backend = if output_signature.starts_with("android-uac2:") {
+    let (direct_usb_backend, output_signature) = if will_attempt_usb {
         match create_android_usb_backend(
             Arc::clone(&callback_data_clone),
             event_tx_clone.clone(),
             target_sample_rate,
         )? {
-            Some(backend) => Some(backend),
+            Some(backend) => {
+                // Backend created successfully - get the actual signature
+                let signature = android_direct_output_signature(Some(target_sample_rate))
+                    .unwrap_or_else(|| desired_output_signature(Some(target_sample_rate)));
+                (Some(backend), signature)
+            }
             None => {
-                return Err(
-                    "Android direct USB backend was requested but no matching USB DAC format is configured"
-                        .to_string(),
-                )
+                return Err(format!(
+                    "Android direct USB backend was selected for {} Hz but no direct backend instance was created",
+                    target_sample_rate
+                ));
             }
         }
     } else {
-        None
+        let signature = desired_output_signature(Some(target_sample_rate));
+        (None, signature)
     };
+
+    #[cfg(not(feature = "uac2"))]
+    let output_signature = desired_output_signature(Some(target_sample_rate));
 
     // Spawn the audio thread (which owns the Oboe stream)
     thread::Builder::new()
@@ -609,18 +671,18 @@ pub fn create_audio_engine(
             ) {
                 Ok(stream) => stream,
                 Err(error) => {
-                    eprintln!("Failed to open Android direct output stream: {}", error);
+                    eprintln!("Failed to open Android managed output stream: {}", error);
                     let _ = event_tx.try_send(AudioEvent::Error {
-                        message: format!("Failed to open Android direct output stream: {}", error),
+                        message: format!("Failed to open Android managed output stream: {}", error),
                     });
                     return;
                 }
             };
 
             if let Err(error) = stream.start() {
-                eprintln!("Failed to start Android direct output stream: {}", error);
+                eprintln!("Failed to start Android managed output stream: {}", error);
                 let _ = event_tx.try_send(AudioEvent::Error {
-                    message: format!("Failed to start Android direct output stream: {}", error),
+                    message: format!("Failed to start Android managed output stream: {}", error),
                 });
                 return;
             }
@@ -683,7 +745,7 @@ impl AudioOutputCallback for AndroidOutputCallbackState {
         error: oboe::Error,
     ) {
         eprintln!(
-            "Android direct output error before close: {:?} (device_id={}, sample_rate={} Hz, sharing={:?}, api={:?})",
+            "Android managed output error before close: {:?} (device_id={}, sample_rate={} Hz, sharing={:?}, api={:?})",
             error,
             audio_stream.get_device_id(),
             audio_stream.get_sample_rate(),
@@ -698,7 +760,7 @@ impl AudioOutputCallback for AndroidOutputCallbackState {
         error: oboe::Error,
     ) {
         eprintln!(
-            "Android direct output error after close: {:?} (device_id={}, sample_rate={} Hz, sharing={:?}, api={:?})",
+            "Android managed output error after close: {:?} (device_id={}, sample_rate={} Hz, sharing={:?}, api={:?})",
             error,
             audio_stream.get_device_id(),
             audio_stream.get_sample_rate(),
@@ -752,7 +814,7 @@ fn open_android_output_stream(
             .set_sample_rate(target_sample_rate as i32)
             .set_frames_per_callback(frames_per_callback)
             .set_device_id(selected_device.id)
-            .set_sharing_mode(SharingMode::Exclusive)
+            .set_sharing_mode(SharingMode::Shared)
             .set_performance_mode(PerformanceMode::LowLatency)
             .set_usage(Usage::Media)
             .set_content_type(ContentType::Music)
@@ -789,7 +851,7 @@ fn open_android_output_stream(
         let actual_channels = stream.get_channel_count();
 
         eprintln!(
-            "Android direct output opened '{}' (id {}, type {:?}) requested {} Hz -> actual {} Hz, api {:?}, sharing {:?}, format {:?}, channels {:?}",
+            "Android managed output opened '{}' (id {}, type {:?}) requested {} Hz -> actual {} Hz, api {:?}, sharing {:?}, format {:?}, channels {:?}",
             selected_device.product_name,
             selected_device.id,
             selected_device.device_type,
@@ -817,7 +879,7 @@ fn open_android_output_stream(
 
     Err(last_error.unwrap_or_else(|| {
         format!(
-            "No Android direct output stream could be opened for '{}' at {} Hz",
+            "No Android managed output stream could be opened for '{}' at {} Hz",
             selected_device.product_name, target_sample_rate
         )
     }))

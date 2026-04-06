@@ -7,6 +7,7 @@ use crate::audio::commands::{AudioEvent, PlaybackState};
 use crate::audio::decoder::{probe_file, DecoderThread};
 use crate::audio::manager::{AudioCapability, AudioCapabilitySnapshot, AudioEngine, EngineManager};
 use once_cell::sync::Lazy;
+use serde::Serialize;
 use std::path::PathBuf;
 
 static ENGINE_MANAGER: Lazy<EngineManager> = Lazy::new(EngineManager::new);
@@ -25,6 +26,18 @@ fn read_audio_engine<T>(
 
 fn ensure_audio_engine(preferred_sample_rate: Option<u32>) -> Result<(), String> {
     ENGINE_MANAGER.ensure_rust_engine(preferred_sample_rate)
+}
+
+fn resolve_requested_output_sample_rate(
+    preferred_sample_rate: Option<u32>,
+) -> Result<Option<u32>, String> {
+    #[cfg(all(feature = "uac2", target_os = "android"))]
+    {
+        return crate::uac2::negotiate_android_direct_output_sample_rate(preferred_sample_rate);
+    }
+
+    #[allow(unreachable_code)]
+    Ok(preferred_sample_rate)
 }
 
 fn prepare_decoder_source(
@@ -124,6 +137,15 @@ pub struct AudioCapabilityInfo {
     pub max_sample_rate: Option<u32>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AudioRuntimeDebugState {
+    pub manager_engine: String,
+    pub rust_initialized: bool,
+    pub output_signature: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<usize>,
+}
+
 impl From<AudioCapabilitySnapshot> for AudioCapabilityInfo {
     fn from(value: AudioCapabilitySnapshot) -> Self {
         Self {
@@ -176,6 +198,8 @@ pub fn audio_is_initialized() -> bool {
 #[flutter_rust_bridge::frb(sync)]
 pub fn audio_set_high_res_mode(enabled: bool) {
     ENGINE_MANAGER.set_high_res_mode(enabled);
+    #[cfg(all(feature = "uac2", target_os = "android"))]
+    crate::uac2::set_android_direct_usb_enabled(!enabled);
 }
 
 /// Update the current platform capability snapshot used for engine selection.
@@ -203,6 +227,30 @@ pub fn audio_get_active_engine() -> String {
     }
 }
 
+pub fn audio_get_runtime_debug_state() -> AudioRuntimeDebugState {
+    let manager_engine = audio_get_active_engine();
+    let rust_initialized = audio_is_initialized();
+    let handle_state = read_audio_engine(|handle| {
+        (
+            handle.output_signature().to_string(),
+            handle.sample_rate(),
+            handle.channels(),
+        )
+    });
+
+    AudioRuntimeDebugState {
+        manager_engine,
+        rust_initialized,
+        output_signature: handle_state
+            .as_ref()
+            .map(|(signature, _, _)| signature.clone()),
+        sample_rate: handle_state
+            .as_ref()
+            .map(|(_, sample_rate, _)| *sample_rate),
+        channels: handle_state.as_ref().map(|(_, _, channels)| *channels),
+    }
+}
+
 /// Detect whether a DAC is present before attempting Rust engine initialization.
 pub fn audio_is_dac_available(preferred_sample_rate: Option<u32>) -> Result<bool, String> {
     ENGINE_MANAGER.is_dac_available(preferred_sample_rate)
@@ -210,7 +258,7 @@ pub fn audio_is_dac_available(preferred_sample_rate: Option<u32>) -> Result<bool
 
 /// Prepare the Rust audio engine for the requested output rate before playback starts.
 pub fn audio_prepare_engine(preferred_sample_rate: Option<u32>) -> Result<(), String> {
-    ensure_audio_engine(preferred_sample_rate)
+    ensure_audio_engine(resolve_requested_output_sample_rate(preferred_sample_rate)?)
 }
 
 /// Play an audio file.
@@ -218,7 +266,9 @@ pub fn audio_play(path: String) -> Result<(), String> {
     let path = PathBuf::from(path);
     let probe_result = probe_file(path.as_path())
         .map_err(|error| format!("Failed to probe {}: {}", path.display(), error))?;
-    ensure_audio_engine(Some(probe_result.source_info.original_sample_rate))?;
+    ensure_audio_engine(resolve_requested_output_sample_rate(Some(
+        probe_result.source_info.original_sample_rate,
+    ))?)?;
     let output_sample_rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
     let (source, decoder_thread) =
         DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)
@@ -232,7 +282,9 @@ pub fn audio_queue_next(path: String) -> Result<(), String> {
     if !audio_is_initialized() {
         let probe_result = probe_file(path.as_path())
             .map_err(|error| format!("Failed to probe {}: {}", path.display(), error))?;
-        ensure_audio_engine(Some(probe_result.source_info.original_sample_rate))?;
+        ensure_audio_engine(resolve_requested_output_sample_rate(Some(
+            probe_result.source_info.original_sample_rate,
+        ))?)?;
         let output_sample_rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
         let (source, decoder_thread) =
             DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)

@@ -221,6 +221,7 @@ class PlayerService {
   Future<void> _playRequestQueue = Future<void>.value();
   Future<bool>? _rustInitInFlight;
   Future<void>? _rustCapabilityRefreshInFlight;
+  Future<void>? _rustEnginePreparationInFlight;
   bool _suppressSequenceStateUpdates = false;
   DateTime? _autoSyncGuardUntil;
   String? _autoSyncGuardSongId;
@@ -1660,6 +1661,29 @@ class PlayerService {
   Future<void> _ensureRustEngineInitialized(
     AudioEngineType playbackMode,
   ) async {
+    final inFlight = _rustEnginePreparationInFlight;
+    if (inFlight != null) {
+      debugPrint(
+        '[Engine] Waiting for in-flight Rust engine preparation to complete',
+      );
+      await inFlight;
+      return;
+    }
+
+    final future = _doEnsureRustEngineInitialized(playbackMode);
+    _rustEnginePreparationInFlight = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_rustEnginePreparationInFlight, future)) {
+        _rustEnginePreparationInFlight = null;
+      }
+    }
+  }
+
+  Future<void> _doEnsureRustEngineInitialized(
+    AudioEngineType playbackMode,
+  ) async {
     final requiresUsbDac =
         playbackMode == AudioEngineType.usbDacExperimental &&
         Platform.isAndroid;
@@ -1694,9 +1718,6 @@ class PlayerService {
       Uac2AudioFormat? directUsbFormat;
       int? preferredSampleRate;
       if (playbackMode == AudioEngineType.usbDacExperimental) {
-        // CRITICAL: Ensure DAC is registered BEFORE calling prepareEngine
-        // This fixes the race condition where the engine checks DAC state
-        // before the DAC has been registered via JNI
         debugPrint('[Engine] Ensuring USB DAC is registered before engine preparation');
         final dacRegistered = await _ensureUsbDacRegistered();
         if (!dacRegistered) {
@@ -1947,11 +1968,23 @@ class PlayerService {
       return;
     }
 
+    // ALWAYS fully dispose the outgoing engine before initializing the new one.
+    // This prevents USB "Resource busy" from overlapping sessions.
+    if (from != to || from == null) {
+      if (_rustEngine != null && to != AudioEngineType.usbDacExperimental && to != AudioEngineType.dapInternalHighRes) {
+        debugPrint('[Engine] Full dispose of Rust engine before ${to.logLabel}');
+        await _disposeUsbEngine();
+      }
+      if (_justAudioPlayer != null && to != AudioEngineType.normalAndroid) {
+        debugPrint('[Engine] Full dispose of Android engine before ${to.logLabel}');
+        await _disposeAndroidEngine();
+      }
+    }
+
     if (to == AudioEngineType.usbDacExperimental) {
       await _releaseAndroidManagedAudioResources(
         reason: 'switching to USB_DAC_EXPERIMENTAL',
       );
-      await _uac2Service.releaseAndroidDirectUsbRuntime();
     }
 
     if (to == AudioEngineType.normalAndroid && _rustEngine != null) {
@@ -2411,7 +2444,9 @@ class PlayerService {
         normalized.contains('failed to set usb alt setting') ||
         normalized.contains('requires verified dac rate') ||
         normalized.contains('is not supported by clock') ||
-        normalized.contains('usb dac disconnected');
+        normalized.contains('usb dac disconnected') ||
+        normalized.contains('usb session already active') ||
+        normalized.contains('failed to claim usb interface');
   }
 
   bool _isDirectUsbClockSetupFailure(String message) {
@@ -2429,7 +2464,8 @@ class PlayerService {
         normalized.contains('device or resource busy') ||
         normalized.contains('resource busy') ||
         normalized.contains('access denied') ||
-        normalized.contains('permission denied');
+        normalized.contains('permission denied') ||
+        normalized.contains('usb session already active');
   }
 
   Future<bool> _handleDirectUsbStartupRefusal(

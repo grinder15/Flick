@@ -21,7 +21,7 @@ class AudioEngineManager {
   AudioEngineType? _currentEngineType;
   bool _engineInitialized = false;
   bool _engineHasLoadedTrack = false;
-  bool _isTransitioning = false;
+  Future<void>? _transitionInFlight;
   int _attachToken = 0;
 
   bool get canResumeCurrentTrack => _engineHasLoadedTrack;
@@ -87,18 +87,36 @@ class AudioEngineManager {
       return;
     }
 
-    if (_isTransitioning) {
-      debugPrint('[Engine] Prevented duplicate initialization');
-      return;
+    final inFlight = _transitionInFlight;
+    if (inFlight != null) {
+      debugPrint(
+        '[Engine] Waiting for in-flight engine transition to complete',
+      );
+      await inFlight;
+      if (_engineInitialized &&
+          _currentEngine != null &&
+          _currentEngineType == engineType) {
+        return;
+      }
     }
 
-    _isTransitioning = true;
+    final future = _doEnsureEngine(engineType, createEngine);
+    _transitionInFlight = future;
     try {
-      final engine = await createEngine();
-      await attachEngine(engine, engineType: engineType);
+      await future;
     } finally {
-      _isTransitioning = false;
+      if (identical(_transitionInFlight, future)) {
+        _transitionInFlight = null;
+      }
     }
+  }
+
+  Future<void> _doEnsureEngine(
+    AudioEngineType engineType,
+    Future<AudioEngine> Function() createEngine,
+  ) async {
+    final engine = await createEngine();
+    await attachEngine(engine, engineType: engineType);
   }
 
   Future<void> playTrack(
@@ -106,21 +124,16 @@ class AudioEngineManager {
     Duration initialPosition = Duration.zero,
     bool autoPlay = true,
   }) async {
-    _isTransitioning = true;
-    try {
-      final engine = _requireEngine();
-      debugPrint('[Playback] load(${track.id})');
-      await engine.load(track);
-      _engineHasLoadedTrack = true;
-      if (initialPosition > Duration.zero) {
-        await engine.seek(initialPosition);
-      }
-      if (autoPlay) {
-        debugPrint('[Playback] play()');
-        await engine.play();
-      }
-    } finally {
-      _isTransitioning = false;
+    final engine = _requireEngine();
+    debugPrint('[Playback] load(${track.id})');
+    await engine.load(track);
+    _engineHasLoadedTrack = true;
+    if (initialPosition > Duration.zero) {
+      await engine.seek(initialPosition);
+    }
+    if (autoPlay) {
+      debugPrint('[Playback] play()');
+      await engine.play();
     }
   }
 

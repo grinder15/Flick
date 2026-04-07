@@ -36,9 +36,30 @@ class RustAudioEngine implements AudioEngine {
   late PlaybackState _state = PlaybackState.empty(_playbackMode);
   Song? _loadedTrack;
   Duration? _pendingSeekPosition;
+  bool _initialized = false;
+  Future<void>? _initInFlight;
 
   @override
   Stream<PlaybackState> get playbackStateStream => _controller.stream;
+
+  Future<void> _safeEnsureInitialized() async {
+    if (_initialized) return;
+    final inFlight = _initInFlight;
+    if (inFlight != null) {
+      await inFlight;
+      return;
+    }
+    final future = _ensureInitialized();
+    _initInFlight = future;
+    try {
+      await future;
+      _initialized = true;
+    } finally {
+      if (identical(_initInFlight, future)) {
+        _initInFlight = null;
+      }
+    }
+  }
 
   void _attachListeners() {
     if (_notifierUnsubscribers.isNotEmpty) return;
@@ -92,7 +113,7 @@ class RustAudioEngine implements AudioEngine {
 
   @override
   Future<void> load(Song track) async {
-    await _ensureInitialized();
+    await _safeEnsureInitialized();
     _attachListeners();
     _loadedTrack = track;
     _pendingSeekPosition = Duration.zero;
@@ -109,7 +130,7 @@ class RustAudioEngine implements AudioEngine {
 
   @override
   Future<void> play() async {
-    await _ensureInitialized();
+    await _safeEnsureInitialized();
     _attachListeners();
     final track = _loadedTrack;
     if (track == null) {
@@ -149,21 +170,21 @@ class RustAudioEngine implements AudioEngine {
 
   @override
   Future<void> pause() async {
-    await _ensureInitialized();
+    await _safeEnsureInitialized();
     _attachListeners();
     await _rustAudioService.pause();
   }
 
   @override
   Future<void> stop() async {
-    await _ensureInitialized();
+    await _safeEnsureInitialized();
     _attachListeners();
     await _rustAudioService.stop();
   }
 
   @override
   Future<void> seek(Duration position) async {
-    await _ensureInitialized();
+    await _safeEnsureInitialized();
     _attachListeners();
     _pendingSeekPosition = position;
     _emit(_state.copyWith(position: position));

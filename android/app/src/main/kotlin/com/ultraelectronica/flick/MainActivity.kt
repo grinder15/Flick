@@ -2253,8 +2253,8 @@ class MainActivity: FlutterActivity() {
 
             directUsbConnections[deviceName] = connection
             activeDirectUsbDeviceName = deviceName
-            if (!nativeSetRustDirectUsbLockEnabled(exclusiveDacModeEnabled)) {
-                Log.w("UAC2", "Rust direct USB idle lock update failed for $deviceName")
+            if (!nativeSetRustDirectUsbLockEnabled(true)) {
+                Log.w("UAC2", "Rust direct USB idle lock failed for $deviceName")
             }
             updateDirectUsbAudioFocus()
             Log.i("UAC2", "Direct USB DAC activated for $deviceName")
@@ -2291,65 +2291,14 @@ class MainActivity: FlutterActivity() {
             return false
         }
 
-        val claimedInterfaces = mutableListOf<UsbInterface>()
-        try {
-            for (usbInterface in audioInterfaces) {
-                if (!connection.claimInterface(usbInterface, true)) {
-                    Log.w(
-                        "UAC2",
-                        "Force-claim failed for USB interface ${usbInterface.id} " +
-                            "(${describeDirectUsbInterface(usbInterface)}) on ${device.deviceName}",
-                    )
-                    return false
-                }
-                claimedInterfaces += usbInterface
-            }
-
-            val ownershipProbe = ByteArray(1)
-            val ownershipTransferred = connection.controlTransfer(
-                UsbConstants.USB_DIR_IN or
-                    UsbConstants.USB_TYPE_STANDARD or
-                    0x00,
-                0x08,
-                0,
-                0,
-                ownershipProbe,
-                ownershipProbe.size,
-                1000,
-            )
-            if (ownershipTransferred < 0) {
-                Log.w(
-                    "UAC2",
-                    "[USB] controlTransfer ownership probe failed for ${device.deviceName}; " +
-                        "assuming Android still owns the device",
-                )
-                return false
-            }
-
-            Log.i(
-                "UAC2",
-                "[USB] Ownership validated for ${device.deviceName}: " +
-                    "controlInterface=${controlInterface.id}, " +
-                    "streamingInterfaces=${streamingInterfaces.map { it.id }}, " +
-                    "claimed=${claimedInterfaces.map { it.id }}, " +
-                    "controlTransferBytes=$ownershipTransferred",
-            )
-            return true
-        } catch (e: Exception) {
-            Log.e(
-                "UAC2",
-                "USB exclusive-access probe failed for ${device.deviceName}: ${e.message}",
-                e,
-            )
-            return false
-        } finally {
-            for (usbInterface in claimedInterfaces.asReversed()) {
-                try {
-                    connection.releaseInterface(usbInterface)
-                } catch (_: Exception) {
-                }
-            }
-        }
+        Log.i(
+            "UAC2",
+            "[USB] Audio interface check passed for ${device.deviceName}: " +
+                "controlInterface=${controlInterface.id}, " +
+                "streamingInterfaces=${streamingInterfaces.map { it.id }}, " +
+                "fd=${connection.fileDescriptor}",
+        )
+        return true
     }
 
     private fun directUsbAudioInterfaces(device: UsbDevice): List<UsbInterface> {

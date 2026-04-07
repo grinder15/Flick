@@ -80,6 +80,12 @@ Future<bool> uac2ActivateFallback() =>
 Future<void> uac2DeactivateFallback() =>
     RustLib.instance.api.crateApiUac2ApiUac2DeactivateFallback();
 
+bool uac2IsUsbSessionActive() =>
+    RustLib.instance.api.crateApiUac2ApiUac2IsUsbSessionActive();
+
+void uac2ForceReleaseUsbSession() =>
+    RustLib.instance.api.crateApiUac2ApiUac2ForceReleaseUsbSession();
+
 class Uac2AudioFormat {
   final int sampleRate;
   final int bitDepth;

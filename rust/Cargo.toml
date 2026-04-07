@@ -54,6 +54,7 @@ crossbeam-channel = { version = "0.5", optional = true }
 oboe = { version = "0.6", features = ["java-interface"] }
 jni = "0.21"
 ndk-context = "0.1"
+android_logger = "0.14"
 
 # Desktop platforms use default CPAL backends
 [target.'cfg(not(target_os = "android"))'.dependencies]

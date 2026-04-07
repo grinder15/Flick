@@ -1718,13 +1718,17 @@ class PlayerService {
       Uac2AudioFormat? directUsbFormat;
       int? preferredSampleRate;
       if (playbackMode == AudioEngineType.usbDacExperimental) {
-        debugPrint('[Engine] Ensuring USB DAC is registered before engine preparation');
+        debugPrint(
+          '[Engine] Ensuring USB DAC is registered before engine preparation',
+        );
         final dacRegistered = await _ensureUsbDacRegistered();
         if (!dacRegistered) {
-          debugPrint('[Engine] Failed to register USB DAC before engine preparation');
+          debugPrint(
+            '[Engine] Failed to register USB DAC before engine preparation',
+          );
           throw StateError('USB DAC registration failed');
         }
-        
+
         directUsbFormat =
             _uac2Service.currentDeviceStatus?.currentFormat ??
             _uac2Service.lastKnownFormat;
@@ -1765,21 +1769,25 @@ class PlayerService {
         _mapValue(diagnostics?['rustAudioState'])?['direct_usb'],
       );
       final alreadyRegistered = directUsbState?['registered'] == true;
-      final hasPlaybackFormat = directUsbState?['playback_format_sample_rate'] != null;
-      
+      final hasPlaybackFormat =
+          directUsbState?['playback_format_sample_rate'] != null;
+
       if (alreadyRegistered && hasPlaybackFormat) {
         debugPrint('[Engine] USB DAC already registered with playback format');
         return true;
       }
 
-      debugPrint('[Engine] Preparing USB DAC for playback (registered=$alreadyRegistered, hasFormat=$hasPlaybackFormat)');
+      debugPrint(
+        '[Engine] Preparing USB DAC for playback (registered=$alreadyRegistered, hasFormat=$hasPlaybackFormat)',
+      );
 
       // Use prepareAndroidExperimentalUsbPlayback which handles device selection,
       // registration, and format setting all in one
       // Try 48000 Hz first as it's more commonly supported than 44100 Hz
-      final format = _uac2Service.currentDeviceStatus?.currentFormat ??
+      final format =
+          _uac2Service.currentDeviceStatus?.currentFormat ??
           Uac2AudioFormat(sampleRate: 48000, bitDepth: 16, channels: 2);
-      
+
       final prepared = await _uac2Service.prepareAndroidExperimentalUsbPlayback(
         format: format,
       );
@@ -1790,19 +1798,25 @@ class PlayerService {
       }
 
       // Verify registration and format are set
-      final verifyDiagnostics = await _uac2Service.getAndroidPlaybackDebugState();
+      final verifyDiagnostics = await _uac2Service
+          .getAndroidPlaybackDebugState();
       final verifyDirectUsbState = _mapValue(
         _mapValue(verifyDiagnostics?['rustAudioState'])?['direct_usb'],
       );
       final nowRegistered = verifyDirectUsbState?['registered'] == true;
-      final nowHasFormat = verifyDirectUsbState?['playback_format_sample_rate'] != null;
-      
+      final nowHasFormat =
+          verifyDirectUsbState?['playback_format_sample_rate'] != null;
+
       if (nowRegistered && nowHasFormat) {
-        debugPrint('[Engine] USB DAC successfully prepared: registered=$nowRegistered, hasFormat=$nowHasFormat, rate=${verifyDirectUsbState?['playback_format_sample_rate']}');
+        debugPrint(
+          '[Engine] USB DAC successfully prepared: registered=$nowRegistered, hasFormat=$nowHasFormat, rate=${verifyDirectUsbState?['playback_format_sample_rate']}',
+        );
       } else {
-        debugPrint('[Engine] USB DAC preparation incomplete: registered=$nowRegistered, hasFormat=$nowHasFormat');
+        debugPrint(
+          '[Engine] USB DAC preparation incomplete: registered=$nowRegistered, hasFormat=$nowHasFormat',
+        );
       }
-      
+
       return nowRegistered && nowHasFormat;
     } catch (e) {
       debugPrint('[Engine] Error ensuring USB DAC registration: $e');
@@ -1817,18 +1831,24 @@ class PlayerService {
       return;
     }
 
-    if (isBitPerfectProcessingLocked ||
-        playbackMode == AudioEngineType.usbDacExperimental) {
+    if (isBitPerfectModeEnabled) {
       final needsBypassLog =
           (_currentVolume - 1.0).abs() > 0.0001 ||
           (playbackSpeedNotifier.value - 1.0).abs() > 0.0001 ||
           _rustAudioService.crossfadeEnabledNotifier.value;
       if (needsBypassLog) {
         debugPrint(
-          '[Engine] Bit-perfect USB bypassing software volume, playback speed, and crossfade',
+          '[Engine] Explicit bit-perfect mode: bypassing software volume, playback speed, and crossfade',
         );
       }
       await _rustAudioService.setVolume(1.0);
+      await _rustAudioService.setPlaybackSpeed(1.0);
+      await _rustAudioService.setCrossfade(
+        enabled: false,
+        durationSecs: _rustAudioService.crossfadeDurationNotifier.value,
+      );
+    } else if (playbackMode == AudioEngineType.usbDacExperimental) {
+      await _rustAudioService.setVolume(_currentVolume);
       await _rustAudioService.setPlaybackSpeed(1.0);
       await _rustAudioService.setCrossfade(
         enabled: false,
@@ -1971,12 +1991,18 @@ class PlayerService {
     // ALWAYS fully dispose the outgoing engine before initializing the new one.
     // This prevents USB "Resource busy" from overlapping sessions.
     if (from != to || from == null) {
-      if (_rustEngine != null && to != AudioEngineType.usbDacExperimental && to != AudioEngineType.dapInternalHighRes) {
-        debugPrint('[Engine] Full dispose of Rust engine before ${to.logLabel}');
+      if (_rustEngine != null &&
+          to != AudioEngineType.usbDacExperimental &&
+          to != AudioEngineType.dapInternalHighRes) {
+        debugPrint(
+          '[Engine] Full dispose of Rust engine before ${to.logLabel}',
+        );
         await _disposeUsbEngine();
       }
       if (_justAudioPlayer != null && to != AudioEngineType.normalAndroid) {
-        debugPrint('[Engine] Full dispose of Android engine before ${to.logLabel}');
+        debugPrint(
+          '[Engine] Full dispose of Android engine before ${to.logLabel}',
+        );
         await _disposeAndroidEngine();
       }
     }
@@ -2141,6 +2167,25 @@ class PlayerService {
                 'track sample rate is unavailable before USB engine startup',
           );
           return AudioEngineType.normalAndroid;
+        }
+
+        final alreadyInUsbMode =
+            _sessionManager.initializedMode ==
+                AudioEngineType.usbDacExperimental &&
+            _rustEngine != null;
+        final currentUsbFormat = _uac2Service.lastKnownFormat ??
+            _uac2Service.currentDeviceStatus?.currentFormat;
+        final formatMatches = alreadyInUsbMode &&
+            currentUsbFormat != null &&
+            currentUsbFormat.sampleRate == trackFormat.sampleRate;
+
+        if (formatMatches) {
+          debugPrint(
+            '[Engine] USB engine already active with matching format '
+            '(${trackFormat.sampleRate}Hz), skipping re-preparation',
+          );
+          _sessionManager.clearFallbackReason();
+          return normalizedEngine;
         }
 
         final prepared = await _uac2Service
@@ -2738,9 +2783,9 @@ class PlayerService {
 
   Future<void> setVolume(double volume) async {
     final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
-    if (isBitPerfectProcessingLocked) {
+    if (isBitPerfectModeEnabled) {
       debugPrint(
-        '[Playback] Ignoring software volume change while Bit-perfect USB is enabled',
+        '[Playback] Ignoring software volume change while explicit Bit-perfect mode is enabled',
       );
       if (_usingRustBackend) {
         await _rustAudioService.setVolume(1.0);

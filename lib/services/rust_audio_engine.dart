@@ -38,6 +38,7 @@ class RustAudioEngine implements AudioEngine {
   Duration? _pendingSeekPosition;
   bool _initialized = false;
   Future<void>? _initInFlight;
+  bool _needsFreshPlay = false;
 
   @override
   Stream<PlaybackState> get playbackStateStream => _controller.stream;
@@ -116,6 +117,7 @@ class RustAudioEngine implements AudioEngine {
     await _safeEnsureInitialized();
     _attachListeners();
     _loadedTrack = track;
+    _needsFreshPlay = true;
     _pendingSeekPosition = Duration.zero;
     _emit(
       _state.copyWith(
@@ -145,7 +147,7 @@ class RustAudioEngine implements AudioEngine {
     }
 
     final rustState = _rustAudioService.stateNotifier.value;
-    if (rustState == RustPlaybackState.paused) {
+    if (rustState == RustPlaybackState.paused && !_needsFreshPlay) {
       await _rustAudioService.resume();
       final pendingSeek = _pendingSeekPosition;
       if (pendingSeek != null && pendingSeek > Duration.zero) {
@@ -155,6 +157,7 @@ class RustAudioEngine implements AudioEngine {
       return;
     }
 
+    _needsFreshPlay = false;
     final path = await _resolvePlaybackPath(track);
     if (path == null || path.isEmpty) {
       throw StateError('Failed to resolve Rust playback path');

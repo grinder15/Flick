@@ -44,6 +44,10 @@ pub struct AudioCallbackData {
     playback_speed: std::sync::atomic::AtomicU32, // Using AtomicU32 for f32 bit pattern
     /// Pause state
     paused: AtomicBool,
+    /// Bit-perfect bypass: when true, audio_callback skips ALL DSP
+    /// (volume, EQ, dynamics, speed, crossfade). Samples pass through
+    /// from the decoded source to the output buffer unmodified.
+    bit_perfect: AtomicBool,
     /// Output channel count
     channels: usize,
     /// Crossfader state
@@ -76,6 +80,7 @@ impl AudioCallbackData {
             volume: std::sync::atomic::AtomicU32::new(1.0f32.to_bits()),
             playback_speed: std::sync::atomic::AtomicU32::new(1.0f32.to_bits()),
             paused: AtomicBool::new(false),
+            bit_perfect: AtomicBool::new(false),
             channels,
             crossfader: Mutex::new(Crossfader::disabled(sample_rate)),
             sources: Mutex::new(SourceProvider::new(sample_rate, channels)),
@@ -123,6 +128,16 @@ impl AudioCallbackData {
     #[inline]
     pub fn set_paused(&self, paused: bool) {
         self.paused.store(paused, Ordering::Relaxed);
+    }
+
+    #[inline]
+    pub fn is_bit_perfect(&self) -> bool {
+        self.bit_perfect.load(Ordering::Relaxed)
+    }
+
+    #[inline]
+    pub fn set_bit_perfect(&self, enabled: bool) {
+        self.bit_perfect.store(enabled, Ordering::Relaxed);
     }
 }
 
@@ -618,7 +633,10 @@ pub fn create_audio_engine(
             target_sample_rate,
         )? {
             Some(backend) => {
-                // Backend created successfully - get the actual signature
+                callback_data.set_bit_perfect(true);
+                eprintln!(
+                    "create_audio_engine: USB backend active — bit-perfect bypass ENABLED (all DSP skipped)"
+                );
                 let signature = android_direct_output_signature(Some(target_sample_rate))
                     .unwrap_or_else(|| desired_output_signature(Some(target_sample_rate)));
                 (Some(backend), signature)
@@ -987,18 +1005,38 @@ pub(crate) fn audio_callback(
     data: &AudioCallbackData,
     _event_tx: &Sender<AudioEvent>,
 ) {
-    // Check if paused
     if data.is_paused() {
         output.fill(0.0);
         return;
     }
 
-    // Get volume and speed
+    // Bit-perfect path: raw samples from decoder straight to output.
+    // No volume scaling, no EQ, no dynamics, no speed, no crossfade.
+    if data.is_bit_perfect() {
+        let mut sources = match data.sources.try_lock() {
+            Some(s) => s,
+            None => {
+                output.fill(0.0);
+                return;
+            }
+        };
+
+        let (read, old_source) = sources.read(output);
+        if let Some(source) = old_source {
+            let _ = data.finished_tracks.try_send(source);
+        }
+        if read < output.len() {
+            output[read..].fill(0.0);
+        }
+        return;
+    }
+
+    // --- Normal (non-bit-perfect) path with full DSP chain ---
+
     let volume = data.get_volume();
     let speed = data.get_playback_speed();
     let channels = data.channels();
 
-    // Try to lock sources (non-blocking)
     let mut sources = match data.sources.try_lock() {
         Some(s) => s,
         None => {
@@ -1007,11 +1045,9 @@ pub(crate) fn audio_callback(
         }
     };
 
-    // Try to lock crossfader
     let mut crossfader = match data.crossfader.try_lock() {
         Some(c) => c,
         None => {
-            // Couldn't get lock - just read from current source without speed processing
             let (read, old_source) = sources.read(output);
 
             if let Some(source) = old_source {
@@ -1034,9 +1070,7 @@ pub(crate) fn audio_callback(
         }
     };
 
-    // Handle crossfading
     if crossfader.is_active() && sources.next_mut().is_some() {
-        // Get mix buffers
         let mut buf_a = match data.mix_buffer_a.try_lock() {
             Some(b) => b,
             None => {
@@ -1058,7 +1092,6 @@ pub(crate) fn audio_callback(
             return;
         }
 
-        // Read from both sources
         let read_a = sources
             .current_mut()
             .map(|s| s.read(&mut buf_a[..needed]))
@@ -1075,7 +1108,6 @@ pub(crate) fn audio_callback(
             buf_b[read_b..needed].fill(0.0);
         }
 
-        // Mix with crossfade
         let _ = crossfader.mix(&buf_a[..needed], &buf_b[..needed], output, channels);
 
         if !crossfader.is_active() {
@@ -1085,9 +1117,7 @@ pub(crate) fn audio_callback(
             }
         }
     } else {
-        // Normal playback - apply speed processing if needed
         if (speed - 1.0).abs() < 0.001 {
-            // Speed is 1.0 - direct read
             let (read, old_source) = sources.read(output);
 
             if let Some(source) = old_source {
@@ -1098,7 +1128,6 @@ pub(crate) fn audio_callback(
                 output[read..].fill(0.0);
             }
         } else {
-            // Speed processing with linear interpolation
             let mut speed_buf = match data.speed_buffer.try_lock() {
                 Some(b) => b,
                 None => {
@@ -1115,7 +1144,6 @@ pub(crate) fn audio_callback(
             };
 
             let output_frames = output.len() / channels;
-            // Calculate how many input samples we need
             let input_samples_needed =
                 ((output_frames as f64 * speed as f64) + 2.0) as usize * channels;
 
@@ -1124,7 +1152,6 @@ pub(crate) fn audio_callback(
                 return;
             }
 
-            // Read source samples
             let (read, old_source) = sources.read(&mut speed_buf[..input_samples_needed]);
 
             if let Some(source) = old_source {
@@ -1138,19 +1165,16 @@ pub(crate) fn audio_callback(
 
             let input_frames = read / channels;
 
-            // Linear interpolation for speed change
             for out_frame in 0..output_frames {
                 let in_pos = *frac_pos;
                 let in_frame = in_pos as usize;
                 let frac = (in_pos - in_frame as f64) as f32;
 
                 if in_frame + 1 >= input_frames {
-                    // Not enough input - fill with silence
                     for ch in 0..channels {
                         output[out_frame * channels + ch] = 0.0;
                     }
                 } else {
-                    // Linear interpolation between frames
                     for ch in 0..channels {
                         let s0 = speed_buf[in_frame * channels + ch];
                         let s1 = speed_buf[(in_frame + 1) * channels + ch];
@@ -1161,13 +1185,11 @@ pub(crate) fn audio_callback(
                 *frac_pos += speed as f64;
             }
 
-            // Keep fractional part for next callback
             let consumed_frames = (*frac_pos) as usize;
             *frac_pos -= consumed_frames as f64;
         }
     }
 
-    // Apply volume
     for sample in output.iter_mut() {
         *sample *= volume;
     }

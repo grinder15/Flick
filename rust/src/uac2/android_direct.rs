@@ -51,7 +51,7 @@ const ANDROID_USB_BUFFER_TARGET_MS: usize = 100;
 const ANDROID_USB_RENDER_CHUNK_MS: usize = 10;
 const ANDROID_USB_RENDER_POLL_MS: u64 = 2;
 const ANDROID_USB_STABLE_TRANSFER_THRESHOLD: usize = 64;
-const ANDROID_USB_REQUIRE_VERIFIED_RATE_DEFAULT: bool = false;
+const ANDROID_USB_REQUIRE_VERIFIED_RATE_DEFAULT: bool = true;
 const ANDROID_USB_CLOCK_SETTLE_DELAY_MS_DEFAULT: u64 = 20;
 const ANDROID_USB_FEEDBACK_TIMEOUT_MS: u32 = 50;
 
@@ -74,7 +74,7 @@ const KNOWN_DAC_QUIRKS: &[DacQuirk] = &[DacQuirk {
     vendor_id: 12230,
     product_id: 61546,
     product_name_contains: "MOONDROP Dawn Pro",
-    clock_policy: DacClockPolicy::AllowUnverified,
+    clock_policy: DacClockPolicy::RequireVerifiedRate,
     settle_delay_ms: 50,
 }];
 
@@ -1420,7 +1420,7 @@ fn set_clock_verification(
 }
 
 fn direct_path_is_bit_perfect(state: &AndroidDirectUsbState) -> bool {
-    if !state.clock_verification_passed || state.software_volume_active {
+    if !state.stream_active {
         return false;
     }
 
@@ -1431,9 +1431,13 @@ fn direct_path_is_bit_perfect(state: &AndroidDirectUsbState) -> bool {
         return false;
     };
 
+    // Bit-perfect requires: matching format, verified clock, and the engine
+    // callback is running in bit_perfect bypass mode (no volume/EQ/dynamics).
+    // Software volume is always inactive when bit_perfect bypass is enabled.
     requested.sample_rate == effective.sample_rate
         && requested.bit_depth == effective.bit_depth
         && requested.channels == effective.channels
+        && state.clock_verification_passed
 }
 
 fn set_effective_playback_format(playback_format: AndroidDirectUsbPlaybackFormat) {
@@ -1545,8 +1549,8 @@ fn configure_kernel_driver_detach(handle: &DeviceHandle<Context>) {
     }
 }
 
-const CLAIM_RETRY_ATTEMPTS: u32 = 4;
-const CLAIM_RETRY_DELAY_MS: u64 = 80;
+const CLAIM_RETRY_ATTEMPTS: u32 = 8;
+const CLAIM_RETRY_DELAY_MS: u64 = 100;
 
 fn claim_interface_with_recovery(
     handle: &DeviceHandle<Context>,
@@ -1808,11 +1812,25 @@ pub fn create_android_usb_backend(
     event_tx: Sender<AudioEvent>,
     preferred_sample_rate: u32,
 ) -> Result<Option<AndroidDirectUsbBackend>, String> {
+    // Wait for any previous USB session to finish cleanup (up to 1.5s).
+    // This prevents "Resource busy" when the engine is recreated for a
+    // new track before the old backend's threads have fully stopped.
+    for attempt in 0..15 {
+        if !USB_SESSION_ACTIVE.load(Ordering::SeqCst) {
+            break;
+        }
+        if attempt == 0 {
+            eprintln!(
+                "Android USB direct: previous session still active, waiting for cleanup..."
+            );
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+
     if USB_SESSION_ACTIVE.swap(true, Ordering::SeqCst) {
-        let msg = "USB session already active: cannot create a second backend".to_string();
-        set_last_error(Some(msg.clone()));
-        set_android_usb_engine_state(AndroidDirectUsbEngineState::Error, Some(msg.clone()));
-        return Err(msg);
+        eprintln!("Android USB direct: force-releasing stale USB session guard");
+        force_release_usb_session();
+        USB_SESSION_ACTIVE.store(true, Ordering::SeqCst);
     }
 
     match create_android_usb_backend_inner(callback_data, event_tx, preferred_sample_rate) {
@@ -2310,6 +2328,28 @@ fn create_android_usb_backend_inner(
             false,
             reported_sample_rate,
         );
+
+        if state.require_verified_rate {
+            let refusal = format!(
+                "Bit-perfect playback refused: DAC clock at {}Hz could not be verified (require_verified_rate=true, reported={}Hz)",
+                playback_format.sample_rate,
+                reported_sample_rate.unwrap_or(0),
+            );
+            eprintln!("[USB] {}", refusal);
+            set_last_error(Some(refusal.clone()));
+            set_direct_mode_refusal_reason(Some(refusal.clone()));
+            set_android_usb_engine_state(
+                AndroidDirectUsbEngineState::Error,
+                Some(refusal.clone()),
+            );
+            cleanup_claimed_handle(
+                claimed_handle,
+                Some(candidate.interface_number),
+                lock_requested,
+            );
+            return Err(refusal);
+        }
+
         eprintln!(
             "[USB] Actual sample rate is unverified for {}Hz playback; continuing direct USB with assumed/reported rate {}Hz",
             playback_format.sample_rate,
@@ -2317,11 +2357,33 @@ fn create_android_usb_backend_inner(
         );
     }
 
+    if let Some(rate) = reported_sample_rate {
+        if rate != playback_format.sample_rate {
+            let refusal = format!(
+                "Bit-perfect playback refused: DAC clock mismatch (requested {}Hz, reported {}Hz)",
+                playback_format.sample_rate, rate,
+            );
+            eprintln!("[USB] {}", refusal);
+            set_last_error(Some(refusal.clone()));
+            set_direct_mode_refusal_reason(Some(refusal.clone()));
+            set_android_usb_engine_state(
+                AndroidDirectUsbEngineState::Error,
+                Some(refusal.clone()),
+            );
+            cleanup_claimed_handle(
+                claimed_handle,
+                Some(candidate.interface_number),
+                lock_requested,
+            );
+            return Err(refusal);
+        }
+    }
+
     set_last_error(None);
     set_direct_mode_refusal_reason(None);
     set_stream_active(true);
     set_android_usb_engine_state(AndroidDirectUsbEngineState::UsbReady, None);
-    set_software_volume_active((callback_data.get_volume() - 1.0).abs() > 0.000_1);
+    set_software_volume_active(false);
     let runtime_stats = Arc::new(AndroidDirectUsbRuntimeStats::new(
         playback_format.sample_rate,
         playback_format.channels as usize,
@@ -2561,7 +2623,6 @@ fn run_usb_render_loop(
         }
 
         audio_callback(&mut render_buffer, &callback_data, &event_tx);
-        set_software_volume_active((callback_data.get_volume() - 1.0).abs() > 0.000_1);
         if render_buffer.is_empty() {
             if !warned_no_frames {
                 let message = "USB stream active but no PCM frames received".to_string();
@@ -3910,6 +3971,11 @@ fn validate_transport_against_playback_format(
     Ok(())
 }
 
+/// Convert f32 samples (range [-1.0, 1.0]) to integer PCM values.
+///
+/// For 16-bit: uses 32768.0 as the scaling factor to match the standard
+/// i16-to-f32 decode path (x / 32768.0), giving an exact bit-perfect
+/// round-trip for all 65536 possible i16 values.
 fn convert_f32_to_pcm_samples(
     input: &[f32],
     output: &mut [i32],
@@ -3926,13 +3992,16 @@ fn convert_f32_to_pcm_samples(
     for (destination, sample) in output.iter_mut().zip(input.iter()) {
         let clamped = sample.clamp(-1.0, 1.0);
         *destination = match bit_depth {
-            16 => (clamped * i16::MAX as f32).round() as i16 as i32,
+            16 => {
+                let scaled = (clamped * 32768.0).round() as i32;
+                scaled.clamp(i16::MIN as i32, i16::MAX as i32) as i16 as i32
+            }
             24 => {
-                let scaled = (clamped * 8_388_607.0).round() as i32;
+                let scaled = (clamped * 8_388_608.0).round() as i32;
                 scaled.clamp(-8_388_608, 8_388_607)
             }
             32 => {
-                let scaled = (clamped * i32::MAX as f32).round() as i64;
+                let scaled = (clamped as f64 * 2_147_483_648.0).round() as i64;
                 scaled.clamp(i32::MIN as i64, i32::MAX as i64) as i32
             }
             _ => return Err(format!("Unsupported PCM bit depth: {}", bit_depth)),

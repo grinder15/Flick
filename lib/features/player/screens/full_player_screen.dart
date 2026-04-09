@@ -21,7 +21,6 @@ import 'package:flick/features/player/widgets/waveform_seek_bar.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
-import 'package:flick/widgets/common/marquee_widget.dart';
 import 'package:flick/widgets/uac2/uac2_error_notification.dart';
 
 class FullPlayerScreen extends StatefulWidget {
@@ -1093,7 +1092,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     BuildContext context,
     Song song, {
     required bool lyricsMode,
+    required PlayerScreenMode playerScreenMode,
   }) {
+    final immersiveActions =
+        playerScreenMode == PlayerScreenMode.immersive;
+    final actionPadding = immersiveActions
+        ? EdgeInsets.all(context.responsive(8.0, 9.0, 10.0))
+        : EdgeInsets.all(context.responsive(6.0, 7.0, 8.0));
+    final actionRadius = immersiveActions ? 12.0 : 10.0;
+    final actionIconSize = context.responsive(18.0, 20.0, 22.0);
+    final favoriteIconSize = immersiveActions
+        ? context.responsive(18.0, 20.0, 22.0)
+        : context.responsive(16.0, 17.0, 18.0);
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1104,17 +1115,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             });
           },
           child: Container(
-            padding: EdgeInsets.all(context.responsive(6.0, 7.0, 8.0)),
+            padding: actionPadding,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(actionRadius),
             ),
             child: Icon(
               lyricsMode
                   ? Icons.keyboard_arrow_down_rounded
                   : LucideIcons.fileText,
               color: Colors.white.withValues(alpha: 0.9),
-              size: context.responsive(18.0, 20.0, 22.0),
+              size: actionIconSize,
             ),
           ),
         ),
@@ -1177,19 +1188,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 }
               },
               child: Container(
-                padding: EdgeInsets.all(context.responsive(6.0, 7.0, 8.0)),
+                padding: actionPadding,
                 decoration: BoxDecoration(
                   color: isFavorite
                       ? Colors.red.withValues(alpha: 0.25)
                       : Colors.white.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(actionRadius),
                 ),
                 child: Icon(
                   isFavorite ? Icons.favorite : Icons.favorite_border,
                   color: isFavorite
                       ? Colors.red
                       : Colors.white.withValues(alpha: 0.9),
-                  size: context.responsive(16.0, 17.0, 18.0),
+                  size: favoriteIconSize,
                 ),
               ),
             );
@@ -1342,8 +1353,13 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                       _showSongActionsBottomSheet(context, song),
                   onPrevious: _animateToPreviousSong,
                   onNext: _animateToNextSong,
-                  buildFileInfoRow: (song, lyricsMode) =>
-                      _buildFileInfoRow(context, song, lyricsMode: lyricsMode),
+                  buildFileInfoRow: (song, lyricsMode, mode) =>
+                      _buildFileInfoRow(
+                        context,
+                        song,
+                        lyricsMode: lyricsMode,
+                        playerScreenMode: mode,
+                      ),
                   buildDirectoryInfo: (song) =>
                       _buildDirectoryInfo(context, song, compact: false),
                 ),
@@ -1374,7 +1390,8 @@ class _AnimatedSongScene extends StatelessWidget {
   final VoidCallback onShowSongActions;
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
-  final Widget Function(Song song, bool lyricsMode) buildFileInfoRow;
+  final Widget Function(Song song, bool lyricsMode, PlayerScreenMode mode)
+  buildFileInfoRow;
   final Widget Function(Song song) buildDirectoryInfo;
 
   const _AnimatedSongScene({
@@ -1414,7 +1431,7 @@ class _AnimatedSongScene extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             ...previousChildren,
-            if (currentChild != null) currentChild,
+            if (currentChild case final child?) child,
           ],
         );
       },
@@ -1618,40 +1635,6 @@ class _AnimatedSongScene extends StatelessWidget {
                             ),
                           ],
                         ),
-                        SizedBox(height: context.responsive(6.0, 7.0, 8.0)),
-                        SizedBox(
-                          width: double.infinity,
-                          height: context.responsive(20.0, 22.0, 24.0),
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final text = '${song.title} - ${song.artist}';
-                              final textStyle = TextStyle(
-                                fontFamily: topBarTextFontFamily,
-                                fontSize: context.responsiveText(
-                                  context.responsive(13.0, 14.0, 15.0),
-                                ),
-                                fontWeight: topBarTextFontWeight,
-                                color: Colors.white.withValues(alpha: 0.85),
-                              );
-
-                              if (cachedTopBarTextWidth <=
-                                  constraints.maxWidth) {
-                                return Center(
-                                  child: Text(
-                                    text,
-                                    style: textStyle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                );
-                              }
-
-                              return MarqueeWidget(
-                                child: Text(text, style: textStyle),
-                              );
-                            },
-                          ),
-                        ),
                       ],
                     ),
                   );
@@ -1761,12 +1744,80 @@ class _AnimatedSongScene extends StatelessWidget {
           padding: EdgeInsets.symmetric(
             horizontal: context.responsive(12.0, 16.0, 20.0),
           ),
-          child: buildFileInfoRow(song, lyricsMode),
+          child: _buildImmersiveSongHeader(context),
+        ),
+        SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
+        Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: context.responsive(12.0, 16.0, 20.0),
+          ),
+          child: buildFileInfoRow(song, lyricsMode, playerScreenMode),
         ),
         SizedBox(height: context.responsive(12.0, 14.0, 16.0)),
         _buildPlaybackStack(context),
         SizedBox(height: context.responsive(16.0, 20.0, 24.0)),
         buildDirectoryInfo(song),
+      ],
+    );
+  }
+
+  Widget _buildImmersiveSongHeader(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                song.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: context.responsiveText(
+                    context.responsive(22.0, 24.0, 28.0),
+                  ),
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  height: 1.08,
+                ),
+              ),
+              SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
+              Text(
+                song.artist,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: context.responsiveText(
+                    context.responsive(13.0, 14.0, 16.0),
+                  ),
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+              SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
+            ],
+          ),
+        ),
+        SizedBox(width: context.responsive(12.0, 14.0, 16.0)),
+        GestureDetector(
+          onTap: onOpenQueue,
+          child: Container(
+            padding: EdgeInsets.all(context.responsive(8.0, 9.0, 10.0)),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              LucideIcons.listMusic,
+              color: Colors.white.withValues(alpha: 0.92),
+              size: context.responsive(18.0, 20.0, 22.0),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1862,7 +1913,7 @@ class _AnimatedSongScene extends StatelessWidget {
                     ],
                   ),
                 ),
-              buildFileInfoRow(song, lyricsMode),
+              buildFileInfoRow(song, lyricsMode, playerScreenMode),
               SizedBox(height: playbackSpacing),
               _buildPlaybackStack(context),
               SizedBox(height: directorySpacing),

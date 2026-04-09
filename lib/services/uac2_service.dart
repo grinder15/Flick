@@ -1821,10 +1821,7 @@ class Uac2Service {
     _notifyStatusListeners();
   }
 
-  Future<bool> setBitPerfectEnabled(
-    bool enabled, {
-    bool persist = true,
-  }) async {
+  Future<bool> setBitPerfectEnabled(bool enabled, {bool persist = true}) async {
     if (persist) {
       await _preferencesService.setBitPerfectEnabled(enabled);
     }
@@ -1872,10 +1869,7 @@ class Uac2Service {
     return enabled;
   }
 
-  Future<bool> setExclusiveDacModeEnabled(
-    bool enabled, {
-    bool persist = true,
-  }) {
+  Future<bool> setExclusiveDacModeEnabled(bool enabled, {bool persist = true}) {
     return setBitPerfectEnabled(enabled, persist: persist);
   }
 }
@@ -1886,7 +1880,7 @@ String? _androidRouteWarningMessage(
   required bool directUsbRegistered,
 }) {
   if (directUsbRegistered && routeType != Uac2RouteType.externalUsb) {
-    return 'An experimental direct USB DAC is registered, but Android still reports ${routeType.name} as the current system route. Treat the track format below as requested content format, not verified hardware output.';
+    return 'An experimental direct USB DAC is registered, but Android still reports ${routeType.name} as the current system route. Direct USB bypasses Android system volume and mixer controls, so the format shown below is requested content format, not verified hardware output.';
   }
 
   if (preferredUsbDetected && routeType != Uac2RouteType.externalUsb) {

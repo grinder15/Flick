@@ -13,6 +13,7 @@ use std::thread::{self, JoinHandle};
 
 use symphonia::core::audio::{AudioBufferRef, Signal};
 use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
@@ -370,7 +371,7 @@ fn decode_thread(
             }
             if peak >= 0.1 {
                 log::info!(
-                    "[DECODER] first chunk with |f32| max >= 0.1: peak={:.6} (S32 uses /2^31; quiet intros log lower)",
+                    "[DECODER] first chunk with |f32| max >= 0.1: peak={:.6} (S32→f32 via Symphonia: i32 as f64 / 2^31; quiet intros log lower)",
                     peak
                 );
                 logged_meaningful_f32_peak = true;
@@ -483,7 +484,9 @@ fn convert_to_interleaved_f32(buffer: &AudioBufferRef, output: &mut Vec<f32>) {
 
             for frame in 0..frames {
                 for ch in 0..channels {
-                    output.push(buf.chan(ch)[frame] as f32 / 2147483648.0);
+                    // Must match symphonia_core::conv: (i32 as f64 / 2^31) as f32 — casting i32 to
+                    // f32 before dividing quantizes large PCM values and causes audible distortion.
+                    output.push(buf.chan(ch)[frame].into_sample());
                 }
             }
         }

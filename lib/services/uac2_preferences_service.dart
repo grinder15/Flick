@@ -146,24 +146,16 @@ class Uac2PreferencesService {
   Future<void> setBitPerfectEnabled(bool enabled) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_keyBitPerfectEnabled, enabled);
-      await prefs.setBool(_keyExclusiveDacModeEnabled, enabled);
+      await prefs.setBool(_keyBitPerfectEnabled, false);
+      await prefs.setBool(_keyExclusiveDacModeEnabled, false);
     } catch (e) {
       debugPrint('Failed to save bit-perfect mode setting: $e');
     }
   }
 
   Future<bool> getBitPerfectEnabled() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.containsKey(_keyBitPerfectEnabled)) {
-        return prefs.getBool(_keyBitPerfectEnabled) ?? false;
-      }
-      return prefs.getBool(_keyExclusiveDacModeEnabled) ?? false;
-    } catch (e) {
-      debugPrint('Failed to load bit-perfect mode setting: $e');
-      return false;
-    }
+    // Temporarily force this off until the direct USB bit-perfect path is fixed.
+    return false;
   }
 
   Future<void> setExclusiveDacModeEnabled(bool enabled) {

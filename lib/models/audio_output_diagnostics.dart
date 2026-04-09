@@ -30,6 +30,7 @@ class AudioOutputDiagnostics {
     required this.selectedMode,
     required this.initializedMode,
     required this.pathManagement,
+    required this.outputStrategyLabel,
     required this.capabilityStateLabel,
     required this.backendDescription,
     required this.routeType,
@@ -43,7 +44,10 @@ class AudioOutputDiagnostics {
     required this.trackSampleRate,
     required this.requestedOutputSampleRate,
     required this.reportedOutputSampleRate,
+    required this.resamplerActive,
+    required this.passthroughAllowed,
     required this.activeOutputSignature,
+    required this.verificationReason,
     required this.fallbackReason,
     required this.capabilityFlags,
   });
@@ -51,6 +55,7 @@ class AudioOutputDiagnostics {
   final AudioEngineType selectedMode;
   final AudioEngineType? initializedMode;
   final AudioPathManagement pathManagement;
+  final String outputStrategyLabel;
   final String capabilityStateLabel;
   final String backendDescription;
   final String routeType;
@@ -64,7 +69,10 @@ class AudioOutputDiagnostics {
   final int? trackSampleRate;
   final int? requestedOutputSampleRate;
   final int? reportedOutputSampleRate;
+  final bool resamplerActive;
+  final bool passthroughAllowed;
   final String? activeOutputSignature;
+  final String? verificationReason;
   final String? fallbackReason;
   final AudioCapabilityFlags capabilityFlags;
 }

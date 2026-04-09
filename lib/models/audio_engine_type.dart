@@ -3,7 +3,7 @@ enum AudioEngineType {
   usbDacExperimental,
   dapInternalHighRes;
 
-  bool get usesRustBackend => this != AudioEngineType.normalAndroid;
+  bool get usesRustBackend => true;
 
   bool get isDirectUsbExperimental =>
       this == AudioEngineType.usbDacExperimental;

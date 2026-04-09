@@ -9,7 +9,7 @@ import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 part 'audio_api.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `ensure_audio_engine`, `prepare_decoder_source`, `read_audio_engine`, `resolve_requested_output_sample_rate`, `with_audio_engine`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `assert_receiver_is_total_eq`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `eq`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `from`, `from`, `from`, `from`
 
 /// Check if native audio is available on this platform.
 bool audioIsNativeAvailable() =>
@@ -44,6 +44,9 @@ String audioGetActiveEngine() =>
 
 Future<AudioRuntimeDebugState> audioGetRuntimeDebugState() =>
     RustLib.instance.api.crateApiAudioApiAudioGetRuntimeDebugState();
+
+Future<AudioRuntimeDebugJsonState> audioGetRuntimeDebugJsonState() =>
+    RustLib.instance.api.crateApiAudioApiAudioGetRuntimeDebugJsonState();
 
 /// Detect whether a DAC is present before attempting Rust engine initialization.
 Future<bool> audioIsDacAvailable({int? preferredSampleRate}) =>
@@ -260,6 +263,73 @@ class AudioProgress {
           positionSecs == other.positionSecs &&
           durationSecs == other.durationSecs &&
           bufferLevel == other.bufferLevel;
+}
+
+class AudioRuntimeDebugJsonState {
+  final String managerEngine;
+  final bool rustInitialized;
+  final String? outputSignature;
+  final int? sampleRate;
+  final BigInt? channels;
+  final String? outputStrategy;
+  final int? requestedSampleRate;
+  final int? actualSampleRate;
+  final bool? resamplerActive;
+  final bool? passthroughAllowed;
+  final String? verificationReason;
+  final bool? directUsbActive;
+  final bool? directUsbVerified;
+
+  const AudioRuntimeDebugJsonState({
+    required this.managerEngine,
+    required this.rustInitialized,
+    this.outputSignature,
+    this.sampleRate,
+    this.channels,
+    this.outputStrategy,
+    this.requestedSampleRate,
+    this.actualSampleRate,
+    this.resamplerActive,
+    this.passthroughAllowed,
+    this.verificationReason,
+    this.directUsbActive,
+    this.directUsbVerified,
+  });
+
+  @override
+  int get hashCode =>
+      managerEngine.hashCode ^
+      rustInitialized.hashCode ^
+      outputSignature.hashCode ^
+      sampleRate.hashCode ^
+      channels.hashCode ^
+      outputStrategy.hashCode ^
+      requestedSampleRate.hashCode ^
+      actualSampleRate.hashCode ^
+      resamplerActive.hashCode ^
+      passthroughAllowed.hashCode ^
+      verificationReason.hashCode ^
+      directUsbActive.hashCode ^
+      directUsbVerified.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AudioRuntimeDebugJsonState &&
+          runtimeType == other.runtimeType &&
+          managerEngine == other.managerEngine &&
+          rustInitialized == other.rustInitialized &&
+          outputSignature == other.outputSignature &&
+          sampleRate == other.sampleRate &&
+          channels == other.channels &&
+          outputStrategy == other.outputStrategy &&
+          requestedSampleRate == other.requestedSampleRate &&
+          actualSampleRate == other.actualSampleRate &&
+          resamplerActive == other.resamplerActive &&
+          passthroughAllowed == other.passthroughAllowed &&
+          verificationReason == other.verificationReason &&
+          directUsbActive == other.directUsbActive &&
+          directUsbVerified == other.directUsbVerified;
 }
 
 class AudioRuntimeDebugState {

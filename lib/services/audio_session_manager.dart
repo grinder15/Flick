@@ -223,6 +223,8 @@ class AudioSessionManager {
         : _deviceService.deviceInfoNotifier.value;
     final hiFiModeEnabled = await _preferencesService.getHiFiModeEnabled();
     final bitPerfectEnabled = await _preferencesService.getBitPerfectEnabled();
+    final audioEnginePreference = await _preferencesService
+        .getAudioEnginePreference();
     final capabilityInfo = await _uac2Service.getAndroidAudioCapabilityInfo();
     capabilityInfoNotifier.value = capabilityInfo;
     final capabilityReportsUsb = capabilityInfo.capabilities.contains(
@@ -264,6 +266,23 @@ class AudioSessionManager {
     final supportsHiResInternal = capabilityInfo.capabilities.contains(
       rust_audio.AudioCapabilityType.hiResInternal,
     );
+    if (audioEnginePreference == AudioEnginePreference.rustOboe) {
+      if (hiFiModeEnabled && supportsHiResInternal) {
+        debugPrint(
+          '[Session] Selected DAP_INTERNAL_HIGH_RES because Rust via Oboe '
+          'is preferred and Android reports a higher-capability internal '
+          'route (${capabilityInfo.routeType}/${capabilityInfo.routeLabel ?? 'unknown'})',
+        );
+        return AudioEngineType.dapInternalHighRes;
+      }
+
+      debugPrint(
+        '[Session] Selected RUST_OBOE because the user prefers the Rust '
+        'Android-managed engine',
+      );
+      return AudioEngineType.rustOboe;
+    }
+
     if (hiFiModeEnabled && supportsHiResInternal) {
       debugPrint(
         '[Session] Selected DAP_INTERNAL_HIGH_RES because HiFi Mode is '

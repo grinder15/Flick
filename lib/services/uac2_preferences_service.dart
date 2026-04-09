@@ -5,6 +5,8 @@ import 'package:flick/services/uac2_service.dart';
 
 enum Uac2FormatPreference { highestQuality, compatibility, custom }
 
+enum AudioEnginePreference { exoPlayer, rustOboe, isochronousUsb }
+
 class Uac2PreferencesService {
   static const _keySelectedDevice = 'uac2_selected_device';
   static const _keyAutoConnect = 'uac2_auto_connect';
@@ -14,6 +16,7 @@ class Uac2PreferencesService {
   static const _keyHiFiModeEnabled = 'uac2_hifi_mode_enabled';
   static const _keyBitPerfectEnabled = 'uac2_bit_perfect_enabled';
   static const _keyExclusiveDacModeEnabled = 'uac2_exclusive_dac_mode_enabled';
+  static const _keyAudioEnginePreference = 'audio_engine_preference';
 
   Future<void> saveSelectedDevice(Uac2DeviceInfo device) async {
     try {
@@ -166,6 +169,33 @@ class Uac2PreferencesService {
     return getBitPerfectEnabled();
   }
 
+  Future<void> setAudioEnginePreference(
+    AudioEnginePreference preference,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyAudioEnginePreference, preference.name);
+    } catch (e) {
+      debugPrint('Failed to save audio engine preference: $e');
+    }
+  }
+
+  Future<AudioEnginePreference> getAudioEnginePreference() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final value = prefs.getString(_keyAudioEnginePreference);
+      if (value == null) return AudioEnginePreference.exoPlayer;
+
+      return AudioEnginePreference.values.firstWhere(
+        (engine) => engine.name == value,
+        orElse: () => AudioEnginePreference.exoPlayer,
+      );
+    } catch (e) {
+      debugPrint('Failed to load audio engine preference: $e');
+      return AudioEnginePreference.exoPlayer;
+    }
+  }
+
   Future<void> setFormatPreference(Uac2FormatPreference preference) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -202,6 +232,7 @@ class Uac2PreferencesService {
       await prefs.remove(_keyHiFiModeEnabled);
       await prefs.remove(_keyBitPerfectEnabled);
       await prefs.remove(_keyExclusiveDacModeEnabled);
+      await prefs.remove(_keyAudioEnginePreference);
     } catch (e) {
       debugPrint('Failed to clear preferences: $e');
     }

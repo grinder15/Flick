@@ -1856,3 +1856,99 @@ fn handle_seek(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::source::{AudioSource, SourceInfo};
+    use crossbeam_channel::bounded;
+    use std::path::PathBuf;
+
+    fn build_source(samples: &[f32], sample_rate: u32, channels: usize) -> AudioSource {
+        let duration_secs = samples.len() as f64 / channels as f64 / sample_rate as f64;
+        let info = SourceInfo {
+            path: PathBuf::from("test.wav"),
+            original_sample_rate: sample_rate,
+            output_sample_rate: sample_rate,
+            channels,
+            total_samples: samples.len() as u64,
+            duration_secs,
+        };
+        let (mut source, mut producer) = AudioSource::new(info);
+
+        assert_eq!(producer.write(samples), samples.len());
+        producer.finish();
+        source.set_ready();
+        source.set_playing();
+        source
+    }
+
+    fn build_callback_data(sample_rate: u32, channels: usize) -> AudioCallbackData {
+        let (finished_tx, _finished_rx) = bounded::<AudioSource>(8);
+        AudioCallbackData::new(sample_rate, channels, finished_tx)
+    }
+
+    fn run_callback(data: &AudioCallbackData, output_len: usize) -> Vec<f32> {
+        let (event_tx, _event_rx) = bounded::<AudioEvent>(8);
+        let mut output = vec![123.0; output_len];
+        audio_callback(&mut output, data, &event_tx);
+        output
+    }
+
+    #[test]
+    fn callback_bit_perfect_bypasses_volume_scaling() {
+        let data = build_callback_data(48_000, 2);
+        let input = vec![0.0, 0.25, -0.5, 0.5, -0.25, 0.0, 1.0, -1.0];
+
+        data.set_volume(0.25);
+        data.set_bit_perfect(true);
+        data.sources
+            .lock()
+            .set_current(build_source(&input, 48_000, 2));
+
+        let output = run_callback(&data, input.len());
+
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn callback_bit_perfect_zero_fills_tail_on_underrun() {
+        let data = build_callback_data(48_000, 2);
+        let input = vec![0.5, -0.5, 0.25, -0.25];
+
+        data.set_bit_perfect(true);
+        data.sources
+            .lock()
+            .set_current(build_source(&input, 48_000, 2));
+
+        let output = run_callback(&data, 8);
+
+        assert_eq!(output, vec![0.5, -0.5, 0.25, -0.25, 0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn callback_zero_fills_when_no_source_available() {
+        let data = build_callback_data(48_000, 2);
+        data.set_bit_perfect(false);
+
+        let output = run_callback(&data, 8);
+
+        assert_eq!(output, vec![0.0; 8]);
+    }
+
+    #[test]
+    fn callback_applies_volume_when_not_bit_perfect() {
+        let data = build_callback_data(48_000, 2);
+        let input = vec![0.5, -0.5, 0.25, -0.25];
+
+        data.set_volume(0.5);
+        data.set_bit_perfect(false);
+        data.sources
+            .lock()
+            .set_current(build_source(&input, 48_000, 2));
+
+        let output = run_callback(&data, input.len());
+
+        assert_eq!(output, vec![0.25, -0.25, 0.125, -0.125]);
+    }
+}

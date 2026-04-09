@@ -90,4 +90,33 @@ mod tests {
             OutputStrategy::UsbDirect
         );
     }
+
+    #[test]
+    fn unverified_route_rejects_passthrough() {
+        let verification = OutputVerification::verify(44_100, 44_100, true, false);
+
+        assert!(!verification.resampler_active);
+        assert!(!verification.bit_perfect);
+        assert_eq!(
+            verification.reason.as_deref(),
+            Some("route verification failed")
+        );
+        assert_eq!(
+            verification.resolved_strategy(OutputStrategy::UsbDirect),
+            OutputStrategy::ResampledFallback
+        );
+    }
+
+    #[test]
+    fn exact_match_without_passthrough_request_stays_non_bit_perfect() {
+        let verification = OutputVerification::verify(44_100, 44_100, false, true);
+
+        assert!(!verification.resampler_active);
+        assert!(!verification.bit_perfect);
+        assert_eq!(verification.reason, None);
+        assert_eq!(
+            verification.resolved_strategy(OutputStrategy::MixerMatched),
+            OutputStrategy::MixerMatched
+        );
+    }
 }

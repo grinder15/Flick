@@ -470,6 +470,9 @@ class PlayerService {
 
   Future<void> _prepareForAppLaunchInternal() async {
     await initAudio();
+    if (Platform.isAndroid && !_sessionManager.selectedMode.usesRustBackend) {
+      await _ensureAndroidPlayer();
+    }
   }
 
   Future<void> setHiFiModeEnabled(bool enabled) async {
@@ -594,6 +597,7 @@ class PlayerService {
     return AndroidAudioEngine(
       playerProvider: _ensureAndroidPlayer,
       sourcesBuilder: _buildAudioSources,
+      sourceBuilder: _buildAudioSourceForSong,
       playlistProvider: () => List<Song>.unmodifiable(_playlist),
       configurePlayer: _configureAndroidPlayer,
       disposeEngine: _disposeAndroidEngine,

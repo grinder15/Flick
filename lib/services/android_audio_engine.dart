@@ -9,6 +9,8 @@ import 'package:flick/services/audio_engine.dart';
 
 typedef AndroidAudioSourcesBuilder =
     Future<List<just_audio.AudioSource>> Function();
+typedef AndroidAudioSourceBuilder =
+    Future<just_audio.AudioSource> Function(Song track);
 typedef AndroidPlaylistProvider = List<Song> Function();
 typedef AndroidPlayerProvider = Future<just_audio.AudioPlayer> Function();
 typedef AndroidPlayerConfigurator =
@@ -21,6 +23,7 @@ class AndroidAudioEngine implements AudioEngine {
   AndroidAudioEngine({
     required AndroidPlayerProvider playerProvider,
     required AndroidAudioSourcesBuilder sourcesBuilder,
+    required AndroidAudioSourceBuilder sourceBuilder,
     required AndroidPlaylistProvider playlistProvider,
     required AndroidPlayerConfigurator configurePlayer,
     required AndroidEngineDisposer disposeEngine,
@@ -28,6 +31,7 @@ class AndroidAudioEngine implements AudioEngine {
     required AndroidTrackIgnorePredicate shouldIgnoreTrack,
   }) : _playerProvider = playerProvider,
        _sourcesBuilder = sourcesBuilder,
+       _sourceBuilder = sourceBuilder,
        _playlistProvider = playlistProvider,
        _configurePlayer = configurePlayer,
        _disposeEngine = disposeEngine,
@@ -36,6 +40,7 @@ class AndroidAudioEngine implements AudioEngine {
 
   final AndroidPlayerProvider _playerProvider;
   final AndroidAudioSourcesBuilder _sourcesBuilder;
+  final AndroidAudioSourceBuilder _sourceBuilder;
   final AndroidPlaylistProvider _playlistProvider;
   final AndroidPlayerConfigurator _configurePlayer;
   final AndroidEngineDisposer _disposeEngine;
@@ -50,6 +55,9 @@ class AndroidAudioEngine implements AudioEngine {
   Song? _loadedTrack;
   List<String> _playlistSignature = const <String>[];
   bool _awaitingInitialSeek = false;
+  bool _loadedSingleTrackOnly = false;
+
+  static const int _fastStartPlaylistThreshold = 24;
 
   @override
   Stream<PlaybackState> get playbackStateStream => _controller.stream;
@@ -124,6 +132,9 @@ class AndroidAudioEngine implements AudioEngine {
   }
 
   Song? _resolveTrack(int? index) {
+    if (_loadedSingleTrackOnly) {
+      return _loadedTrack;
+    }
     if (index == null) return _loadedTrack;
     final playlist = _playlistProvider();
     if (index < 0 || index >= playlist.length) {
@@ -157,11 +168,32 @@ class AndroidAudioEngine implements AudioEngine {
     _loadedTrack = track;
     await _configurePlayer(player);
 
-    if (canReusePlaylist && player.sequence.isNotEmpty) {
+    final shouldFastStartCurrentTrackOnly =
+        !_loadedSingleTrackOnly &&
+        player.sequence.isEmpty &&
+        playlist.length > _fastStartPlaylistThreshold;
+
+    if (canReusePlaylist &&
+        player.sequence.isNotEmpty &&
+        !_loadedSingleTrackOnly) {
       debugPrint(
         '[Playback] Android load(${track.id}) using existing playlist',
       );
       await player.seek(Duration.zero, index: index);
+    } else if (shouldFastStartCurrentTrackOnly) {
+      debugPrint(
+        '[Playback] Android load(${track.id}) fast-starting current track',
+      );
+      _awaitingInitialSeek = true;
+      try {
+        final source = await _sourceBuilder(track);
+        await player.setAudioSource(source, preload: true);
+        await player.seek(Duration.zero);
+      } finally {
+        _awaitingInitialSeek = false;
+      }
+      _loadedSingleTrackOnly = true;
+      _playlistSignature = const <String>[];
     } else {
       debugPrint('[Playback] Android load(${track.id}) rebuilding playlist');
       _awaitingInitialSeek = true;
@@ -179,6 +211,7 @@ class AndroidAudioEngine implements AudioEngine {
       } finally {
         _awaitingInitialSeek = false;
       }
+      _loadedSingleTrackOnly = false;
       _playlistSignature = nextSignature;
     }
 
@@ -247,6 +280,7 @@ class AndroidAudioEngine implements AudioEngine {
     _subscriptions.clear();
     _player = null;
     _playlistSignature = const <String>[];
+    _loadedSingleTrackOnly = false;
     await _disposeEngine();
     await _controller.close();
   }

@@ -285,6 +285,20 @@ fn decode_thread(
         None
     };
 
+    log::info!(
+        "[DECODER] decoded_file_sample_rate_hz={} decoder_output_sample_rate_hz={} resampling_active={}",
+        source_info.original_sample_rate,
+        output_sample_rate,
+        needs_resampling
+    );
+    if needs_resampling {
+        log::warn!(
+            "[DECODER] Resampling {}→{} Hz. For USB bit-perfect playback, engine + DAC should match the file rate (resampling=false).",
+            source_info.original_sample_rate,
+            output_sample_rate
+        );
+    }
+
     // Pre-allocated buffers (avoid allocations in the loop)
     let mut decode_buffer: Vec<f32> =
         Vec::with_capacity(DECODE_CHUNK_SIZE * source_info.channels * 2);
@@ -295,6 +309,8 @@ fn decode_thread(
             * source_info.channels
             + 256,
     );
+
+    let mut logged_meaningful_f32_peak = false;
 
     // Decode loop
     loop {
@@ -343,6 +359,23 @@ fn decode_thread(
         // Convert to interleaved f32
         decode_buffer.clear();
         convert_to_interleaved_f32(&decoded, &mut decode_buffer);
+
+        if !logged_meaningful_f32_peak {
+            let mut peak = 0.0f32;
+            for &s in decode_buffer.iter() {
+                let a = s.abs();
+                if a > peak {
+                    peak = a;
+                }
+            }
+            if peak >= 0.1 {
+                log::info!(
+                    "[DECODER] first chunk with |f32| max >= 0.1: peak={:.6} (S32 uses /2^31; quiet intros log lower)",
+                    peak
+                );
+                logged_meaningful_f32_peak = true;
+            }
+        }
 
         // Resample if needed
         let output_samples = if let Some(ref mut resampler) = resampler {
@@ -393,6 +426,19 @@ fn decode_thread(
 
 /// Convert an AudioBufferRef to interleaved f32 samples.
 fn convert_to_interleaved_f32(buffer: &AudioBufferRef, output: &mut Vec<f32>) {
+    use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+    static LOGGED_VARIANT: AtomicBool = AtomicBool::new(false);
+    if !LOGGED_VARIANT.swap(true, AtomicOrdering::Relaxed) {
+        let variant = match buffer {
+            AudioBufferRef::F32(_) => "F32",
+            AudioBufferRef::S16(_) => "S16",
+            AudioBufferRef::S24(_) => "S24",
+            AudioBufferRef::S32(_) => "S32",
+            AudioBufferRef::U8(_) => "U8",
+            _ => "Unknown",
+        };
+        log::info!("[DECODER] AudioBufferRef variant: {}", variant);
+    }
     match buffer {
         AudioBufferRef::F32(buf) => {
             let channels = buf.spec().channels.count();

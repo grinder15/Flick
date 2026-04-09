@@ -220,7 +220,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
     env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jstring {
-    let engine_state = crate::api::audio_api::audio_get_runtime_debug_state();
+    let engine_state = crate::api::audio_api::audio_get_runtime_debug_json_state();
     let direct_usb_state = crate::uac2::android_direct_debug_state();
     let payload = serde_json::json!({
         "engine": engine_state,
@@ -239,7 +239,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
     _activity: JObject<'_>,
 ) -> jstring {
     let payload = serde_json::json!({
-        "engine": crate::api::audio_api::audio_get_runtime_debug_state(),
+        "engine": crate::api::audio_api::audio_get_runtime_debug_json_state(),
         "direct_usb": {
             "registered": false,
             "idle_lock_held": false,

@@ -6,6 +6,7 @@
 use crate::audio::commands::{AudioEvent, PlaybackState};
 use crate::audio::decoder::{probe_file, DecoderThread};
 use crate::audio::manager::{AudioCapability, AudioCapabilitySnapshot, AudioEngine, EngineManager};
+use log::{info as log_info, warn as log_warn};
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -46,6 +47,19 @@ fn prepare_decoder_source(
 ) -> Result<(crate::audio::source::AudioSource, DecoderThread), String> {
     let probe_result = probe_file(path.as_path())
         .map_err(|error| format!("Failed to probe {}: {}", path.display(), error))?;
+    let file_rate = probe_result.source_info.original_sample_rate;
+    if output_sample_rate != file_rate {
+        log_warn!(
+            "[AUDIO] engine_sample_rate_hz={} decoded_file_sample_rate_hz={} — decoder resampling active",
+            output_sample_rate,
+            file_rate
+        );
+    } else {
+        log_info!(
+            "[AUDIO] engine_sample_rate_hz matches decoded_file_sample_rate_hz ({} Hz); decoder resampling off",
+            file_rate
+        );
+    }
 
     DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)
         .map_err(|error| format!("Failed to decode {}: {}", path.display(), error))
@@ -144,6 +158,23 @@ pub struct AudioRuntimeDebugState {
     pub output_signature: Option<String>,
     pub sample_rate: Option<u32>,
     pub channels: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AudioRuntimeDebugJsonState {
+    pub manager_engine: String,
+    pub rust_initialized: bool,
+    pub output_signature: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<usize>,
+    pub output_strategy: Option<String>,
+    pub requested_sample_rate: Option<u32>,
+    pub actual_sample_rate: Option<u32>,
+    pub resampler_active: Option<bool>,
+    pub passthrough_allowed: Option<bool>,
+    pub verification_reason: Option<String>,
+    pub direct_usb_active: Option<bool>,
+    pub direct_usb_verified: Option<bool>,
 }
 
 impl From<AudioCapabilitySnapshot> for AudioCapabilityInfo {
@@ -251,6 +282,37 @@ pub fn audio_get_runtime_debug_state() -> AudioRuntimeDebugState {
     }
 }
 
+pub fn audio_get_runtime_debug_json_state() -> AudioRuntimeDebugJsonState {
+    let base = audio_get_runtime_debug_state();
+    let output_runtime = read_audio_engine(|handle| handle.output_runtime().clone());
+
+    AudioRuntimeDebugJsonState {
+        manager_engine: base.manager_engine,
+        rust_initialized: base.rust_initialized,
+        output_signature: base.output_signature,
+        sample_rate: base.sample_rate,
+        channels: base.channels,
+        output_strategy: output_runtime.as_ref().map(|state| state.strategy.clone()),
+        requested_sample_rate: output_runtime
+            .as_ref()
+            .map(|state| state.requested_sample_rate),
+        actual_sample_rate: output_runtime
+            .as_ref()
+            .map(|state| state.actual_sample_rate),
+        resampler_active: output_runtime.as_ref().map(|state| state.resampler_active),
+        passthrough_allowed: output_runtime
+            .as_ref()
+            .map(|state| state.passthrough_allowed),
+        verification_reason: output_runtime
+            .as_ref()
+            .and_then(|state| state.verification_reason.clone()),
+        direct_usb_active: output_runtime.as_ref().map(|state| state.direct_usb_active),
+        direct_usb_verified: output_runtime
+            .as_ref()
+            .map(|state| state.direct_usb_verified),
+    }
+}
+
 /// Detect whether a DAC is present before attempting Rust engine initialization.
 pub fn audio_is_dac_available(preferred_sample_rate: Option<u32>) -> Result<bool, String> {
     ENGINE_MANAGER.is_dac_available(preferred_sample_rate)
@@ -270,6 +332,19 @@ pub fn audio_play(path: String) -> Result<(), String> {
         probe_result.source_info.original_sample_rate,
     ))?)?;
     let output_sample_rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
+    let file_rate = probe_result.source_info.original_sample_rate;
+    if output_sample_rate != file_rate {
+        log_warn!(
+            "[AUDIO] engine_sample_rate_hz={} decoded_file_sample_rate_hz={} — decoder resampling active",
+            output_sample_rate,
+            file_rate
+        );
+    } else {
+        log_info!(
+            "[AUDIO] engine_sample_rate_hz matches decoded_file_sample_rate_hz ({} Hz); decoder resampling off",
+            file_rate
+        );
+    }
     let (source, decoder_thread) =
         DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)
             .map_err(|error| format!("Failed to decode {}: {}", path.display(), error))?;
@@ -286,6 +361,19 @@ pub fn audio_queue_next(path: String) -> Result<(), String> {
             probe_result.source_info.original_sample_rate,
         ))?)?;
         let output_sample_rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
+        let file_rate = probe_result.source_info.original_sample_rate;
+        if output_sample_rate != file_rate {
+            log_warn!(
+                "[AUDIO] engine_sample_rate_hz={} decoded_file_sample_rate_hz={} — decoder resampling active",
+                output_sample_rate,
+                file_rate
+            );
+        } else {
+            log_info!(
+                "[AUDIO] engine_sample_rate_hz matches decoded_file_sample_rate_hz ({} Hz); decoder resampling off",
+                file_rate
+            );
+        }
         let (source, decoder_thread) =
             DecoderThread::spawn_from_probe_result(probe_result, output_sample_rate, None)
                 .map_err(|error| format!("Failed to decode {}: {}", path.display(), error))?;

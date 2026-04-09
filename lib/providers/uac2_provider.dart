@@ -193,6 +193,11 @@ final audioEnginePreferenceProvider = FutureProvider<AudioEnginePreference>((
   return service.getAudioEnginePreference();
 });
 
+final developerModeEnabledProvider = FutureProvider<bool>((ref) async {
+  final service = ref.watch(uac2PreferencesServiceProvider);
+  return service.getDeveloperModeEnabled();
+});
+
 final uac2BitPerfectEnabledProvider = FutureProvider<bool>((ref) async {
   final service = ref.watch(uac2PreferencesServiceProvider);
   return service.getBitPerfectEnabled();

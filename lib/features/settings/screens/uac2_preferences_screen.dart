@@ -28,6 +28,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     final preferredFormatAsync = ref.watch(uac2PreferredFormatProvider);
     final hiFiModeAsync = ref.watch(uac2HiFiModeProvider);
     final audioEngineAsync = ref.watch(audioEnginePreferenceProvider);
+    final developerModeAsync = ref.watch(developerModeEnabledProvider);
     final diagnostics = ref.watch(audioOutputDiagnosticsProvider);
 
     return DisplayModeWrapper(
@@ -69,6 +70,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                         context,
                         preferencesService,
                         audioEngineAsync,
+                        developerModeAsync,
                         hiFiModeAsync,
                         diagnostics,
                       ),
@@ -250,6 +252,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     BuildContext context,
     Uac2PreferencesService service,
     AsyncValue<AudioEnginePreference> audioEngineAsync,
+    AsyncValue<bool> developerModeAsync,
     AsyncValue<bool> hiFiModeAsync,
     AudioOutputDiagnostics? diagnostics,
   ) {
@@ -268,6 +271,23 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
               title: 'Playback Engine',
               subtitle: _audioEnginePreferenceSubtitle(engine),
               onTap: () => _showAudioEngineDialog(context, service, engine),
+            ),
+            loading: () => _buildLoadingTile(context),
+            error: (_, _) => _buildErrorTile(context),
+          ),
+          _buildDivider(),
+          developerModeAsync.when(
+            data: (enabled) => _buildSwitchTile(
+              context,
+              icon: LucideIcons.badgeInfo,
+              title: 'Developer Mode',
+              subtitle:
+                  'Show verbose audio diagnostics and engine/session trace logs.',
+              value: enabled,
+              onChanged: (value) async {
+                await service.setDeveloperModeEnabled(value);
+                ref.invalidate(developerModeEnabledProvider);
+              },
             ),
             loading: () => _buildLoadingTile(context),
             error: (_, _) => _buildErrorTile(context),

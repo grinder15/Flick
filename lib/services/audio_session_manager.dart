@@ -63,6 +63,12 @@ class AudioSessionManager {
   AudioEngineType? get initializedMode => initializedModeNotifier.value;
   String? get fallbackReason => fallbackReasonNotifier.value;
 
+  void _debugLog(String message) {
+    if (Uac2PreferencesService.isDeveloperModeEnabledSync) {
+      debugPrint(message);
+    }
+  }
+
   Future<void> initialize() async {
     if (_initialized) return;
 
@@ -99,7 +105,7 @@ class AudioSessionManager {
       return;
     }
 
-    debugPrint(
+    _debugLog(
       '[Session] Switching from ${previousInitialized?.logLabel ?? 'none'} '
       'to ${mode.logLabel} '
       '(${initializeNewEngine ? 'initialize' : 'lazy'}) because $reason',
@@ -134,7 +140,7 @@ class AudioSessionManager {
     if (selectedMode != fallbackMode) {
       selectedModeNotifier.value = fallbackMode;
     }
-    debugPrint('[Session] Fallback: ${fallbackReasonNotifier.value}');
+    _debugLog('[Session] Fallback: ${fallbackReasonNotifier.value}');
   }
 
   Future<void> suppressExperimentalUsbForCurrentDevice({
@@ -150,7 +156,7 @@ class AudioSessionManager {
     if (selectedMode == AudioEngineType.usbDacExperimental) {
       selectedModeNotifier.value = AudioEngineType.normalAndroid;
     }
-    debugPrint(
+    _debugLog(
       '[Session] Marking USB_DAC_EXPERIMENTAL unavailable for the current '
       'DAC this session: $reason',
     );
@@ -174,6 +180,7 @@ class AudioSessionManager {
   }
 
   Future<void> _initializeInternal() async {
+    await _preferencesService.initializeDeveloperModeCache();
     await _deviceService.initialize();
     selectedModeNotifier.value = await _resolvePreferredMode();
 
@@ -210,7 +217,7 @@ class AudioSessionManager {
 
     selectedModeNotifier.value = desired;
     if (_isPlaybackActive() && initializedMode != desired) {
-      debugPrint(
+      _debugLog(
         '[Session] Route changed to ${desired.logLabel}; '
         'new engine will attach on the next playback request ($reason)',
       );
@@ -237,7 +244,7 @@ class AudioSessionManager {
         capabilityReportsUsb ||
         looksLikeUsbAudioRoute) {
       if (!bitPerfectEnabled) {
-        debugPrint(
+        _debugLog(
           '[Session] Keeping NORMAL_ANDROID because Bit-perfect USB is '
           'disabled for this session '
           '(${info.routeLabel ?? info.routeType ?? 'unknown'})',
@@ -246,13 +253,13 @@ class AudioSessionManager {
       }
       final suppressedReason = _suppressedReasonForCurrentUsbDevice(info);
       if (suppressedReason != null) {
-        debugPrint(
+        _debugLog(
           '[Session] Keeping NORMAL_ANDROID because USB_DAC_EXPERIMENTAL is '
           'unavailable for the current DAC this session ($suppressedReason)',
         );
         return AudioEngineType.normalAndroid;
       }
-      debugPrint(
+      _debugLog(
         '[Session] Selected USB_DAC_EXPERIMENTAL because an external USB DAC '
         'is attached (${info.routeLabel ?? info.routeType ?? 'unknown'}; '
         'attachedUac2=${info.hasAttachedUac2Device}; '
@@ -268,7 +275,7 @@ class AudioSessionManager {
     );
     if (audioEnginePreference == AudioEnginePreference.rustOboe) {
       if (hiFiModeEnabled && supportsHiResInternal) {
-        debugPrint(
+        _debugLog(
           '[Session] Selected DAP_INTERNAL_HIGH_RES because Rust via Oboe '
           'is preferred and Android reports a higher-capability internal '
           'route (${capabilityInfo.routeType}/${capabilityInfo.routeLabel ?? 'unknown'})',
@@ -276,7 +283,7 @@ class AudioSessionManager {
         return AudioEngineType.dapInternalHighRes;
       }
 
-      debugPrint(
+      _debugLog(
         '[Session] Selected RUST_OBOE because the user prefers the Rust '
         'Android-managed engine',
       );
@@ -284,7 +291,7 @@ class AudioSessionManager {
     }
 
     if (hiFiModeEnabled && supportsHiResInternal) {
-      debugPrint(
+      _debugLog(
         '[Session] Selected DAP_INTERNAL_HIGH_RES because HiFi Mode is '
         'enabled and Android reports a higher-capability internal route '
         '(${capabilityInfo.routeType}/${capabilityInfo.routeLabel ?? 'unknown'})',
@@ -293,7 +300,7 @@ class AudioSessionManager {
     }
 
     if (hiFiModeEnabled && !supportsHiResInternal) {
-      debugPrint(
+      _debugLog(
         '[Session] HiFi Mode requested, but Android did not report a '
         'high-resolution internal route. Staying on NORMAL_ANDROID.',
       );

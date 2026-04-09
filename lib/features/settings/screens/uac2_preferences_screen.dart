@@ -27,6 +27,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     final formatPrefAsync = ref.watch(uac2FormatPreferenceProvider);
     final preferredFormatAsync = ref.watch(uac2PreferredFormatProvider);
     final hiFiModeAsync = ref.watch(uac2HiFiModeProvider);
+    final audioEngineAsync = ref.watch(audioEnginePreferenceProvider);
     final diagnostics = ref.watch(audioOutputDiagnosticsProvider);
 
     return DisplayModeWrapper(
@@ -67,6 +68,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                       _buildAdvancedOptions(
                         context,
                         preferencesService,
+                        audioEngineAsync,
                         hiFiModeAsync,
                         diagnostics,
                       ),
@@ -247,6 +249,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
   Widget _buildAdvancedOptions(
     BuildContext context,
     Uac2PreferencesService service,
+    AsyncValue<AudioEnginePreference> audioEngineAsync,
     AsyncValue<bool> hiFiModeAsync,
     AudioOutputDiagnostics? diagnostics,
   ) {
@@ -258,6 +261,18 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
       ),
       child: Column(
         children: [
+          audioEngineAsync.when(
+            data: (engine) => _buildNavigationTile(
+              context,
+              icon: LucideIcons.audioLines,
+              title: 'Playback Engine',
+              subtitle: _audioEnginePreferenceSubtitle(engine),
+              onTap: () => _showAudioEngineDialog(context, service, engine),
+            ),
+            loading: () => _buildLoadingTile(context),
+            error: (_, _) => _buildErrorTile(context),
+          ),
+          _buildDivider(),
           _buildModeStatusTile(context, diagnostics),
           _buildDivider(),
           _buildComingSoonTile(
@@ -417,6 +432,199 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  String _audioEnginePreferenceSubtitle(AudioEnginePreference engine) {
+    return switch (engine) {
+      AudioEnginePreference.exoPlayer => 'just_audio / ExoPlayer (default)',
+      AudioEnginePreference.rustOboe => 'Rust via Oboe',
+      AudioEnginePreference.isochronousUsb => 'Isochronous USB (coming soon)',
+    };
+  }
+
+  Future<void> _showAudioEngineDialog(
+    BuildContext context,
+    Uac2PreferencesService service,
+    AudioEnginePreference current,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+          ),
+          title: Text(
+            'Playback Engine',
+            style: TextStyle(color: context.adaptiveTextPrimary),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildAudioEngineOption(
+                dialogContext,
+                title: 'just_audio / ExoPlayer',
+                subtitle:
+                    'Default Android playback engine used by Flick right now.',
+                selected: current == AudioEnginePreference.exoPlayer,
+                onTap: () async {
+                  final changed = current != AudioEnginePreference.exoPlayer;
+                  await service.setAudioEnginePreference(
+                    AudioEnginePreference.exoPlayer,
+                  );
+                  ref.invalidate(audioEnginePreferenceProvider);
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
+                  }
+                  if (changed && context.mounted) {
+                    _showRestartRequiredToast(context);
+                  }
+                },
+              ),
+              const SizedBox(height: AppConstants.spacingSm),
+              _buildAudioEngineOption(
+                dialogContext,
+                title: 'Rust via Oboe',
+                subtitle:
+                    'Android-managed Rust playback path using the native Oboe backend.',
+                selected: current == AudioEnginePreference.rustOboe,
+                onTap: () async {
+                  final changed = current != AudioEnginePreference.rustOboe;
+                  await service.setAudioEnginePreference(
+                    AudioEnginePreference.rustOboe,
+                  );
+                  ref.invalidate(audioEnginePreferenceProvider);
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
+                  }
+                  if (changed && context.mounted) {
+                    _showRestartRequiredToast(context);
+                  }
+                },
+              ),
+              const SizedBox(height: AppConstants.spacingSm),
+              _buildAudioEngineOption(
+                dialogContext,
+                title: 'Isochronous USB',
+                subtitle:
+                    'Coming soon. This engine is temporarily unavailable while the direct USB path is being fixed.',
+                selected: current == AudioEnginePreference.isochronousUsb,
+                enabled: false,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAudioEngineOption(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+    required bool selected,
+    bool enabled = true,
+    VoidCallback? onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+        child: Opacity(
+          opacity: enabled ? 1 : 0.55,
+          child: Container(
+            padding: const EdgeInsets.all(AppConstants.spacingMd),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+              border: Border.all(
+                color: selected
+                    ? AppColors.accent.withValues(alpha: 0.45)
+                    : AppColors.glassBorder,
+              ),
+              color: AppColors.surfaceLight.withValues(alpha: 0.35),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: selected
+                      ? AppColors.accent
+                      : context.adaptiveTextTertiary,
+                  size: 20,
+                ),
+                const SizedBox(width: AppConstants.spacingMd),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(
+                                    color: context.adaptiveTextPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ),
+                          if (!enabled)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.accent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(
+                                  AppConstants.radiusSm,
+                                ),
+                              ),
+                              child: Text(
+                                'Coming soon',
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(
+                                      color: AppColors.accent,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.adaptiveTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showRestartRequiredToast(BuildContext context) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Restart your device to apply the new playback engine.'),
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }

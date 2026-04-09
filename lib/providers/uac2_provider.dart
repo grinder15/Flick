@@ -186,6 +186,13 @@ final uac2HiFiModeProvider = FutureProvider<bool>((ref) async {
   return service.getHiFiModeEnabled();
 });
 
+final audioEnginePreferenceProvider = FutureProvider<AudioEnginePreference>((
+  ref,
+) async {
+  final service = ref.watch(uac2PreferencesServiceProvider);
+  return service.getAudioEnginePreference();
+});
+
 final uac2BitPerfectEnabledProvider = FutureProvider<bool>((ref) async {
   final service = ref.watch(uac2PreferencesServiceProvider);
   return service.getBitPerfectEnabled();

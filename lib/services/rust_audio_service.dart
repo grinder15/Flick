@@ -35,6 +35,13 @@ class RustAudioService {
   final ValueNotifier<double> crossfadeDurationNotifier = ValueNotifier(3.0);
   final ValueNotifier<double> playbackSpeedNotifier = ValueNotifier(1.0);
 
+  // Throttled notifier for text labels (updates slower than progress bar)
+  // Prevents unnecessary rebuilds of time labels while still providing smooth progress bar
+  final ValueNotifier<Duration> positionLabelNotifier = ValueNotifier(
+    Duration.zero,
+  );
+  int _lastPositionLabelMs = 0;
+
   // Event callbacks
   void Function(String path)? onTrackEnded;
   void Function(String fromPath, String toPath)? onCrossfadeStarted;
@@ -208,7 +215,7 @@ class RustAudioService {
     _currentPath = path;
     // Also sync from Rust engine to ensure accuracy
     _currentPath = rust_audio.audioGetCurrentPath() ?? path;
-    _startProgressUpdates();
+    _startProgressUpdates(fast: true);
   }
 
   /// Queue the next track for gapless playback.
@@ -226,6 +233,8 @@ class RustAudioService {
   Future<void> pause() async {
     if (!_initialized) return;
     await rust_audio.audioPause();
+    // Switch to slower updates when paused to reduce CPU usage while keeping UI synced
+    _startProgressUpdates(fast: false);
     // Force immediate state update for responsive UI
     _updateState();
   }
@@ -234,7 +243,8 @@ class RustAudioService {
   Future<void> resume() async {
     if (!_initialized) return;
     await rust_audio.audioResume();
-    _startProgressUpdates();
+    // Resume fast updates for smooth progress bar
+    _startProgressUpdates(fast: true);
     // Force immediate state update
     _updateState();
   }
@@ -323,11 +333,15 @@ class RustAudioService {
   }
 
   /// Start periodic progress updates.
-  void _startProgressUpdates() {
+  void _startProgressUpdates({bool fast = true}) {
     _stopProgressUpdates();
 
-    // Update progress every 50ms for smooth UI updates
-    _progressTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
+    // Update progress every 50ms for smooth UI updates when playing
+    // Update slower (250ms) when paused to keep UI in sync without waste
+    final interval = fast
+        ? const Duration(milliseconds: 50)
+        : const Duration(milliseconds: 250);
+    _progressTimer = Timer.periodic(interval, (_) {
       _updateProgress();
     });
   }
@@ -342,15 +356,34 @@ class RustAudioService {
   void _updateProgress() {
     final progress = rust_audio.audioGetProgress();
     if (progress != null) {
-      positionNotifier.value = Duration(
-        milliseconds: (progress.positionSecs * 1000).round(),
-      );
-      if (progress.durationSecs != null) {
-        durationNotifier.value = Duration(
-          milliseconds: (progress.durationSecs! * 1000).round(),
-        );
+      final newPositionMs = (progress.positionSecs * 1000).round();
+      final currentPositionMs = positionNotifier.value.inMilliseconds;
+
+      // Only update if position actually changed (skip no-op updates)
+      if (newPositionMs != currentPositionMs) {
+        positionNotifier.value = Duration(milliseconds: newPositionMs);
+
+        // Update label notifier at lower rate (every 500ms)
+        if (newPositionMs - _lastPositionLabelMs >= 500) {
+          positionLabelNotifier.value = positionNotifier.value;
+          _lastPositionLabelMs = newPositionMs;
+        }
       }
-      bufferLevelNotifier.value = progress.bufferLevel;
+
+      if (progress.durationSecs != null) {
+        final newDurationMs = (progress.durationSecs! * 1000).round();
+        final currentDurationMs = durationNotifier.value.inMilliseconds;
+
+        if (newDurationMs != currentDurationMs) {
+          durationNotifier.value = Duration(milliseconds: newDurationMs);
+        }
+      }
+
+      // Only update buffer level if it actually changed
+      final newBufferLevel = progress.bufferLevel;
+      if (newBufferLevel != bufferLevelNotifier.value) {
+        bufferLevelNotifier.value = newBufferLevel;
+      }
     }
 
     // Also update state
@@ -405,24 +438,43 @@ class RustAudioService {
 
       event.when(
         stateChanged: (state) {
-          stateNotifier.value = _parseState(state);
+          final newState = _parseState(state);
+          if (stateNotifier.value != newState) {
+            stateNotifier.value = newState;
+          }
 
           // Handle state transitions
-          if (stateNotifier.value == RustPlaybackState.stopped ||
-              stateNotifier.value == RustPlaybackState.idle) {
+          if (newState == RustPlaybackState.stopped ||
+              newState == RustPlaybackState.idle) {
             _stopProgressUpdates();
           }
         },
         progress: (positionSecs, durationSecs, bufferLevel) {
-          positionNotifier.value = Duration(
-            milliseconds: (positionSecs * 1000).round(),
-          );
-          if (durationSecs != null) {
-            durationNotifier.value = Duration(
-              milliseconds: (durationSecs * 1000).round(),
-            );
+          final newPositionMs = (positionSecs * 1000).round();
+          final currentPositionMs = positionNotifier.value.inMilliseconds;
+
+          if (newPositionMs != currentPositionMs) {
+            positionNotifier.value = Duration(milliseconds: newPositionMs);
+
+            // Update label notifier at lower rate
+            if (newPositionMs - _lastPositionLabelMs >= 500) {
+              positionLabelNotifier.value = positionNotifier.value;
+              _lastPositionLabelMs = newPositionMs;
+            }
           }
-          bufferLevelNotifier.value = bufferLevel;
+
+          if (durationSecs != null) {
+            final newDurationMs = (durationSecs * 1000).round();
+            final currentDurationMs = durationNotifier.value.inMilliseconds;
+
+            if (newDurationMs != currentDurationMs) {
+              durationNotifier.value = Duration(milliseconds: newDurationMs);
+            }
+          }
+
+          if (bufferLevel != bufferLevelNotifier.value) {
+            bufferLevelNotifier.value = bufferLevel;
+          }
         },
         trackEnded: (path) {
           // Track finished, next track should auto-start if queued
@@ -461,5 +513,6 @@ class RustAudioService {
     crossfadeEnabledNotifier.dispose();
     crossfadeDurationNotifier.dispose();
     playbackSpeedNotifier.dispose();
+    positionLabelNotifier.dispose();
   }
 }

@@ -423,6 +423,7 @@ pub fn desired_output_signature(preferred_sample_rate: Option<u32>) -> String {
 #[cfg(not(target_os = "android"))]
 pub fn create_audio_engine(
     preferred_sample_rate: Option<u32>,
+    _allow_dap_native: bool,
 ) -> Result<AudioEngineHandle, String> {
     // Get the default audio device
     let host = cpal::default_host();
@@ -656,6 +657,7 @@ struct AndroidManagedStream {
 #[cfg(target_os = "android")]
 pub fn create_audio_engine(
     preferred_sample_rate: Option<u32>,
+    allow_dap_native: bool,
 ) -> Result<AudioEngineHandle, String> {
     let requested_sample_rate = preferred_sample_rate.unwrap_or(48_000);
     let device_profile = current_device_profile();
@@ -677,12 +679,13 @@ pub fn create_audio_engine(
         .as_ref()
         .map(|device| android_device_supports_sample_rate(device, requested_sample_rate))
         .unwrap_or(false);
-    let confirmed_dap_native = selected_output_device.as_ref().is_some_and(|device| {
-        device_profile.as_ref().is_some_and(|profile| {
-            profile.confirmed_bit_perfect
-                && android_device_supports_dap_native_strategy(device.device_type)
-        })
-    });
+    let confirmed_dap_native = allow_dap_native
+        && selected_output_device.as_ref().is_some_and(|device| {
+            device_profile.as_ref().is_some_and(|profile| {
+                profile.confirmed_bit_perfect
+                    && android_device_supports_dap_native_strategy(device.device_type)
+            })
+        });
     let desired_strategy = if will_attempt_usb {
         OutputStrategy::UsbDirect
     } else {

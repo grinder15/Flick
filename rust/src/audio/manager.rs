@@ -149,6 +149,10 @@ impl EngineManager {
         self.state.lock().high_res_mode
     }
 
+    pub fn capability_route_type(&self) -> String {
+        self.state.lock().capability_snapshot.route_type.clone()
+    }
+
     pub fn set_capability_snapshot(&self, snapshot: AudioCapabilitySnapshot) {
         self.state.lock().capability_snapshot = snapshot.normalize();
     }
@@ -272,10 +276,12 @@ impl EngineManager {
         #[cfg(all(feature = "uac2", target_os = "android"))]
         crate::uac2::force_release_usb_session();
 
-        let new_handle =
-            tokio::task::spawn_blocking(move || create_audio_engine(preferred_sample_rate))
-                .await
-                .map_err(|error| format!("Rust engine initialization task failed: {}", error))??;
+        let allow_dap_native = selection.high_res_mode;
+        let new_handle = tokio::task::spawn_blocking(move || {
+            create_audio_engine(preferred_sample_rate, allow_dap_native)
+        })
+        .await
+        .map_err(|error| format!("Rust engine initialization task failed: {}", error))??;
 
         let mut state = self.state.lock();
         state.current = Some(AudioEngine::Rust);

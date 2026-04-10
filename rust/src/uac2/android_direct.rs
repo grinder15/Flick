@@ -883,7 +883,7 @@ pub fn negotiate_android_direct_output_sample_rate(
     preferred_sample_rate: Option<u32>,
 ) -> Result<Option<u32>, String> {
     if !android_direct_usb_enabled() {
-        return Ok(None);
+        return Ok(preferred_sample_rate);
     }
 
     let requested_format = {

@@ -51,7 +51,11 @@ impl OutputVerification {
 
     pub fn resolved_strategy(&self, selected: OutputStrategy) -> OutputStrategy {
         match selected {
-            OutputStrategy::MixerBitPerfect | OutputStrategy::UsbDirect if !self.bit_perfect => {
+            OutputStrategy::DapNative
+            | OutputStrategy::MixerBitPerfect
+            | OutputStrategy::UsbDirect
+                if !self.bit_perfect =>
+            {
                 OutputStrategy::ResampledFallback
             }
             OutputStrategy::MixerMatched if self.resampler_active => {

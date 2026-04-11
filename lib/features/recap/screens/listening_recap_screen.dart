@@ -855,6 +855,28 @@ class _RecapRankingPosterScreenState extends State<_RecapRankingPosterScreen> {
     }
   }
 
+  String _buildPosterHint(ListeningRecap recap, _RecapRankingPosterType type) {
+    final hasItems = switch (type) {
+      _RecapRankingPosterType.topSongs => recap.topSongs.isNotEmpty,
+      _RecapRankingPosterType.topArtists => recap.topArtists.isNotEmpty,
+    };
+
+    if (!hasItems) {
+      return recap.period.emptyMessage;
+    }
+
+    final itemCount = switch (type) {
+      _RecapRankingPosterType.topSongs => recap.topSongs.length,
+      _RecapRankingPosterType.topArtists => recap.topArtists.length,
+    };
+
+    if (itemCount <= 5) {
+      return 'Keep listening to expand your rankings!';
+    }
+
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -919,7 +941,10 @@ class _RecapRankingPosterScreenState extends State<_RecapRankingPosterScreen> {
                         ),
                       ),
                       child: Text(
-                        'Use your device screenshot gesture here, or save the poster directly to your gallery.',
+                        [
+                          _buildPosterHint(widget.recap, widget.type),
+                          'Use your device screenshot gesture here, or save the poster directly to your gallery.',
+                        ].where((s) => s.isNotEmpty).join('\n\n'),
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Colors.white.withValues(alpha: 0.8),
@@ -1247,15 +1272,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            recap.period.emptyMessage,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              height: 1.45,
-              color: Colors.white.withValues(alpha: 0.72),
-            ),
-          ),
         ],
       ),
     );
@@ -1268,9 +1284,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
       case _RecapRankingPosterType.topSongs:
         final items = recap.topSongs.skip(1).take(4).toList();
         if (items.isEmpty) {
-          rows.add(
-            _PosterStatChip(label: 'Keep listening to expand this list'),
-          );
           return rows;
         }
 
@@ -1297,9 +1310,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
       case _RecapRankingPosterType.topArtists:
         final items = recap.topArtists.skip(1).take(4).toList();
         if (items.isEmpty) {
-          rows.add(
-            _PosterStatChip(label: 'Keep listening to expand this list'),
-          );
           return rows;
         }
 

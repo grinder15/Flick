@@ -2025,7 +2025,7 @@ class _ProcessingSupportNote extends StatelessWidget {
           const SizedBox(width: AppConstants.spacingSm),
           Expanded(
             child: Text(
-              'Compressor, limiter, and Spatial & Time controls are wired to the native Rust audio engine. Android\'s standard AudioEffect playback path still applies EQ-only processing unless the native backend is active.',
+              'On Android, the standard just_audio playback path now applies native counterparts for EQ, dynamics, balance, and spatial FX on supported devices. The Rust engine still delivers the most exact version of these controls, so some Android results are approximate.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: context.adaptiveTextSecondary,
               ),

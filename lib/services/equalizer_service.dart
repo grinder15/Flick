@@ -1,19 +1,15 @@
 import 'dart:io';
-import 'package:flutter/services.dart';
 import 'package:flick/providers/equalizer_provider.dart';
+import 'package:flick/services/android_audio_processing_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/src/rust/api/audio_api.dart' as rust_audio;
-
-const MethodChannel _androidEqualizerChannel = MethodChannel(
-  'com.ultraelectronica.flick/equalizer',
-);
 
 EqualizerState _lastRequestedState = EqualizerState.initial();
 
 /// Applies EQ and processing state to the active audio backend.
 /// Rust engine: graphic EQ, dynamics, and creative FX are applied natively.
-/// just_audio on Android: uses the native AudioEffect API for EQ only.
+/// just_audio on Android: uses native AudioEffect counterparts where available.
 Future<void> applyEqualizer(EqualizerState state) async {
   _lastRequestedState = _snapshotState(state);
 
@@ -33,16 +29,15 @@ Future<void> applyEqualizer(EqualizerState state) async {
       playerService.isBitPerfectProcessingLocked ||
       Uac2Service.instance.isBitPerfectEnabledSync;
 
-  // Android + just_audio: use native AudioEffect API with session ID.
+  // Android + just_audio: use native AudioEffect counterparts with session ID.
   if (Platform.isAndroid && !useRustBackend) {
-    final sessionId = playerService.androidAudioSessionId;
-    if (sessionId == null && state.enabled && !bypassForBitPerfect) return;
     try {
-      await _androidEqualizerChannel.invokeMethod('setEqualizer', {
-        'enabled': bypassForBitPerfect ? false : state.enabled,
-        'gainsDb': gains,
-        'audioSessionId': sessionId,
-      });
+      await androidJustAudioProcessingService.apply(
+        state: state,
+        gainsDb: gains,
+        audioSessionId: playerService.androidAudioSessionId,
+        bypassed: bypassForBitPerfect,
+      );
     } catch (_) {}
     return;
   }

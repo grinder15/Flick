@@ -904,27 +904,63 @@ class _RecapRankingPosterScreenState extends State<_RecapRankingPosterScreen> {
                   right: AppConstants.spacingLg,
                   bottom: AppConstants.spacingLg,
                   child: IgnorePointer(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppConstants.spacingMd,
-                        vertical: AppConstants.spacingSm,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.36),
-                        borderRadius: BorderRadius.circular(
-                          AppConstants.radiusRound,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppConstants.spacingMd,
+                            vertical: AppConstants.spacingSm,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.32),
+                            borderRadius: BorderRadius.circular(
+                              AppConstants.radiusRound,
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Text(
+                            _rankingPosterSupportMessage(
+                              widget.recap,
+                              widget.type,
+                            ),
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  height: 1.4,
+                                  color: Colors.white.withValues(alpha: 0.86),
+                                ),
+                          ),
                         ),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08),
+                        const SizedBox(height: AppConstants.spacingSm),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppConstants.spacingMd,
+                            vertical: AppConstants.spacingSm,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.36),
+                            borderRadius: BorderRadius.circular(
+                              AppConstants.radiusRound,
+                            ),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.08),
+                            ),
+                          ),
+                          child: Text(
+                            'Use your device screenshot gesture here, or save the poster directly to your gallery.',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                ),
+                          ),
                         ),
-                      ),
-                      child: Text(
-                        'Use your device screenshot gesture here, or save the poster directly to your gallery.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.8),
-                        ),
-                      ),
+                      ],
                     ),
                   ),
                 ),
@@ -1050,14 +1086,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
                       _formatRecapRange(recap),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: Colors.white.withValues(alpha: 0.72),
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingXs),
-                    Text(
-                      type.subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        height: 1.35,
-                        color: Colors.white.withValues(alpha: 0.82),
                       ),
                     ),
                     const SizedBox(height: AppConstants.spacingLg),
@@ -1247,15 +1275,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
               color: Colors.white,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            recap.period.emptyMessage,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              height: 1.45,
-              color: Colors.white.withValues(alpha: 0.72),
-            ),
-          ),
         ],
       ),
     );
@@ -1268,9 +1287,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
       case _RecapRankingPosterType.topSongs:
         final items = recap.topSongs.skip(1).take(4).toList();
         if (items.isEmpty) {
-          rows.add(
-            _PosterStatChip(label: 'Keep listening to expand this list'),
-          );
           return rows;
         }
 
@@ -1297,9 +1313,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
       case _RecapRankingPosterType.topArtists:
         final items = recap.topArtists.skip(1).take(4).toList();
         if (items.isEmpty) {
-          rows.add(
-            _PosterStatChip(label: 'Keep listening to expand this list'),
-          );
           return rows;
         }
 
@@ -2145,6 +2158,26 @@ String _heroClosingLine(ListeningRecap recap) {
   }
 
   return 'Your listening pattern is starting to take shape.';
+}
+
+String _rankingPosterSupportMessage(
+  ListeningRecap recap,
+  _RecapRankingPosterType type,
+) {
+  final items = switch (type) {
+    _RecapRankingPosterType.topSongs => recap.topSongs,
+    _RecapRankingPosterType.topArtists => recap.topArtists,
+  };
+
+  if (items.isEmpty) {
+    return recap.period.emptyMessage;
+  }
+
+  if (items.length == 1) {
+    return 'Keep listening to expand this list.';
+  }
+
+  return type.subtitle;
 }
 
 String _formatRecapRange(ListeningRecap recap) {

@@ -2,9 +2,41 @@
 
 ## About Flick Player
 
-**Flick Player** is a modern, high-performance music player application designed for audiophiles and casual listeners alike. Primarily running on Android, it bridges the gap between a fluid user interface and a robust, low-level audio processing engine with advanced equalizer and effects capabilities.
+**Flick Player** is a modern, high-performance music player application designed for audiophiles and casual listeners alike. Primarily running on Android, it bridges the gap between a beautiful, fluid user interface and a robust, low-level audio processing engine with advanced equalizer and effects capabilities.
 
-The application leverages the power of **Flutter** for a responsive, animated frontend and **Rust** for a stable, efficient backend. Key features include a custom "Function Code" (Audio Engine) that handles playback independent of the OS media controls in some aspects, ensuring high-fidelity audio output, along with advanced EQ and FX processing capabilities.
+The application leverages the power of **Flutter** for a responsive, animated frontend and **Rust** for a stable, efficient backend. Key features include a custom "Function Code" (Audio Engine) that handles playback independent of the OS media controls in some aspects, ensuring high-fidelity audio output, along with advanced EQ and FX processing capabilities. The engine supports multiple output paths including USB DAC bit-perfect playback, Android's internal high-resolution audio path (DAP), and standard Android audio output.
+
+### Digital Audio Player (DAP) Support
+
+Flick Player includes support for Digital Audio Player (DAP) functionality through Android's audio subsystem:
+
+- **DAP Internal High-Res Mode**: When no USB DAC is connected, the app can utilize Android's internal DAC in high-resolution mode through Oboe/AAudio in exclusive mode when supported by the device
+- **Device Qualification**: The app checks device capabilities to confirm bit-perfect support through the internal audio path
+- **Sample Rate Handling**: Supports high sample rates up to the device's maximum capabilities
+- **Exclusive Mode**: Attempts to open audio streams in exclusive mode for lower latency and better performance when available
+
+### Engine Architecture
+
+The core audio engine in `rust/src/audio/engine.rs` features a sophisticated architecture designed for high-performance audio processing:
+
+- **Lock-Free Design**: Uses atomic operations and lock-free data structures in the audio callback to prevent audio glitches
+- **Multiple Output Strategies**: Dynamically selects between USB Direct, DAP Native, Mixer Bit-Perfect, Mixer Matched, and Resampled Fallback based on device capabilities
+- **Real-Time Processing Chain**: Implements a complete DSP chain including volume control, 10-band graphic equalizer, spatial/time FX, dynamics processing (compressor/limiter), playback speed control, and crossfading
+- **Bit-Perfect Mode**: Includes a bit-perfect bypass that routes decoded audio directly to output when requested, skipping all DSP processing
+- **Continuous Verification**: Constantly monitors and verifies that the actual output matches the requested format for quality assurance
+- **Thread Safety**: Properly separates real-time audio processing (lock-free) from control operations (thread-safe)
+
+#### Output Strategies
+
+The engine implements five distinct output strategies:
+
+1. **USB Direct (`UsbDirect`)**: Bit-perfect playback through external USB DACs using libusb isochronous transfers (requires UAC 2.0 feature)
+2. **DAP Native (`DapNative`)**: High-resolution audio through device's internal DAC using Oboe/AAudio in exclusive mode
+3. **Mixer Bit-Perfect (`MixerBitPerfect`)**: Android mixer path with bit-perfect format matching (Android 14+)
+4. **Mixer Matched (`MixerMatched`)**: Android mixer path with sample rate conversion when needed
+5. **Resampled Fallback (`ResampledFallback)**: Fallback path with resampling when exact format matching isn't possible
+
+Each strategy is selected based on device capabilities and current playback requirements, with runtime verification ensuring the selected path meets quality expectations. The engine supports multiple output paths including USB DAC bit-perfect playback, Android's internal high-resolution audio path (DAP), and standard Android audio output.
 
 ## Planned Features
 
@@ -36,15 +68,21 @@ The application behaves as a hybrid system. Here is a breakdown of the key *Func
 
 Located in `rust/src/audio`, this is the heart of the application. It bypasses standard high-level players to give direct control over the audio stream.
 
-- **Engine (`engine.rs`)**: The central coordinator. It runs on a designated high-priority thread to ensure music never stutters, managing the flow of data from the file to the speakers.
+- **Engine (`engine.rs`)**: The central coordinator featuring a lock-free architecture for real-time audio processing. It runs on a designated high-priority thread to ensure music never stutters, managing the flow of data from the file to the speakers. The engine implements multiple output strategies:
+  - **USB Direct**: Bit-perfect playback through external USB DACs using libusb isochronous transfers
+  - **Android Managed**: Standard audio playback through Oboe/AAudio or the Android mixer
+  - **DAP Internal High-Res**: High-resolution audio through the device's internal DAC using Oboe/AAudio in exclusive mode
+
 - **Decoder (`decoder.rs`)**: Uses `symphonia` to read various audio formats (MP3, FLAC, WAV, OGG) and decode them into raw sound waves (PCM).
   - **TODO**: ALAC and M4A files are not yet supported. These formats will not play any sound.
 - **Resampler (`resampler.rs`)**: Uses `rubato` to change the audio quality on-the-fly. If a song is 44.1kHz but your speakers are 48kHz, this module smooths out the difference without losing quality.
 - **Crossfader (`crossfader.rs`)**: Handles the smooth blending between songs, so there is no silence when one track ends and the next begins.
-- **Equalizer (`equalizer.rs`)**: Implements a 10-band graphic equalizer for precise tonal control.
-- **FX Processing (`fx.rs`)**: Implements spatial and time effects including balance, tempo, damp, filter, delay, size, mix, feedback, and width.
-- **Android Audio Processing (`android_audio_processing_service.dart`)**: On Android, uses JustAudioProcessingController for enhanced EQ and effects management.
+- **Equalizer (`equalizer.rs`)**: Implements a 10-band graphic equalizer for precise tonal control with parametric band support.
+- **FX Processing (`fx.rs`)**: Implements spatial and time effects including balance, tempo, damp, filter, delay, size, mix, feedback, and width for creative audio processing.
+- **Android Audio Processing (`android_audio_processing_service.dart`)**: On Android, uses JustAudioProcessingController for enhanced EQ and effects management with real-time processing capabilities.
 - **Source Provider (`source.rs`)**: Manages the queue for **Gapless Playback**, ensuring there are no awkward pauses between tracks by pre-loading the next song before the current one finishes.
+- **Dynamics Processing**: Includes compressor and limiter modules for dynamic range control when needed.
+- **Output Verification**: Continuously verifies that the actual output matches the requested format for bit-perfect playback assurance.
 
 ### 2. EQ Preset Management
 

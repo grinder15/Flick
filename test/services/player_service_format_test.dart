@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/services/android_audio_engine.dart';
 
 void main() {
   group('canonicalPlaybackFileType', () {
@@ -85,6 +86,42 @@ void main() {
         shouldHandleManualCompletion(
           usingRustBackend: false,
           loopMode: LoopMode.all,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('shouldUseFastStartCurrentTrackOnly', () {
+    test('disables fast-start when repeat-all is active', () {
+      expect(
+        shouldUseFastStartCurrentTrackOnly(
+          allowFastStart: false,
+          loadedSingleTrackOnly: false,
+          sequenceIsEmpty: true,
+          playlistLength: 100,
+        ),
+        isFalse,
+      );
+    });
+
+    test('allows fast-start only for large eligible playlists', () {
+      expect(
+        shouldUseFastStartCurrentTrackOnly(
+          allowFastStart: true,
+          loadedSingleTrackOnly: false,
+          sequenceIsEmpty: true,
+          playlistLength: 25,
+        ),
+        isTrue,
+      );
+
+      expect(
+        shouldUseFastStartCurrentTrackOnly(
+          allowFastStart: true,
+          loadedSingleTrackOnly: false,
+          sequenceIsEmpty: true,
+          playlistLength: 24,
         ),
         isFalse,
       );

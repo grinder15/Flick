@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flick/core/theme/app_colors.dart';
@@ -367,7 +368,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: AppConstants.spacingMd),
-          // App icon
+          // App logo
           Container(
             width: 80,
             height: 80,
@@ -376,10 +377,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               borderRadius: BorderRadius.circular(AppConstants.radiusLg),
               border: Border.all(color: AppColors.glassBorder),
             ),
-            child: const Icon(
-              LucideIcons.music2,
-              color: AppColors.textPrimary,
-              size: 40,
+            child: SvgPicture.asset(
+              'assets/icons/flicklogo_svg.svg',
+              fit: BoxFit.contain,
             ),
           ),
           const SizedBox(height: AppConstants.spacingMd),

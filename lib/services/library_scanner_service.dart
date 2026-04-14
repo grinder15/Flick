@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flick/services/android_audio_device_service.dart';
 import '../core/utils/audio_metadata_utils.dart';
 import '../data/database.dart';
 import '../data/repositories/song_repository.dart';
@@ -69,10 +70,14 @@ class LibraryScannerService {
     _currentlyScanning.add(scanKey);
     try {
       if (Platform.isAndroid) {
+        final deviceInfo = await AndroidAudioDeviceService.instance.refresh();
+        final shouldPreferSafScan = deviceInfo.isXiaomiDevice;
         final resolvedScanRoot = await _musicFolderService
             .resolveFilesystemPath(folderUri);
 
-        if (resolvedScanRoot != null && resolvedScanRoot.isNotEmpty) {
+        if (!shouldPreferSafScan &&
+            resolvedScanRoot != null &&
+            resolvedScanRoot.isNotEmpty) {
           try {
             yield* _scanFolderRust(
               resolvedScanRoot,
@@ -86,6 +91,12 @@ class LibraryScannerService {
               'Rust Android scan fallback for $displayName failed at $resolvedScanRoot: $e',
             );
           }
+        }
+
+        if (shouldPreferSafScan) {
+          debugPrint(
+            'Using SAF scan path for $displayName on Xiaomi-family device',
+          );
         }
 
         yield* _scanFolderAndroid(folderUri, displayName, scanPreferences);
@@ -518,11 +529,31 @@ class LibraryScannerService {
     _isCancelled = false;
     final folders = await _folderRepository.getAllFolders();
     final scanPlan = _deduplicateFoldersForScan(folders);
+    var runningLibrarySongCount = await _songRepository.getSongCount();
 
     for (final folder in scanPlan) {
       if (_isCancelled) break;
+      final existingFolderSongCount = await _songRepository.countSongsInFolder(
+        folder.uri,
+      );
+
       await for (final progress in scanFolder(folder.uri, folder.displayName)) {
-        yield progress;
+        final adjustedSongsFound =
+            (runningLibrarySongCount - existingFolderSongCount) +
+            progress.songsFound;
+        final aggregatedProgress = ScanProgress(
+          songsFound: adjustedSongsFound < 0 ? 0 : adjustedSongsFound,
+          totalFiles: progress.totalFiles,
+          currentFile: progress.currentFile,
+          currentFolder: progress.currentFolder,
+          isComplete: progress.isComplete,
+        );
+
+        if (progress.isComplete) {
+          runningLibrarySongCount = aggregatedProgress.songsFound;
+        }
+
+        yield aggregatedProgress;
       }
     }
   }

@@ -178,6 +178,19 @@ bool shouldSyncNotificationForRepeatOneLoop({
       currentPosition <= const Duration(milliseconds: 1500);
 }
 
+@visibleForTesting
+bool shouldTrackReplayFromPlaybackState({
+  required bool usingRustBackend,
+  required Duration? previousPosition,
+  required Duration currentPosition,
+}) {
+  if (usingRustBackend) {
+    return false;
+  }
+
+  return previousPosition == null || previousPosition != currentPosition;
+}
+
 /// Singleton service to manage global audio playback state.
 ///
 /// Uses just_audio for playback with gapless playback support.
@@ -1295,6 +1308,11 @@ class PlayerService {
       if (_usingRustBackend != shouldUseRust) {
         _usingRustBackend = shouldUseRust;
       }
+      final shouldTrackReplayFromState = shouldTrackReplayFromPlaybackState(
+        usingRustBackend: shouldUseRust,
+        previousPosition: previous?.position,
+        currentPosition: state.position,
+      );
 
       final previousTrackId = previous?.currentTrack?.id;
       final currentTrackId = state.currentTrack?.id;
@@ -1347,6 +1365,10 @@ class PlayerService {
       if (shouldSyncLoopedNotification && state.currentTrack != null) {
         _lastNotificationUpdate = DateTime.now();
         unawaited(_updateNotificationState());
+      }
+
+      if (shouldTrackReplayFromState) {
+        _trackReplayProgress(state.position);
       }
 
       _lastPosition = state.position;

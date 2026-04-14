@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shorebird_code_push/shorebird_code_push.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
@@ -34,6 +38,12 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  static final Uri _releaseNotesApiUri = Uri.parse(
+    'https://api.github.com/repos/ultraelectronica/flick_player/releases/latest',
+  );
+  static const String _releaseNotesUrl =
+      'https://github.com/ultraelectronica/flick_player/releases/latest';
+
   // Sample settings state
   bool _gaplessPlayback = true;
 
@@ -47,6 +57,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ScanProgress? _scanProgress;
   bool _showBatteryOptimizationNotice = false;
   bool _isXiaomiDevice = false;
+  final ShorebirdUpdater _updater = ShorebirdUpdater();
+  bool _isCheckingForUpdates = false;
+  bool _isInstallingUpdate = false;
+  bool _hasScannedForUpdates = false;
+  UpdateStatus? _lastScannedUpdateStatus;
+  String? _updateCheckErrorMessage;
 
   // ValueNotifier for bottom sheet progress updates
   final ValueNotifier<ScanProgress?> _scanProgressNotifier = ValueNotifier(
@@ -155,6 +171,299 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ),
       );
     }
+  }
+
+  bool get _restartRequiredForUpdate {
+    return _lastScannedUpdateStatus == UpdateStatus.restartRequired;
+  }
+
+  bool get _hasAvailableUpdate {
+    return _lastScannedUpdateStatus == UpdateStatus.outdated;
+  }
+
+  void _showToast(String message) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.removeCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  Future<void> _scanForUpdates() async {
+    if (_isCheckingForUpdates || _isInstallingUpdate) {
+      return;
+    }
+
+    if (!_updater.isAvailable) {
+      setState(() {
+        _hasScannedForUpdates = true;
+        _lastScannedUpdateStatus = UpdateStatus.unavailable;
+        _updateCheckErrorMessage = null;
+      });
+      _showToast('Updates are unavailable in this build.');
+      return;
+    }
+
+    setState(() {
+      _isCheckingForUpdates = true;
+      _updateCheckErrorMessage = null;
+    });
+
+    try {
+      final status = await _updater.checkForUpdate();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _hasScannedForUpdates = true;
+        _lastScannedUpdateStatus = status;
+      });
+
+      if (status == UpdateStatus.outdated) {
+        _showToast('Update available.');
+        return;
+      }
+
+      if (status == UpdateStatus.restartRequired) {
+        _showToast('Update finished. Restart the app to use it.');
+        return;
+      }
+
+      if (status == UpdateStatus.unavailable) {
+        _showToast('Updates are unavailable in this build.');
+        return;
+      }
+
+      _showToast('No new update found.');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _hasScannedForUpdates = true;
+        _lastScannedUpdateStatus = null;
+        _updateCheckErrorMessage = 'Unable to reach the update service.';
+      });
+      _showToast('Failed to check for updates: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCheckingForUpdates = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _installUpdate() async {
+    if (_isInstallingUpdate) {
+      return;
+    }
+
+    if (!_updater.isAvailable) {
+      _showToast('Updates are unavailable in this build.');
+      return;
+    }
+
+    if (_restartRequiredForUpdate) {
+      _showToast('Update finished. Restart the app to use it.');
+      return;
+    }
+
+    if (!_hasAvailableUpdate) {
+      _showToast(
+        _hasScannedForUpdates
+            ? 'No available update to install.'
+            : 'Scan for updates first.',
+      );
+      return;
+    }
+
+    setState(() {
+      _isInstallingUpdate = true;
+    });
+
+    try {
+      _showToast('Installing update in the background. Keep using the app.');
+      await _updater.update();
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _hasScannedForUpdates = true;
+        _lastScannedUpdateStatus = UpdateStatus.restartRequired;
+        _updateCheckErrorMessage = null;
+      });
+      _showToast('Update finished. Restart the app to use it.');
+    } on UpdateException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showToast('Failed to install update: ${error.message}');
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _showToast('Failed to install update: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInstallingUpdate = false;
+        });
+      }
+    }
+  }
+
+  Future<_PatchNotes> _fetchPatchNotes() async {
+    final response = await http.get(
+      _releaseNotesApiUri,
+      headers: const {
+        'Accept': 'application/vnd.github+json',
+        'User-Agent': 'FlickPlayer',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('HTTP ${response.statusCode}');
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final title = (data['name'] as String?)?.trim();
+    final tag = (data['tag_name'] as String?)?.trim();
+    final body = (data['body'] as String?)?.trim();
+    final htmlUrl = (data['html_url'] as String?)?.trim();
+
+    return _PatchNotes(
+      title: title?.isNotEmpty == true
+          ? title!
+          : tag?.isNotEmpty == true
+          ? tag!
+          : 'Latest Update',
+      body: body?.isNotEmpty == true ? body! : 'No patch notes available yet.',
+      url: htmlUrl?.isNotEmpty == true ? htmlUrl! : _releaseNotesUrl,
+    );
+  }
+
+  void _showPatchNotesBottomSheet() {
+    GlassBottomSheet.show(
+      context: context,
+      title: 'Patch Notes',
+      maxHeightRatio: 0.7,
+      content: FutureBuilder<_PatchNotes>(
+        future: _fetchPatchNotes(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(
+                vertical: AppConstants.spacingLg,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(height: AppConstants.spacingMd),
+                  const CircularProgressIndicator(color: AppColors.textPrimary),
+                  const SizedBox(height: AppConstants.spacingMd),
+                  Text(
+                    'Loading patch notes...',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: context.adaptiveTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
+          if (snapshot.hasError || !snapshot.hasData) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: AppConstants.spacingMd),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppConstants.spacingMd),
+                  decoration: BoxDecoration(
+                    color: AppColors.glassBackground,
+                    borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                    border: Border.all(color: AppColors.glassBorder),
+                  ),
+                  child: Text(
+                    'Unable to load patch notes right now.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: context.adaptiveTextSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingMd),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () => _launchUrl(_releaseNotesUrl),
+                    icon: const Icon(LucideIcons.externalLink),
+                    label: const Text('Open Release Notes'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingMd),
+              ],
+            );
+          }
+
+          final notes = snapshot.data!;
+          return SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: AppConstants.spacingMd),
+                Text(
+                  notes.title,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: context.adaptiveTextPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingMd),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(AppConstants.spacingMd),
+                  decoration: BoxDecoration(
+                    color: AppColors.glassBackground,
+                    borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                    border: Border.all(color: AppColors.glassBorder),
+                  ),
+                  child: SelectableText(
+                    notes.body,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: context.adaptiveTextSecondary,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingMd),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () => _launchUrl(notes.url),
+                    icon: const Icon(LucideIcons.externalLink),
+                    label: const Text('Open Full Notes'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingMd),
+              ],
+            ),
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _addFolder() async {
@@ -747,6 +1056,57 @@ SOFTWARE.
 
                       const SizedBox(height: AppConstants.spacingLg),
 
+                      _buildSectionHeader(context, 'Updates'),
+                      _buildSettingsCard(
+                        context,
+                        children: [
+                          _buildActionButton(
+                            context,
+                            icon: LucideIcons.scanSearch,
+                            title: _isCheckingForUpdates
+                                ? 'Scanning for Updates...'
+                                : 'Scan for Updates',
+                            subtitle: _isCheckingForUpdates
+                                ? 'Checking for the latest update now'
+                                : 'Check manually whenever you want',
+                            onTap: _isCheckingForUpdates || _isInstallingUpdate
+                                ? null
+                                : _scanForUpdates,
+                          ),
+                          _buildDivider(),
+                          _buildUpdateStatusTile(context),
+                          if (_hasAvailableUpdate ||
+                              _restartRequiredForUpdate) ...[
+                            _buildDivider(),
+                            _buildNavigationSetting(
+                              context,
+                              icon: LucideIcons.fileText,
+                              title: 'Patch Notes',
+                              subtitle: 'See what is new in this update',
+                              onTap: _showPatchNotesBottomSheet,
+                            ),
+                          ],
+                          if (_hasAvailableUpdate || _isInstallingUpdate) ...[
+                            _buildDivider(),
+                            _buildActionButton(
+                              context,
+                              icon: LucideIcons.download,
+                              title: _isInstallingUpdate
+                                  ? 'Installing Update...'
+                                  : 'Install Update',
+                              subtitle: _isInstallingUpdate
+                                  ? 'Downloading in the background. Keep using the app'
+                                  : 'Download now and restart the app when it finishes',
+                              onTap: _isInstallingUpdate
+                                  ? null
+                                  : _installUpdate,
+                            ),
+                          ],
+                        ],
+                      ),
+
+                      const SizedBox(height: AppConstants.spacingLg),
+
                       // About section
                       _buildSectionHeader(context, 'About'),
                       _buildSettingsCard(
@@ -1155,6 +1515,116 @@ SOFTWARE.
     );
   }
 
+  ({IconData icon, String title, String subtitle}) _getUpdateStatusDetails() {
+    if (_isCheckingForUpdates) {
+      return (
+        icon: LucideIcons.refreshCw,
+        title: 'Checking for Updates',
+        subtitle: 'Looking for a new update right now',
+      );
+    }
+
+    if (_isInstallingUpdate) {
+      return (
+        icon: LucideIcons.download,
+        title: 'Installing Update',
+        subtitle: 'The download is running in the background',
+      );
+    }
+
+    if (_restartRequiredForUpdate) {
+      return (
+        icon: LucideIcons.badgeCheck,
+        title: 'Update Ready',
+        subtitle: 'Restart the app to finish updating',
+      );
+    }
+
+    if (_hasAvailableUpdate) {
+      return (
+        icon: LucideIcons.download,
+        title: 'Update Available',
+        subtitle: 'A new update is ready to download',
+      );
+    }
+
+    if (_updateCheckErrorMessage != null) {
+      return (
+        icon: LucideIcons.info,
+        title: 'Could Not Check for Updates',
+        subtitle: _updateCheckErrorMessage!,
+      );
+    }
+
+    if (_lastScannedUpdateStatus == UpdateStatus.unavailable) {
+      return (
+        icon: LucideIcons.info,
+        title: 'Updates Unavailable',
+        subtitle: 'This build does not support in-app updates',
+      );
+    }
+
+    if (_lastScannedUpdateStatus == UpdateStatus.upToDate) {
+      return (
+        icon: LucideIcons.badgeCheck,
+        title: 'No Update Available',
+        subtitle: 'You already have the latest update',
+      );
+    }
+
+    return (
+      icon: LucideIcons.info,
+      title: 'No Update Scan Yet',
+      subtitle: 'Run a manual scan to see whether an update is available',
+    );
+  }
+
+  Widget _buildUpdateStatusTile(BuildContext context) {
+    final details = _getUpdateStatusDetails();
+
+    return Padding(
+      padding: const EdgeInsets.all(AppConstants.spacingMd),
+      child: Row(
+        children: [
+          Container(
+            width: context.scaleSize(AppConstants.containerSizeSm),
+            height: context.scaleSize(AppConstants.containerSizeSm),
+            decoration: BoxDecoration(
+              color: AppColors.glassBackgroundStrong,
+              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+            ),
+            child: Icon(
+              details.icon,
+              color: context.adaptiveTextSecondary,
+              size: context.responsiveIcon(AppConstants.iconSizeMd),
+            ),
+          ),
+          const SizedBox(width: AppConstants.spacingMd),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  details.title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: context.adaptiveTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  details.subtitle,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.adaptiveTextTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAutoSyncToggle(BuildContext context) {
     return Consumer(
       builder: (context, ref, child) {
@@ -1480,4 +1950,16 @@ SOFTWARE.
       ),
     );
   }
+}
+
+class _PatchNotes {
+  const _PatchNotes({
+    required this.title,
+    required this.body,
+    required this.url,
+  });
+
+  final String title;
+  final String body;
+  final String url;
 }

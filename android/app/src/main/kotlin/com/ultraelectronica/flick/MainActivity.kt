@@ -27,7 +27,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.Settings
 import android.util.Log
+import android.os.PowerManager
 import androidx.documentfile.provider.DocumentFile
 import com.ultraelectronica.flick.audiofx.JustAudioProcessingController
 import io.flutter.embedding.android.FlutterActivity
@@ -359,6 +361,12 @@ class MainActivity: FlutterActivity() {
                     } else {
                         result.error("INVALID_ARGUMENT", "URI is required", null)
                     }
+                }
+                "isIgnoringBatteryOptimizations" -> {
+                    result.success(isIgnoringBatteryOptimizations())
+                }
+                "openBatteryOptimizationSettings" -> {
+                    result.success(openBatteryOptimizationSettings())
                 }
                 "readTextDocument" -> {
                     val uri = call.argument<String>("uri")
@@ -925,6 +933,34 @@ class MainActivity: FlutterActivity() {
         } catch (e: Exception) {
             Log.w("MainActivity", "Failed to resolve tree URI to path: $uriString", e)
             null
+        }
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true
+        }
+
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return powerManager?.isIgnoringBatteryOptimizations(packageName) ?: false
+    }
+
+    private fun openBatteryOptimizationSettings(): Boolean {
+        return try {
+            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+            } else {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+            }.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to open battery optimization settings", e)
+            false
         }
     }
 

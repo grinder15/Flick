@@ -42,4 +42,39 @@ void main() {
       );
     });
   });
+
+  group('shouldTrackReplayFromPlaybackState', () {
+    test('tracks progress updates for non-Rust playback', () {
+      expect(
+        shouldTrackReplayFromPlaybackState(
+          usingRustBackend: false,
+          previousPosition: const Duration(seconds: 10),
+          currentPosition: const Duration(seconds: 11),
+        ),
+        isTrue,
+      );
+    });
+
+    test('ignores duplicate playback-state positions', () {
+      expect(
+        shouldTrackReplayFromPlaybackState(
+          usingRustBackend: false,
+          previousPosition: const Duration(seconds: 10),
+          currentPosition: const Duration(seconds: 10),
+        ),
+        isFalse,
+      );
+    });
+
+    test('defers to the dedicated Rust position listener', () {
+      expect(
+        shouldTrackReplayFromPlaybackState(
+          usingRustBackend: true,
+          previousPosition: const Duration(seconds: 10),
+          currentPosition: const Duration(seconds: 11),
+        ),
+        isFalse,
+      );
+    });
+  });
 }

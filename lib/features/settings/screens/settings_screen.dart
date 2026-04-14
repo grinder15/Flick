@@ -43,6 +43,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   );
   static const String _releaseNotesUrl =
       'https://github.com/ultraelectronica/flick_player/releases/latest';
+  static const bool _updatesComingSoon = true;
 
   // Sample settings state
   bool _gaplessPlayback = true;
@@ -1063,20 +1064,28 @@ SOFTWARE.
                           _buildActionButton(
                             context,
                             icon: LucideIcons.scanSearch,
-                            title: _isCheckingForUpdates
+                            title: _updatesComingSoon
+                                ? 'Scan for Updates'
+                                : _isCheckingForUpdates
                                 ? 'Scanning for Updates...'
                                 : 'Scan for Updates',
-                            subtitle: _isCheckingForUpdates
+                            subtitle: _updatesComingSoon
+                                ? 'Coming soon'
+                                : _isCheckingForUpdates
                                 ? 'Checking for the latest update now'
                                 : 'Check manually whenever you want',
-                            onTap: _isCheckingForUpdates || _isInstallingUpdate
+                            onTap:
+                                _updatesComingSoon ||
+                                    _isCheckingForUpdates ||
+                                    _isInstallingUpdate
                                 ? null
                                 : _scanForUpdates,
                           ),
                           _buildDivider(),
                           _buildUpdateStatusTile(context),
-                          if (_hasAvailableUpdate ||
-                              _restartRequiredForUpdate) ...[
+                          if (!_updatesComingSoon &&
+                              (_hasAvailableUpdate ||
+                                  _restartRequiredForUpdate)) ...[
                             _buildDivider(),
                             _buildNavigationSetting(
                               context,
@@ -1086,7 +1095,8 @@ SOFTWARE.
                               onTap: _showPatchNotesBottomSheet,
                             ),
                           ],
-                          if (_hasAvailableUpdate || _isInstallingUpdate) ...[
+                          if (!_updatesComingSoon &&
+                              (_hasAvailableUpdate || _isInstallingUpdate)) ...[
                             _buildDivider(),
                             _buildActionButton(
                               context,
@@ -1516,6 +1526,14 @@ SOFTWARE.
   }
 
   ({IconData icon, String title, String subtitle}) _getUpdateStatusDetails() {
+    if (_updatesComingSoon) {
+      return (
+        icon: LucideIcons.info,
+        title: 'Coming Soon',
+        subtitle: 'In-app updates will be available in a future release',
+      );
+    }
+
     if (_isCheckingForUpdates) {
       return (
         icon: LucideIcons.refreshCw,

@@ -760,6 +760,38 @@ class PlayerService {
     );
   }
 
+  bool _sameUac2Format(Uac2AudioFormat? a, Uac2AudioFormat? b) {
+    if (a == null || b == null) {
+      return false;
+    }
+
+    return a.sampleRate == b.sampleRate &&
+        a.bitDepth == b.bitDepth &&
+        a.channels == b.channels;
+  }
+
+  bool _hasBitPerfectUsbHardwareVolumeControl() {
+    final routeStatus = _uac2Service.currentDeviceStatus;
+    return Platform.isAndroid &&
+        currentEngineType == AudioEngineType.usbDacExperimental &&
+        isBitPerfectModeEnabled &&
+        routeStatus?.hasVolumeControl == true &&
+        routeStatus?.volumeMode == Uac2VolumeMode.hardware;
+  }
+
+  Future<void> _syncBitPerfectUsbHardwareVolumeIfNeeded() async {
+    if (!_hasBitPerfectUsbHardwareVolumeControl()) {
+      return;
+    }
+
+    final routeVolume = _uac2Service.currentDeviceStatus?.volume;
+    if (routeVolume != null && (routeVolume - _currentVolume).abs() <= 0.01) {
+      return;
+    }
+
+    await _uac2Service.setVolume(_currentVolume);
+  }
+
   Future<void> _syncUac2PlaybackStatus(
     Song? song, {
     required bool isPlaying,
@@ -770,6 +802,7 @@ class PlayerService {
       formatOverride: _deriveUac2FormatFromSong(song),
       playbackMode: currentEngineType,
     );
+    await _syncBitPerfectUsbHardwareVolumeIfNeeded();
     await _refreshAudioOutputDiagnostics(
       reason: 'UAC2 status sync',
       activeSong: song,
@@ -1935,6 +1968,11 @@ class PlayerService {
       final routeStatus = _uac2Service.currentDeviceStatus;
       if (playbackMode == AudioEngineType.usbDacExperimental &&
           routeStatus != null &&
+          routeStatus.hasVolumeControl &&
+          routeStatus.volumeMode == Uac2VolumeMode.hardware) {
+        await _uac2Service.setVolume(_currentVolume);
+      } else if (playbackMode == AudioEngineType.usbDacExperimental &&
+          routeStatus != null &&
           !routeStatus.hasVolumeControl) {
         debugPrint(
           '[Engine] Direct USB bit-perfect is active without Android route volume control; output level is full-scale unless the DAC itself provides hardware attenuation',
@@ -2276,14 +2314,13 @@ class PlayerService {
             _uac2Service.lastKnownFormat ??
             _uac2Service.currentDeviceStatus?.currentFormat;
         final formatMatches =
-            alreadyInUsbMode &&
-            currentUsbFormat != null &&
-            currentUsbFormat.sampleRate == trackFormat.sampleRate;
+            alreadyInUsbMode && _sameUac2Format(currentUsbFormat, trackFormat);
 
         if (formatMatches) {
           debugPrint(
             '[Engine] USB engine already active with matching format '
-            '(${trackFormat.sampleRate}Hz), skipping re-preparation',
+            '(${trackFormat.sampleRate}Hz/${trackFormat.bitDepth}-bit/'
+            '${trackFormat.channels}ch), skipping re-preparation',
           );
           _sessionManager.clearFallbackReason();
           return normalizedEngine;
@@ -2303,6 +2340,25 @@ class PlayerService {
             reason: 'experimental direct USB path could not be prepared',
           );
           return AudioEngineType.normalAndroid;
+        }
+
+        final preparedUsbFormat =
+            _uac2Service.currentDeviceStatus?.currentFormat ??
+            _uac2Service.lastKnownFormat ??
+            trackFormat;
+        final needsDirectUsbPrewarm =
+            alreadyInUsbMode &&
+            !_sameUac2Format(currentUsbFormat, preparedUsbFormat);
+        if (needsDirectUsbPrewarm && _rustAudioService.isInitialized) {
+          debugPrint(
+            '[Engine] Prewarming active USB engine for '
+            '${preparedUsbFormat.sampleRate}Hz/${preparedUsbFormat.bitDepth}-bit/'
+            '${preparedUsbFormat.channels}ch before playback',
+          );
+          await _rustAudioService.prepareEngine(
+            preferredSampleRate: preparedUsbFormat.sampleRate,
+          );
+          await _applyRustPlaybackProcessingPolicy(normalizedEngine);
         }
 
         await _rustAudioService.setHighResMode(false);
@@ -2891,10 +2947,15 @@ class PlayerService {
 
   Future<void> setVolume(double volume) async {
     final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
+    _currentVolume = clampedVolume;
     if (isBitPerfectModeEnabled) {
-      debugPrint(
-        '[Playback] Ignoring software volume change while explicit Bit-perfect mode is enabled',
-      );
+      if (_hasBitPerfectUsbHardwareVolumeControl()) {
+        await _uac2Service.setVolume(clampedVolume);
+      } else {
+        debugPrint(
+          '[Playback] Ignoring software volume change while explicit Bit-perfect mode is enabled',
+        );
+      }
       if (_usingRustBackend) {
         await _rustAudioService.setVolume(1.0);
       } else {
@@ -2905,7 +2966,6 @@ class PlayerService {
       }
       return;
     }
-    _currentVolume = clampedVolume;
     if (_usingRustBackend) {
       await _rustAudioService.setVolume(clampedVolume);
     } else {

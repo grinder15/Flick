@@ -2383,10 +2383,17 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun updateDirectUsbAudioFocus() {
-        if (directUsbFocusGain != null || directUsbAudioFocusRequest != null) {
-            Log.i("UAC2", "[USB] Releasing stale direct USB audio focus")
+        if (directUsbPlaybackActive) {
+            if (directUsbFocusGain == null) {
+                Log.i("UAC2", "[USB] Requesting audio focus for direct USB playback")
+                requestDirectUsbAudioFocus(AudioManager.AUDIOFOCUS_GAIN)
+            }
+        } else {
+            if (directUsbFocusGain != null || directUsbAudioFocusRequest != null) {
+                Log.i("UAC2", "[USB] Releasing direct USB audio focus")
+            }
+            abandonDirectUsbAudioFocus()
         }
-        abandonDirectUsbAudioFocus()
     }
 
     private fun requestDirectUsbAudioFocus(focusGain: Int) {
@@ -2469,11 +2476,31 @@ class MainActivity: FlutterActivity() {
 
         val directUsbRegistered = activeDirectUsbDeviceName != null
         val hasSystemVolumeControl = audioManager != null && !audioManager.isVolumeFixed
-        val hasVolumeControl = hasSystemVolumeControl && !directUsbRegistered
+        val hasDirectUsbHardwareVolume =
+            directUsbRegistered && nativeHasRustDirectUsbHardwareVolume()
+        val hasVolumeControl = hasDirectUsbHardwareVolume || hasSystemVolumeControl
         baseRoute["hasVolumeControl"] = hasVolumeControl
-        baseRoute["volumeMode"] = if (hasVolumeControl) "system" else "unavailable"
-        baseRoute["volume"] = if (hasVolumeControl) getRouteVolume() else null
-        baseRoute["muted"] = if (hasVolumeControl) getRouteMuted() else null
+        baseRoute["volumeMode"] = when {
+            hasDirectUsbHardwareVolume -> "hardware"
+            hasVolumeControl -> "system"
+            else -> "unavailable"
+        }
+        baseRoute["volume"] = if (hasVolumeControl) {
+            if (hasDirectUsbHardwareVolume) {
+                nativeGetRustDirectUsbHardwareVolume()
+            } else {
+                getRouteVolume()
+            }
+        } else null
+        baseRoute["muted"] = when {
+            hasDirectUsbHardwareVolume -> when (nativeGetRustDirectUsbHardwareMute()) {
+                1 -> true
+                0 -> false
+                else -> null
+            }
+            hasVolumeControl -> getRouteMuted()
+            else -> null
+        }
         baseRoute["preferredUsbDeviceDetected"] = preferredUsbDevice != null
         baseRoute["preferredUsbDeviceName"] = preferredUsbDevice?.deviceName
         baseRoute["preferredUsbProductName"] = preferredUsbDevice?.productName
@@ -2766,6 +2793,11 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun getRouteVolume(): Double? {
+        if (activeDirectUsbDeviceName != null && nativeHasRustDirectUsbHardwareVolume()) {
+            val hardwareVolume = nativeGetRustDirectUsbHardwareVolume()
+            return if (hardwareVolume.isNaN()) null else hardwareVolume.coerceIn(0.0, 1.0)
+        }
+
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
         if (maxVolume <= 0) return 1.0
@@ -2775,6 +2807,10 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun setRouteVolume(volume: Double): Boolean {
+        if (activeDirectUsbDeviceName != null && nativeHasRustDirectUsbHardwareVolume()) {
+            return nativeSetRustDirectUsbHardwareVolume(volume.coerceIn(0.0, 1.0))
+        }
+
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
         if (audioManager.isVolumeFixed) return false
 
@@ -2792,6 +2828,10 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun getRouteMuted(): Boolean {
+        if (activeDirectUsbDeviceName != null && nativeHasRustDirectUsbHardwareVolume()) {
+            return nativeGetRustDirectUsbHardwareMute() == 1
+        }
+
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
         val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -2802,6 +2842,10 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun setRouteMuted(muted: Boolean): Boolean {
+        if (activeDirectUsbDeviceName != null && nativeHasRustDirectUsbHardwareVolume()) {
+            return nativeSetRustDirectUsbHardwareMute(muted)
+        }
+
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
         if (audioManager.isVolumeFixed) return false
 
@@ -2976,6 +3020,11 @@ class MainActivity: FlutterActivity() {
         channels: Int,
     ): Boolean
     private external fun nativeSetRustDirectUsbLockEnabled(enabled: Boolean): Boolean
+    private external fun nativeHasRustDirectUsbHardwareVolume(): Boolean
+    private external fun nativeGetRustDirectUsbHardwareVolume(): Double
+    private external fun nativeSetRustDirectUsbHardwareVolume(volume: Double): Boolean
+    private external fun nativeGetRustDirectUsbHardwareMute(): Int
+    private external fun nativeSetRustDirectUsbHardwareMute(muted: Boolean): Boolean
     private external fun nativeGetRustAudioDebugStateJson(): String?
     private external fun nativeClearRustDirectUsbPlayback(): Boolean
     private external fun nativeMarkRustDirectUsbFallback(reason: String?): Boolean

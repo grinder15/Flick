@@ -16,7 +16,7 @@ mod capabilities;
 mod connection_manager;
 #[cfg(feature = "uac2")]
 pub mod constants;
-#[cfg(feature = "uac2")]
+#[cfg(all(test, feature = "uac2"))]
 mod control_requests;
 #[cfg(feature = "uac2")]
 mod descriptors;
@@ -38,6 +38,8 @@ mod error_recovery;
 mod fallback_handler;
 #[cfg(feature = "uac2")]
 mod format_negotiation;
+#[cfg(feature = "uac2")]
+pub(crate) mod iso_packet_scheduler;
 #[cfg(feature = "uac2")]
 mod logging;
 #[cfg(feature = "uac2")]
@@ -87,11 +89,6 @@ pub use capabilities::{
 };
 #[cfg(feature = "uac2")]
 pub use connection_manager::{ConnectionManager, ConnectionState};
-#[cfg(feature = "uac2")]
-pub use control_requests::{
-    ControlRequest, ControlRequestBuilder, ControlRequestType, ControlSelector, MuteControl,
-    SamplingFreqControl, VolumeControl,
-};
 #[cfg(feature = "uac2")]
 pub use descriptors::{
     parse_ac_interface_header, parse_as_interface_general, parse_feature_unit, parse_format_type_i,

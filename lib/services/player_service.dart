@@ -847,6 +847,17 @@ class PlayerService {
     final directUsbBitPerfectVerified =
         directUsbState?['bit_perfect_verified'] == true ||
         directUsbState?['bitPerfectVerified'] == true;
+    final directUsbEngineStateReason = _stringValue(
+      directUsbState?['engine_state_reason'] ??
+          directUsbState?['engineStateReason'],
+    );
+    final directUsbRefusalReason = _stringValue(
+      directUsbState?['direct_mode_refusal_reason'] ??
+          directUsbState?['directModeRefusalReason'],
+    );
+    final directUsbLastError = _stringValue(
+      directUsbState?['last_error'] ?? directUsbState?['lastError'],
+    );
     final directUsbRegistered =
         debugState?['directUsbRegistered'] == true ||
         directUsbState?['registered'] == true;
@@ -897,9 +908,13 @@ class PlayerService {
         (enginePassthroughAllowed || directUsbBitPerfectVerified);
     final verificationReason =
         (!usesRustDiagnostics ? null : engineVerificationReason) ??
-        (!directUsbClockVerificationPassed &&
-                pathManagement == AudioPathManagement.directUsbExperimental
-            ? 'Direct USB verification failed'
+        (pathManagement == AudioPathManagement.directUsbExperimental
+            ? directUsbRefusalReason ??
+                  directUsbLastError ??
+                  directUsbEngineStateReason ??
+                  (!directUsbClockVerificationPassed
+                      ? 'Direct USB verification failed'
+                      : null)
             : null);
     final outputStrategyLabel = !usesRustDiagnostics
         ? 'Android shared'
@@ -1056,10 +1071,6 @@ class PlayerService {
       directUsbState?['active_max_packet_bytes'] ??
           directUsbState?['activeMaxPacketBytes'],
     );
-    final directUsbRefusalReason = _stringValue(
-      directUsbState?['direct_mode_refusal_reason'] ??
-          directUsbState?['directModeRefusalReason'],
-    );
     final packetSchedulePreview = _dynamicListValue(
       directUsbState?['packet_schedule_frames_preview'] ??
           directUsbState?['packetScheduleFramesPreview'],
@@ -1091,10 +1102,6 @@ class PlayerService {
       directUsbState?['drift_ms_from_target'] ??
           directUsbState?['driftMsFromTarget'],
     );
-    final directUsbLastError = _stringValue(
-      directUsbState?['last_error'] ?? directUsbState?['lastError'],
-    );
-
     _debugLog(
       '[Diagnostics] $reason: mode=${mode.logLabel}, '
       'selected=${_sessionManager.selectedMode.logLabel}, '

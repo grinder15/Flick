@@ -16,7 +16,7 @@ use std::{ffi::c_void, sync::OnceLock};
 #[cfg(target_os = "android")]
 use jni::{
     objects::{GlobalRef, JObject, JString},
-    sys::{jboolean, jint, jstring},
+    sys::{jboolean, jdouble, jint, jstring},
     JNIEnv, JavaVM,
 };
 
@@ -219,6 +219,123 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
             0
         }
     }
+}
+
+#[cfg(all(target_os = "android", feature = "uac2"))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeHasRustDirectUsbHardwareVolume(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jboolean {
+    if crate::uac2::android_direct_has_hardware_volume_control() {
+        1
+    } else {
+        0
+    }
+}
+
+#[cfg(all(target_os = "android", not(feature = "uac2")))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeHasRustDirectUsbHardwareVolume(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jboolean {
+    0
+}
+
+#[cfg(all(target_os = "android", feature = "uac2"))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareVolume(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jdouble {
+    crate::uac2::android_direct_cached_hardware_volume().unwrap_or(f64::NAN)
+}
+
+#[cfg(all(target_os = "android", not(feature = "uac2")))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareVolume(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jdouble {
+    f64::NAN
+}
+
+#[cfg(all(target_os = "android", feature = "uac2"))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareVolume(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+    volume: jdouble,
+) -> jboolean {
+    match crate::uac2::android_direct_set_hardware_volume(volume) {
+        Ok(()) => 1,
+        Err(error) => {
+            eprintln!(
+                "Failed to set Android direct USB hardware volume: {}",
+                error
+            );
+            0
+        }
+    }
+}
+
+#[cfg(all(target_os = "android", not(feature = "uac2")))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareVolume(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+    _volume: jdouble,
+) -> jboolean {
+    0
+}
+
+#[cfg(all(target_os = "android", feature = "uac2"))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareMute(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jint {
+    match crate::uac2::android_direct_cached_hardware_mute() {
+        Some(true) => 1,
+        Some(false) => 0,
+        None => -1,
+    }
+}
+
+#[cfg(all(target_os = "android", not(feature = "uac2")))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareMute(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jint {
+    -1
+}
+
+#[cfg(all(target_os = "android", feature = "uac2"))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareMute(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+    muted: jboolean,
+) -> jboolean {
+    match crate::uac2::android_direct_set_hardware_mute(muted != 0) {
+        Ok(()) => 1,
+        Err(error) => {
+            eprintln!("Failed to set Android direct USB hardware mute: {}", error);
+            0
+        }
+    }
+}
+
+#[cfg(all(target_os = "android", not(feature = "uac2")))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareMute(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+    _muted: jboolean,
+) -> jboolean {
+    0
 }
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]

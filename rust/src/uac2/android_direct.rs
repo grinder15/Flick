@@ -1,6 +1,6 @@
 use crate::audio::commands::AudioEvent;
 use crate::audio::engine::{audio_callback, AudioCallbackData};
-use crate::uac2::DescriptorIter;
+use crate::uac2::{iso_packet_scheduler::IsoPacketScheduler, AudioControlParser, DescriptorIter};
 use crossbeam_channel::Sender;
 use libusb1_sys::{
     constants::{
@@ -8,8 +8,8 @@ use libusb1_sys::{
         LIBUSB_TRANSFER_NO_DEVICE, LIBUSB_TRANSFER_OVERFLOW, LIBUSB_TRANSFER_STALL,
         LIBUSB_TRANSFER_TIMED_OUT,
     },
-    libusb_alloc_transfer, libusb_fill_iso_transfer, libusb_free_transfer, libusb_submit_transfer,
-    libusb_transfer, libusb_transfer_cb_fn,
+    libusb_alloc_transfer, libusb_cancel_transfer, libusb_fill_iso_transfer, libusb_free_transfer,
+    libusb_submit_transfer, libusb_transfer, libusb_transfer_cb_fn,
 };
 use log::{error as log_error, info as log_info};
 use once_cell::sync::Lazy;
@@ -20,12 +20,13 @@ use rusb::{
     UsbContext,
 };
 use serde::Serialize;
+use std::collections::HashSet;
 use std::ffi::c_void;
 use std::os::fd::RawFd;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex as StdMutex, Once};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const USB_CLASS_AUDIO: u8 = 0x01;
 const USB_SUBCLASS_AUDIOCONTROL: u8 = 0x01;
@@ -46,20 +47,30 @@ const UAC2_CLOCK_SOURCE_SAM_FREQ_CONTROL: u16 = 0x0100;
 const UAC2_CLOCK_SOURCE_CLOCK_VALID_CONTROL: u16 = 0x0200;
 const UAC2_INPUT_TERMINAL: u8 = 0x02;
 const UAC2_OUTPUT_TERMINAL: u8 = 0x03;
+const UAC2_FEATURE_UNIT: u8 = 0x06;
 const FORMAT_TAG_PCM: u16 = 0x0001;
 const FORMAT_TAG_PCM8: u16 = 0x0002;
 const FORMAT_TAG_IEEE_FLOAT: u16 = 0x0003;
+const UAC2_REQUEST_GET_MIN: u8 = 0x82;
+const UAC2_REQUEST_GET_MAX: u8 = 0x83;
+const UAC2_REQUEST_GET_RES: u8 = 0x84;
+const UAC2_FEATURE_UNIT_MUTE_CONTROL: u16 = 0x0101;
+const UAC2_FEATURE_UNIT_VOLUME_CONTROL: u16 = 0x0100;
+const FEATURE_MUTE: u32 = 0x0001;
+const FEATURE_VOLUME: u32 = 0x0002;
 const ISO_TRANSFER_TIMEOUT_MS: u32 = 1000;
 const ANDROID_USB_BUFFER_CAPACITY_MS: usize = 200;
 const ANDROID_USB_BUFFER_TARGET_MS: usize = 100;
 const ANDROID_USB_RENDER_CHUNK_MS: usize = 10;
 const ANDROID_USB_RENDER_POLL_MS: u64 = 2;
 const ANDROID_USB_STABLE_TRANSFER_THRESHOLD: usize = 64;
+const ANDROID_USB_TRANSFER_QUEUE_DEPTH: usize = 4;
 const ANDROID_USB_REQUIRE_VERIFIED_RATE_DEFAULT: bool = true;
 const ANDROID_USB_CLOCK_SETTLE_DELAY_MS_DEFAULT: u64 = 20;
 const ANDROID_USB_FEEDBACK_TIMEOUT_MS: u32 = 50;
 const ANDROID_USB_LOUD_RENDER_LOG_THRESHOLD: f32 = 0.1;
 const ANDROID_USB_LOUD_TRANSFER_LOG_INTERVAL: u64 = 32;
+const ANDROID_USB_TIMING_LOG_INTERVAL: u64 = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DacClockPolicy {
@@ -74,6 +85,7 @@ struct DacQuirk {
     product_name_contains: &'static str,
     clock_policy: DacClockPolicy,
     settle_delay_ms: u64,
+    prefer_padded_24bit_transport: bool,
 }
 
 const KNOWN_DAC_QUIRKS: &[DacQuirk] = &[DacQuirk {
@@ -82,6 +94,7 @@ const KNOWN_DAC_QUIRKS: &[DacQuirk] = &[DacQuirk {
     product_name_contains: "MOONDROP Dawn Pro",
     clock_policy: DacClockPolicy::RequireVerifiedRate,
     settle_delay_ms: 50,
+    prefer_padded_24bit_transport: true,
 }];
 
 fn lookup_dac_quirk(
@@ -98,6 +111,34 @@ fn lookup_dac_quirk(
         }
     }
     None
+}
+
+fn device_prefers_padded_24bit_transport(device: &Device<Context>) -> bool {
+    let Ok(descriptor) = device.device_descriptor() else {
+        return false;
+    };
+
+    KNOWN_DAC_QUIRKS.iter().any(|quirk| {
+        quirk.prefer_padded_24bit_transport
+            && quirk.vendor_id == descriptor.vendor_id()
+            && quirk.product_id == descriptor.product_id()
+    })
+}
+
+fn transport_container_preference_rank(
+    candidate: &AndroidIsoStreamCandidate,
+    playback_format: AndroidDirectUsbPlaybackFormat,
+    prefer_padded_24bit_transport: bool,
+) -> u8 {
+    if !prefer_padded_24bit_transport || playback_format.bit_depth != 24 {
+        return 0;
+    }
+
+    match (candidate.bit_resolution, candidate.subslot_size) {
+        (24, 4) => 0,
+        (24, 3) => 1,
+        _ => 2,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +238,13 @@ pub struct AndroidDirectUsbDebugState {
     pub usb_stream_stable: bool,
     pub bit_perfect_verified: bool,
     pub software_volume_active: bool,
+    pub hardware_volume_supported: bool,
+    pub hardware_mute_supported: bool,
+    pub hardware_volume_normalized: Option<f64>,
+    pub hardware_mute_active: Option<bool>,
+    pub hardware_volume_min_raw: Option<i16>,
+    pub hardware_volume_max_raw: Option<i16>,
+    pub hardware_volume_resolution_raw: Option<i16>,
     pub feedback_endpoint_present: bool,
     pub feedback_endpoint_address: Option<u8>,
     pub feedback_transfer_type: Option<String>,
@@ -213,6 +261,13 @@ pub struct AndroidDirectUsbDebugState {
     pub producer_frames: Option<u64>,
     pub consumer_frames: Option<u64>,
     pub drift_ms_from_target: Option<i32>,
+    pub transfer_queue_depth: Option<u32>,
+    pub completed_transfers: Option<u64>,
+    pub last_transfer_turnaround_us: Option<u64>,
+    pub max_transfer_turnaround_us: Option<u64>,
+    pub last_submit_gap_us: Option<u64>,
+    pub max_submit_gap_us: Option<u64>,
+    pub effective_consumer_rate_milli_hz: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -236,6 +291,9 @@ struct AndroidDirectUsbState {
     usb_stream_stable: bool,
     bit_perfect_verified: bool,
     software_volume_active: bool,
+    hardware_volume_control: Option<AndroidDirectUsbHardwareVolumeControl>,
+    hardware_volume_normalized: Option<f64>,
+    hardware_mute_active: Option<bool>,
     packet_schedule_frames_preview: Vec<u32>,
     runtime_stats: Option<Arc<AndroidDirectUsbRuntimeStats>>,
 }
@@ -278,6 +336,17 @@ struct AndroidDirectUsbClockApplyOutcome {
     message: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct AndroidDirectUsbHardwareVolumeControl {
+    interface_number: u8,
+    feature_unit_id: u8,
+    volume_channel: u16,
+    mute_channel: Option<u16>,
+    min_volume_raw: i16,
+    max_volume_raw: i16,
+    resolution_raw: i16,
+}
+
 #[derive(Debug, Clone, Serialize, Default)]
 struct AndroidDirectUsbCapabilityModel {
     supported_sample_rates: Vec<u32>,
@@ -311,11 +380,18 @@ struct AndroidDirectUsbRuntimeStats {
     channels: usize,
     buffer_capacity_samples: usize,
     buffer_target_samples: usize,
+    transfer_queue_depth: AtomicUsize,
     frames_per_packet: AtomicUsize,
     buffered_samples: AtomicUsize,
     underrun_count: AtomicU64,
     producer_frames: AtomicU64,
     consumer_frames: AtomicU64,
+    completed_transfers: AtomicU64,
+    last_transfer_turnaround_us: AtomicU64,
+    max_transfer_turnaround_us: AtomicU64,
+    last_submit_gap_us: AtomicU64,
+    max_submit_gap_us: AtomicU64,
+    effective_consumer_rate_milli_hz: AtomicU64,
     /// Max |f32| over the `pcm_samples` prefix that was actually pushed (post-convert).
     last_push_max_abs_f32_bits: AtomicU32,
     /// Max |linear i32| over the pushed prefix (matches USB encoding input scale).
@@ -390,24 +466,12 @@ struct SamplingFrequencySubrange {
     res: u32,
 }
 
-#[derive(Debug)]
-struct IsoPacketScheduler {
-    sample_rate: u32,
-    service_interval_us: u32,
-    nominal_remainder: u64,
-    bytes_per_frame: usize,
-    packets_per_transfer: usize,
-    feedback_frames_per_packet: Option<f64>,
-    feedback_remainder: f64,
-}
-
 #[derive(Debug, Clone)]
 struct AndroidStreamingInterfaceFormat {
     format_tag: u16,
     channels: u16,
     subslot_size: u8,
     bit_resolution: u8,
-    sample_rates: Vec<u32>,
     terminal_link: Option<u8>,
 }
 
@@ -423,6 +487,161 @@ struct IsoTransferUserData {
     buffer: Vec<u8>,
 }
 
+struct IsoTransferSlot {
+    transfer: std::ptr::NonNull<libusb_transfer>,
+    user_data: *mut IsoTransferUserData,
+    packet_sizes: Vec<usize>,
+    queued_frame_count: usize,
+    queued_underrun: bool,
+    submitted_at: Option<Instant>,
+    in_flight: bool,
+}
+
+struct IsoTransferPayload {
+    packet_sizes: Vec<usize>,
+    packet_samples: Vec<i32>,
+    transfer_buffer: Vec<u8>,
+    underrun: bool,
+    frame_count: usize,
+}
+
+impl IsoTransferSlot {
+    fn new(packet_count: usize, buffer_capacity: usize) -> Result<Self, String> {
+        let completion = Arc::new(IsoTransferCompletion {
+            status: StdMutex::new(None),
+            condvar: Condvar::new(),
+        });
+        let user_data = Box::new(IsoTransferUserData {
+            completion,
+            buffer: vec![0u8; buffer_capacity.max(1)],
+        });
+        let user_data_ptr = Box::into_raw(user_data);
+        let transfer = unsafe { libusb_alloc_transfer(packet_count as i32) };
+
+        let Some(transfer) = std::ptr::NonNull::new(transfer) else {
+            unsafe {
+                drop(Box::from_raw(user_data_ptr));
+            }
+            return Err("libusb_alloc_transfer returned null".to_string());
+        };
+
+        Ok(Self {
+            transfer,
+            user_data: user_data_ptr,
+            packet_sizes: vec![0; packet_count],
+            queued_frame_count: 0,
+            queued_underrun: false,
+            submitted_at: None,
+            in_flight: false,
+        })
+    }
+
+    fn submit(
+        &mut self,
+        handle: &DeviceHandle<Context>,
+        endpoint: u8,
+        payload: IsoTransferPayload,
+    ) -> Result<(), String> {
+        if payload.packet_sizes.len() != self.packet_sizes.len() {
+            return Err(format!(
+                "isochronous packet count mismatch: slot={}, payload={}",
+                self.packet_sizes.len(),
+                payload.packet_sizes.len()
+            ));
+        }
+
+        unsafe {
+            let user_data = &mut *self.user_data;
+            if payload.transfer_buffer.len() > user_data.buffer.len() {
+                return Err(format!(
+                    "isochronous transfer buffer too small: capacity={}, payload={}",
+                    user_data.buffer.len(),
+                    payload.transfer_buffer.len()
+                ));
+            }
+            user_data.buffer[..payload.transfer_buffer.len()]
+                .copy_from_slice(&payload.transfer_buffer);
+            *user_data.completion.status.lock().unwrap() = None;
+
+            libusb_fill_iso_transfer(
+                self.transfer.as_mut(),
+                handle.as_raw(),
+                endpoint,
+                user_data.buffer.as_mut_ptr(),
+                payload.transfer_buffer.len() as i32,
+                payload.packet_sizes.len() as i32,
+                iso_transfer_callback,
+                self.user_data as *mut c_void,
+                ISO_TRANSFER_TIMEOUT_MS,
+            );
+
+            for (index, packet_size) in payload.packet_sizes.iter().enumerate() {
+                (*self
+                    .transfer
+                    .as_mut()
+                    .iso_packet_desc
+                    .as_mut_ptr()
+                    .add(index))
+                .length = *packet_size as u32;
+            }
+
+            let submit_result = libusb_submit_transfer(self.transfer.as_ptr());
+            if submit_result != 0 {
+                return Err(format!(
+                    "libusb_submit_transfer failed with code {}",
+                    submit_result
+                ));
+            }
+        }
+
+        self.queued_frame_count = payload.frame_count;
+        self.queued_underrun = payload.underrun;
+        self.packet_sizes.copy_from_slice(&payload.packet_sizes);
+        self.submitted_at = Some(Instant::now());
+        self.in_flight = true;
+        Ok(())
+    }
+
+    fn take_completion_status(&mut self) -> Option<i32> {
+        let completion = unsafe { &(*self.user_data).completion };
+        completion.status.lock().unwrap().take()
+    }
+
+    fn turnaround_us(&self) -> Option<u64> {
+        self.submitted_at
+            .map(|submitted_at| submitted_at.elapsed().as_micros().min(u128::from(u64::MAX)) as u64)
+    }
+
+    fn validate_packets(&self) -> Result<(), String> {
+        let transfer = unsafe { self.transfer.as_ref() };
+        validate_iso_packet_results(transfer, &self.packet_sizes)
+    }
+
+    fn mark_completed(&mut self) {
+        self.queued_frame_count = 0;
+        self.queued_underrun = false;
+        self.submitted_at = None;
+        self.in_flight = false;
+    }
+
+    fn cancel(&mut self) {
+        if !self.in_flight {
+            return;
+        }
+
+        let _ = unsafe { libusb_cancel_transfer(self.transfer.as_ptr()) };
+    }
+}
+
+impl Drop for IsoTransferSlot {
+    fn drop(&mut self) {
+        unsafe {
+            libusb_free_transfer(self.transfer.as_ptr());
+            drop(Box::from_raw(self.user_data));
+        }
+    }
+}
+
 impl AndroidDirectUsbRuntimeStats {
     fn new(sample_rate: u32, channels: usize, capacity_ms: usize, target_ms: usize) -> Self {
         let frames_per_ms = sample_rate as usize / 1_000;
@@ -436,11 +655,18 @@ impl AndroidDirectUsbRuntimeStats {
             channels,
             buffer_capacity_samples: capacity_samples,
             buffer_target_samples: target_samples,
+            transfer_queue_depth: AtomicUsize::new(0),
             frames_per_packet: AtomicUsize::new(0),
             buffered_samples: AtomicUsize::new(0),
             underrun_count: AtomicU64::new(0),
             producer_frames: AtomicU64::new(0),
             consumer_frames: AtomicU64::new(0),
+            completed_transfers: AtomicU64::new(0),
+            last_transfer_turnaround_us: AtomicU64::new(0),
+            max_transfer_turnaround_us: AtomicU64::new(0),
+            last_submit_gap_us: AtomicU64::new(0),
+            max_submit_gap_us: AtomicU64::new(0),
+            effective_consumer_rate_milli_hz: AtomicU64::new(0),
             last_push_max_abs_f32_bits: AtomicU32::new(0),
             last_push_max_abs_i32: AtomicU32::new(0),
         }
@@ -626,6 +852,9 @@ pub fn register_android_usb_device(device: AndroidDirectUsbDevice) -> Result<(),
         usb_stream_stable: false,
         bit_perfect_verified: false,
         software_volume_active: false,
+        hardware_volume_control: None,
+        hardware_volume_normalized: None,
+        hardware_mute_active: None,
         packet_schedule_frames_preview: Vec::new(),
         runtime_stats: None,
     });
@@ -838,6 +1067,25 @@ pub fn android_direct_debug_state() -> AndroidDirectUsbDebugState {
         usb_stream_stable: state.usb_stream_stable,
         bit_perfect_verified: state.bit_perfect_verified,
         software_volume_active: state.software_volume_active,
+        hardware_volume_supported: state.hardware_volume_control.is_some(),
+        hardware_mute_supported: state
+            .hardware_volume_control
+            .as_ref()
+            .is_some_and(|control| control.mute_channel.is_some()),
+        hardware_volume_normalized: state.hardware_volume_normalized,
+        hardware_mute_active: state.hardware_mute_active,
+        hardware_volume_min_raw: state
+            .hardware_volume_control
+            .as_ref()
+            .map(|control| control.min_volume_raw),
+        hardware_volume_max_raw: state
+            .hardware_volume_control
+            .as_ref()
+            .map(|control| control.max_volume_raw),
+        hardware_volume_resolution_raw: state
+            .hardware_volume_control
+            .as_ref()
+            .map(|control| control.resolution_raw),
         feedback_endpoint_present: active_transport
             .map(|transport| transport.feedback_endpoint_address.is_some())
             .unwrap_or(false),
@@ -868,6 +1116,30 @@ pub fn android_direct_debug_state() -> AndroidDirectUsbDebugState {
         producer_frames: runtime_stats.map(|stats| stats.producer_frames.load(Ordering::Relaxed)),
         consumer_frames: runtime_stats.map(|stats| stats.consumer_frames.load(Ordering::Relaxed)),
         drift_ms_from_target: runtime_stats.map(|stats| stats.drift_ms_from_target()),
+        transfer_queue_depth: runtime_stats
+            .map(|stats| stats.transfer_queue_depth.load(Ordering::Relaxed) as u32)
+            .filter(|depth| *depth > 0),
+        completed_transfers: runtime_stats
+            .map(|stats| stats.completed_transfers.load(Ordering::Relaxed)),
+        last_transfer_turnaround_us: runtime_stats
+            .map(|stats| stats.last_transfer_turnaround_us.load(Ordering::Relaxed))
+            .filter(|value| *value > 0),
+        max_transfer_turnaround_us: runtime_stats
+            .map(|stats| stats.max_transfer_turnaround_us.load(Ordering::Relaxed))
+            .filter(|value| *value > 0),
+        last_submit_gap_us: runtime_stats
+            .map(|stats| stats.last_submit_gap_us.load(Ordering::Relaxed))
+            .filter(|value| *value > 0),
+        max_submit_gap_us: runtime_stats
+            .map(|stats| stats.max_submit_gap_us.load(Ordering::Relaxed))
+            .filter(|value| *value > 0),
+        effective_consumer_rate_milli_hz: runtime_stats
+            .map(|stats| {
+                stats
+                    .effective_consumer_rate_milli_hz
+                    .load(Ordering::Relaxed)
+            })
+            .filter(|value| *value > 0),
     }
 }
 
@@ -939,10 +1211,16 @@ fn negotiate_android_direct_playback_format(
     let negotiated = (|| {
         let usb_device = claimed_handle.handle.device();
         let speed = usb_device.speed();
-        let capability_model = build_android_usb_capability_model(&usb_device, speed).ok();
+        let capability_model =
+            build_android_usb_capability_model(&usb_device, &claimed_handle.handle, speed).ok();
         set_capability_model(capability_model.clone());
 
-        let candidate = match select_stream_candidate(&usb_device, requested_format, speed) {
+        let candidate = match select_stream_candidate(
+            &usb_device,
+            &claimed_handle.handle,
+            requested_format,
+            speed,
+        ) {
             Ok(c) => c,
             Err(error) => {
                 set_last_error(Some(error.clone()));
@@ -1080,6 +1358,7 @@ fn negotiate_android_direct_playback_format(
                 supported_ranges.as_deref(),
                 capability_model.as_ref(),
                 &usb_device,
+                &claimed_handle.handle,
                 speed,
                 requested_format,
             )? {
@@ -1110,6 +1389,7 @@ fn negotiate_android_direct_playback_format(
             None,
             capability_model.as_ref(),
             &usb_device,
+            &claimed_handle.handle,
             speed,
             requested_format,
         )? {
@@ -1166,6 +1446,7 @@ fn choose_adaptive_sample_rate(
     supported_ranges: Option<&[SamplingFrequencySubrange]>,
     capability_model: Option<&AndroidDirectUsbCapabilityModel>,
     device: &Device<Context>,
+    handle: &DeviceHandle<Context>,
     speed: Speed,
     requested_format: AndroidDirectUsbPlaybackFormat,
 ) -> Result<Option<u32>, String> {
@@ -1214,7 +1495,7 @@ fn choose_adaptive_sample_rate(
             sample_rate: candidate_rate,
             ..requested_format
         };
-        if select_stream_candidate(device, candidate_format, speed).is_ok() {
+        if select_stream_candidate(device, handle, candidate_format, speed).is_ok() {
             return Ok(Some(candidate_rate));
         }
     }
@@ -1326,6 +1607,27 @@ fn set_software_volume_active(active: bool) {
     if let Some(state) = DIRECT_USB_STATE.lock().as_mut() {
         state.software_volume_active = active;
         state.bit_perfect_verified = direct_path_is_bit_perfect(state);
+    }
+}
+
+fn set_hardware_volume_control(control: Option<AndroidDirectUsbHardwareVolumeControl>) {
+    if let Some(state) = DIRECT_USB_STATE.lock().as_mut() {
+        state.hardware_volume_control = control;
+        if state.hardware_volume_control.is_none() {
+            state.hardware_volume_normalized = None;
+            state.hardware_mute_active = None;
+        }
+    }
+}
+
+fn set_hardware_volume_snapshot(volume: Option<f64>, muted: Option<bool>) {
+    if let Some(state) = DIRECT_USB_STATE.lock().as_mut() {
+        if let Some(volume) = volume {
+            state.hardware_volume_normalized = Some(volume.clamp(0.0, 1.0));
+        }
+        if let Some(muted) = muted {
+            state.hardware_mute_active = Some(muted);
+        }
     }
 }
 
@@ -1458,13 +1760,6 @@ fn set_dac_mode(mode: DacMode) {
     if let Some(state) = DIRECT_USB_STATE.lock().as_mut() {
         state.dac_mode = mode;
     }
-}
-
-fn stream_descriptor_verifies_rate(
-    candidate: &AndroidIsoStreamCandidate,
-    sample_rate: u32,
-) -> bool {
-    !candidate.sample_rates.is_empty() && candidate.sample_rates.contains(&sample_rate)
 }
 
 fn set_packet_schedule_preview(packet_schedule_frames_preview: Vec<u32>) {
@@ -1658,6 +1953,505 @@ fn open_claimed_usb_handle(
     })
 }
 
+fn open_transient_usb_handle(
+    device: &AndroidDirectUsbDevice,
+) -> Result<AndroidDirectUsbClaimedHandle, String> {
+    prepare_direct_usb_libusb();
+
+    let context =
+        Context::new().map_err(|error| format!("Failed to create libusb context: {}", error))?;
+    let handle = unsafe { context.open_device_with_fd(device.fd) }
+        .map_err(|error| format!("Failed to wrap Android USB file descriptor: {}", error))?;
+    configure_kernel_driver_detach(&handle);
+
+    Ok(AndroidDirectUsbClaimedHandle {
+        device_fd: device.fd,
+        context,
+        handle,
+        claimed_interfaces: Vec::new(),
+    })
+}
+
+#[derive(Debug, Clone)]
+struct AndroidAudioControlTopology {
+    interface_number: u8,
+    feature_units: Vec<crate::uac2::FeatureUnit>,
+    output_terminals: Vec<crate::uac2::OutputTerminal>,
+}
+
+fn parse_audio_control_topologies(
+    device: &Device<Context>,
+) -> Result<Vec<AndroidAudioControlTopology>, String> {
+    let config_descriptor = device
+        .active_config_descriptor()
+        .map_err(|error| format!("Failed to read active USB config descriptor: {}", error))?;
+    let parser = AudioControlParser;
+    let mut topologies = Vec::new();
+
+    for interface in config_descriptor.interfaces() {
+        for descriptor in interface.descriptors() {
+            if descriptor.class_code() != USB_CLASS_AUDIO
+                || descriptor.sub_class_code() != USB_SUBCLASS_AUDIOCONTROL
+            {
+                continue;
+            }
+
+            let mut topology = AndroidAudioControlTopology {
+                interface_number: descriptor.interface_number(),
+                feature_units: Vec::new(),
+                output_terminals: Vec::new(),
+            };
+
+            for extra in DescriptorIter::new(descriptor.extra()) {
+                let parsed = match extra.get(2).copied() {
+                    Some(UAC2_OUTPUT_TERMINAL) => {
+                        parser.parse_output_terminal(extra).ok().map(|value| {
+                            topology.output_terminals.push(value);
+                        })
+                    }
+                    Some(UAC2_FEATURE_UNIT) => parser.parse_feature_unit(extra).ok().map(|value| {
+                        topology.feature_units.push(value);
+                    }),
+                    _ => None,
+                };
+                let _ = parsed;
+            }
+
+            if !topology.feature_units.is_empty() || !topology.output_terminals.is_empty() {
+                topologies.push(topology);
+            }
+        }
+    }
+
+    Ok(topologies)
+}
+
+fn feature_unit_channel_with_control(
+    feature_unit: &crate::uac2::FeatureUnit,
+    control_mask: u32,
+) -> Option<u16> {
+    feature_unit
+        .bma_controls
+        .iter()
+        .position(|controls| controls & control_mask != 0)
+        .map(|index| index as u16)
+}
+
+fn read_feature_unit_i16_control(
+    handle: &DeviceHandle<Context>,
+    interface_number: u8,
+    feature_unit_id: u8,
+    channel: u16,
+    request: u8,
+    control_selector: u16,
+) -> Result<i16, String> {
+    let request_type = USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE;
+    let value = control_selector | (channel & 0xff);
+    let index = (interface_number as u16) | ((feature_unit_id as u16) << 8);
+    let mut data = [0u8; 2];
+    let transferred = handle
+        .read_control(
+            request_type,
+            request,
+            value,
+            index,
+            &mut data,
+            Duration::from_secs(1),
+        )
+        .map_err(|error| format!("feature-unit control read failed: {}", error))?;
+    if transferred < data.len() {
+        return Err(format!(
+            "feature-unit control read returned {} bytes, expected {}",
+            transferred,
+            data.len()
+        ));
+    }
+    Ok(i16::from_le_bytes(data))
+}
+
+fn write_feature_unit_i16_control(
+    handle: &DeviceHandle<Context>,
+    interface_number: u8,
+    feature_unit_id: u8,
+    channel: u16,
+    control_selector: u16,
+    value_raw: i16,
+) -> Result<(), String> {
+    let request_type = USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE;
+    let value = control_selector | (channel & 0xff);
+    let index = (interface_number as u16) | ((feature_unit_id as u16) << 8);
+    let data = value_raw.to_le_bytes();
+    handle
+        .write_control(
+            request_type,
+            UAC2_REQUEST_SET_CUR,
+            value,
+            index,
+            &data,
+            Duration::from_secs(1),
+        )
+        .map_err(|error| format!("feature-unit control write failed: {}", error))?;
+    Ok(())
+}
+
+fn read_feature_unit_bool_control(
+    handle: &DeviceHandle<Context>,
+    interface_number: u8,
+    feature_unit_id: u8,
+    channel: u16,
+    control_selector: u16,
+) -> Result<bool, String> {
+    let request_type = USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE;
+    let value = control_selector | (channel & 0xff);
+    let index = (interface_number as u16) | ((feature_unit_id as u16) << 8);
+    let mut data = [0u8; 1];
+    let transferred = handle
+        .read_control(
+            request_type,
+            UAC2_REQUEST_GET_CUR,
+            value,
+            index,
+            &mut data,
+            Duration::from_secs(1),
+        )
+        .map_err(|error| format!("feature-unit mute read failed: {}", error))?;
+    if transferred < data.len() {
+        return Err(format!(
+            "feature-unit mute read returned {} bytes, expected {}",
+            transferred,
+            data.len()
+        ));
+    }
+    Ok(data[0] != 0)
+}
+
+fn write_feature_unit_bool_control(
+    handle: &DeviceHandle<Context>,
+    interface_number: u8,
+    feature_unit_id: u8,
+    channel: u16,
+    control_selector: u16,
+    enabled: bool,
+) -> Result<(), String> {
+    let request_type = USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE;
+    let value = control_selector | (channel & 0xff);
+    let index = (interface_number as u16) | ((feature_unit_id as u16) << 8);
+    let data = [u8::from(enabled)];
+    handle
+        .write_control(
+            request_type,
+            UAC2_REQUEST_SET_CUR,
+            value,
+            index,
+            &data,
+            Duration::from_secs(1),
+        )
+        .map_err(|error| format!("feature-unit mute write failed: {}", error))?;
+    Ok(())
+}
+
+fn read_feature_unit_volume_range(
+    handle: &DeviceHandle<Context>,
+    interface_number: u8,
+    feature_unit_id: u8,
+    channel: u16,
+) -> Result<(i16, i16, i16), String> {
+    Ok((
+        read_feature_unit_i16_control(
+            handle,
+            interface_number,
+            feature_unit_id,
+            channel,
+            UAC2_REQUEST_GET_MIN,
+            UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+        )?,
+        read_feature_unit_i16_control(
+            handle,
+            interface_number,
+            feature_unit_id,
+            channel,
+            UAC2_REQUEST_GET_MAX,
+            UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+        )?,
+        read_feature_unit_i16_control(
+            handle,
+            interface_number,
+            feature_unit_id,
+            channel,
+            UAC2_REQUEST_GET_RES,
+            UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+        )?,
+    ))
+}
+
+fn normalize_hardware_volume(value_raw: i16, min_raw: i16, max_raw: i16) -> f64 {
+    if max_raw <= min_raw {
+        return if value_raw >= max_raw { 1.0 } else { 0.0 };
+    }
+
+    ((value_raw - min_raw) as f64 / (max_raw - min_raw) as f64).clamp(0.0, 1.0)
+}
+
+fn quantize_hardware_volume(
+    normalized: f64,
+    min_raw: i16,
+    max_raw: i16,
+    resolution_raw: i16,
+) -> i16 {
+    let span = (max_raw - min_raw) as f64;
+    let raw = min_raw as f64 + normalized.clamp(0.0, 1.0) * span;
+    if resolution_raw <= 0 {
+        return raw.round().clamp(min_raw as f64, max_raw as f64) as i16;
+    }
+
+    let step = resolution_raw as f64;
+    let stepped = min_raw as f64 + ((raw - min_raw as f64) / step).round() * step;
+    stepped.clamp(min_raw as f64, max_raw as f64) as i16
+}
+
+fn build_hardware_volume_control_from_feature_unit(
+    handle: &DeviceHandle<Context>,
+    interface_number: u8,
+    feature_unit: &crate::uac2::FeatureUnit,
+) -> Option<AndroidDirectUsbHardwareVolumeControl> {
+    let volume_channel = feature_unit_channel_with_control(feature_unit, FEATURE_VOLUME)?;
+    let mute_channel = feature_unit_channel_with_control(feature_unit, FEATURE_MUTE);
+    let (min_volume_raw, max_volume_raw, resolution_raw) = read_feature_unit_volume_range(
+        handle,
+        interface_number,
+        feature_unit.b_unit_id,
+        volume_channel,
+    )
+    .ok()?;
+
+    Some(AndroidDirectUsbHardwareVolumeControl {
+        interface_number,
+        feature_unit_id: feature_unit.b_unit_id,
+        volume_channel,
+        mute_channel,
+        min_volume_raw,
+        max_volume_raw,
+        resolution_raw,
+    })
+}
+
+fn discover_hardware_volume_control_for_terminal(
+    handle: &DeviceHandle<Context>,
+    topology: &AndroidAudioControlTopology,
+    terminal_link: Option<u8>,
+) -> Option<AndroidDirectUsbHardwareVolumeControl> {
+    let terminal_link = terminal_link?;
+    let mut pending = vec![terminal_link];
+    let mut visited = HashSet::new();
+
+    while let Some(entity_id) = pending.pop() {
+        if !visited.insert(entity_id) {
+            continue;
+        }
+
+        if let Some(feature_unit) = topology
+            .feature_units
+            .iter()
+            .find(|feature_unit| feature_unit.b_unit_id == entity_id)
+        {
+            if let Some(control) = build_hardware_volume_control_from_feature_unit(
+                handle,
+                topology.interface_number,
+                feature_unit,
+            ) {
+                return Some(control);
+            }
+            pending.push(feature_unit.b_source_id);
+        }
+
+        for feature_unit in &topology.feature_units {
+            if feature_unit.b_source_id == entity_id {
+                if let Some(control) = build_hardware_volume_control_from_feature_unit(
+                    handle,
+                    topology.interface_number,
+                    feature_unit,
+                ) {
+                    return Some(control);
+                }
+                pending.push(feature_unit.b_unit_id);
+            }
+        }
+
+        for output_terminal in &topology.output_terminals {
+            if output_terminal.b_terminal_id == entity_id {
+                pending.push(output_terminal.b_source_id);
+            }
+            if output_terminal.b_source_id == entity_id {
+                pending.push(output_terminal.b_terminal_id);
+            }
+        }
+    }
+
+    None
+}
+
+fn discover_android_usb_hardware_volume_control(
+    device: &Device<Context>,
+    handle: &DeviceHandle<Context>,
+    terminal_link: Option<u8>,
+) -> Option<AndroidDirectUsbHardwareVolumeControl> {
+    let topologies = parse_audio_control_topologies(device).ok()?;
+
+    for topology in &topologies {
+        if let Some(control) =
+            discover_hardware_volume_control_for_terminal(handle, topology, terminal_link)
+        {
+            return Some(control);
+        }
+    }
+
+    for topology in &topologies {
+        for feature_unit in &topology.feature_units {
+            if let Some(control) = build_hardware_volume_control_from_feature_unit(
+                handle,
+                topology.interface_number,
+                feature_unit,
+            ) {
+                return Some(control);
+            }
+        }
+    }
+
+    None
+}
+
+fn refresh_android_usb_hardware_volume_snapshot_with_handle(
+    handle: &DeviceHandle<Context>,
+    control: &AndroidDirectUsbHardwareVolumeControl,
+) -> Result<(f64, Option<bool>), String> {
+    let current_raw = read_feature_unit_i16_control(
+        handle,
+        control.interface_number,
+        control.feature_unit_id,
+        control.volume_channel,
+        UAC2_REQUEST_GET_CUR,
+        UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+    )?;
+    let normalized =
+        normalize_hardware_volume(current_raw, control.min_volume_raw, control.max_volume_raw);
+    let muted = control
+        .mute_channel
+        .map(|channel| {
+            read_feature_unit_bool_control(
+                handle,
+                control.interface_number,
+                control.feature_unit_id,
+                channel,
+                UAC2_FEATURE_UNIT_MUTE_CONTROL,
+            )
+        })
+        .transpose()?;
+    Ok((normalized, muted))
+}
+
+pub fn android_direct_has_hardware_volume_control() -> bool {
+    DIRECT_USB_STATE
+        .lock()
+        .as_ref()
+        .and_then(|state| state.hardware_volume_control.as_ref())
+        .is_some()
+}
+
+pub fn android_direct_cached_hardware_volume() -> Option<f64> {
+    DIRECT_USB_STATE
+        .lock()
+        .as_ref()
+        .and_then(|state| state.hardware_volume_normalized)
+}
+
+pub fn android_direct_cached_hardware_mute() -> Option<bool> {
+    DIRECT_USB_STATE
+        .lock()
+        .as_ref()
+        .and_then(|state| state.hardware_mute_active)
+}
+
+pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
+    let state = DIRECT_USB_STATE
+        .lock()
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "No Android direct USB DAC is registered".to_string())?;
+    let control = state
+        .hardware_volume_control
+        .clone()
+        .ok_or_else(|| "Android direct USB hardware volume is unavailable".to_string())?;
+    let mut claimed_handle = open_transient_usb_handle(&state.device)?;
+    if let Err(error) = claimed_handle.ensure_interface_claimed(control.interface_number) {
+        log_error!(
+            "[USB] Failed to claim AudioControl interface {} for hardware volume: {}",
+            control.interface_number,
+            error
+        );
+    }
+
+    let target_raw = quantize_hardware_volume(
+        volume,
+        control.min_volume_raw,
+        control.max_volume_raw,
+        control.resolution_raw,
+    );
+    let write_result = write_feature_unit_i16_control(
+        &claimed_handle.handle,
+        control.interface_number,
+        control.feature_unit_id,
+        control.volume_channel,
+        UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+        target_raw,
+    );
+    let snapshot_result =
+        refresh_android_usb_hardware_volume_snapshot_with_handle(&claimed_handle.handle, &control);
+    release_claimed_interfaces(&claimed_handle.handle, &claimed_handle.claimed_interfaces);
+    write_result?;
+    let (normalized, muted) = snapshot_result?;
+    set_hardware_volume_snapshot(Some(normalized), muted);
+    Ok(())
+}
+
+pub fn android_direct_set_hardware_mute(muted: bool) -> Result<(), String> {
+    let state = DIRECT_USB_STATE
+        .lock()
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "No Android direct USB DAC is registered".to_string())?;
+    let control = state
+        .hardware_volume_control
+        .clone()
+        .ok_or_else(|| "Android direct USB hardware mute is unavailable".to_string())?;
+    let mute_channel = control
+        .mute_channel
+        .ok_or_else(|| "Android direct USB hardware mute is unavailable".to_string())?;
+    let mut claimed_handle = open_transient_usb_handle(&state.device)?;
+    if let Err(error) = claimed_handle.ensure_interface_claimed(control.interface_number) {
+        log_error!(
+            "[USB] Failed to claim AudioControl interface {} for hardware mute: {}",
+            control.interface_number,
+            error
+        );
+    }
+
+    let write_result = write_feature_unit_bool_control(
+        &claimed_handle.handle,
+        control.interface_number,
+        control.feature_unit_id,
+        mute_channel,
+        UAC2_FEATURE_UNIT_MUTE_CONTROL,
+        muted,
+    );
+    let snapshot_result =
+        refresh_android_usb_hardware_volume_snapshot_with_handle(&claimed_handle.handle, &control);
+    release_claimed_interfaces(&claimed_handle.handle, &claimed_handle.claimed_interfaces);
+    write_result?;
+    let (normalized, muted) = snapshot_result?;
+    set_hardware_volume_snapshot(Some(normalized), muted);
+    Ok(())
+}
+
 fn inspect_android_usb_capabilities(
     device: &AndroidDirectUsbDevice,
 ) -> Result<AndroidDirectUsbCapabilityModel, String> {
@@ -1667,11 +2461,12 @@ fn inspect_android_usb_capabilities(
     let handle = unsafe { context.open_device_with_fd(device.fd) }
         .map_err(|error| format!("Failed to wrap Android USB file descriptor: {}", error))?;
     let inspected_device = handle.device();
-    build_android_usb_capability_model(&inspected_device, inspected_device.speed())
+    build_android_usb_capability_model(&inspected_device, &handle, inspected_device.speed())
 }
 
 fn build_android_usb_capability_model(
     device: &Device<Context>,
+    handle: &DeviceHandle<Context>,
     speed: Speed,
 ) -> Result<AndroidDirectUsbCapabilityModel, String> {
     let config_descriptor = device
@@ -1682,6 +2477,8 @@ fn build_android_usb_capability_model(
     let mut supported_sample_rates = Vec::new();
     let mut supported_bit_depths = Vec::new();
     let mut supported_channels = Vec::new();
+    let mut stream_rate_cache =
+        std::collections::HashMap::<(u8, Option<u8>), Vec<SamplingFrequencySubrange>>::new();
 
     for interface in config_descriptor.interfaces() {
         for descriptor in interface.descriptors() {
@@ -1694,6 +2491,18 @@ fn build_android_usb_capability_model(
             let Some(stream_format) = parse_android_streaming_interface_format(&descriptor) else {
                 continue;
             };
+            let sample_rate_ranges = stream_rate_cache
+                .entry((descriptor.interface_number(), stream_format.terminal_link))
+                .or_insert_with(|| {
+                    discover_stream_sample_rate_ranges(
+                        device,
+                        handle,
+                        descriptor.interface_number(),
+                        stream_format.terminal_link,
+                    )
+                })
+                .clone();
+            let sample_rates = representative_sample_rates_from_ranges(&sample_rate_ranges);
 
             for endpoint in descriptor.endpoint_descriptors() {
                 if endpoint.direction() != Direction::Out
@@ -1708,7 +2517,7 @@ fn build_android_usb_capability_model(
 
                 supported_bit_depths.push(stream_format.bit_resolution);
                 supported_channels.push(stream_format.channels);
-                supported_sample_rates.extend(stream_format.sample_rates.iter().copied());
+                supported_sample_rates.extend(sample_rates.iter().copied());
                 alt_settings.push(AndroidDirectUsbAltCapability {
                     interface_number: descriptor.interface_number(),
                     alt_setting: descriptor.setting_number(),
@@ -1720,7 +2529,7 @@ fn build_android_usb_capability_model(
                     channels: stream_format.channels,
                     subslot_size: stream_format.subslot_size,
                     bit_resolution: stream_format.bit_resolution,
-                    sample_rates: stream_format.sample_rates.clone(),
+                    sample_rates: sample_rates.clone(),
                     sync_type: sync_type_label(endpoint.sync_type()).to_string(),
                     usage_type: usage_type_label(endpoint.usage_type()).to_string(),
                     refresh: endpoint.refresh(),
@@ -1942,17 +2751,23 @@ fn create_android_usb_backend_inner(
     let device = claimed_handle.handle.device();
     let speed = device.speed();
     let lock_requested = current_lock_requested_for_fd(state.device.fd);
-    set_capability_model(build_android_usb_capability_model(&device, speed).ok());
-    let candidate = match select_stream_candidate(&device, playback_format, speed) {
-        Ok(candidate) => candidate,
-        Err(error) => {
-            set_last_error(Some(error.clone()));
-            set_direct_mode_refusal_reason(Some(error.clone()));
-            set_android_usb_engine_state(AndroidDirectUsbEngineState::Error, Some(error.clone()));
-            cleanup_claimed_handle(claimed_handle, None, lock_requested);
-            return Err(error);
-        }
-    };
+    set_capability_model(
+        build_android_usb_capability_model(&device, &claimed_handle.handle, speed).ok(),
+    );
+    let candidate =
+        match select_stream_candidate(&device, &claimed_handle.handle, playback_format, speed) {
+            Ok(candidate) => candidate,
+            Err(error) => {
+                set_last_error(Some(error.clone()));
+                set_direct_mode_refusal_reason(Some(error.clone()));
+                set_android_usb_engine_state(
+                    AndroidDirectUsbEngineState::Error,
+                    Some(error.clone()),
+                );
+                cleanup_claimed_handle(claimed_handle, None, lock_requested);
+                return Err(error);
+            }
+        };
     let clock = find_audio_control_clock(&device, &claimed_handle.handle, candidate.terminal_link);
     let clock_detection_msg = match &clock {
         Some(c) => format!(
@@ -1970,6 +2785,45 @@ fn create_android_usb_backend_inner(
     set_direct_mode_refusal_reason(None);
     set_usb_stream_stable(false);
     set_active_transport(Some(&candidate));
+    let hardware_volume_control = discover_android_usb_hardware_volume_control(
+        &device,
+        &claimed_handle.handle,
+        candidate.terminal_link,
+    );
+    set_hardware_volume_control(hardware_volume_control.clone());
+    if let Some(control) = hardware_volume_control.as_ref() {
+        log_info!(
+            "[USB] Hardware volume control found: feature_unit={}, interface={}, min={}, max={}, res={}",
+            control.feature_unit_id,
+            control.interface_number,
+            control.min_volume_raw,
+            control.max_volume_raw,
+            control.resolution_raw
+        );
+        match refresh_android_usb_hardware_volume_snapshot_with_handle(
+            &claimed_handle.handle,
+            control,
+        ) {
+            Ok((volume, muted)) => {
+                log_info!(
+                    "[USB] Hardware volume initial: volume={}, muted={:?}",
+                    volume,
+                    muted
+                );
+                set_hardware_volume_snapshot(Some(volume), muted);
+            }
+            Err(error) => {
+                log_error!(
+                    "[USB] Failed to query hardware volume snapshot for feature unit {} on interface {}: {}",
+                    control.feature_unit_id,
+                    control.interface_number,
+                    error
+                );
+            }
+        }
+    } else {
+        log_info!("[USB] No hardware volume control discovered");
+    }
     set_clock_status(clock.map(|clock| {
         AndroidDirectUsbClockStatus {
             interface_number: clock.interface_number,
@@ -2159,16 +3013,36 @@ fn create_android_usb_backend_inner(
                     } else {
                         clock_verification_passed = true;
                     }
-                } else if stream_descriptor_verifies_rate(&candidate, playback_format.sample_rate) {
-                    reported_sample_rate = Some(playback_format.sample_rate);
-                    clock_verification_passed = true;
-                    eprintln!(
-                        "Android USB direct: using descriptor-advertised fixed clock {} Hz on alt setting {} without SET_CUR",
-                        playback_format.sample_rate, candidate.alt_setting
-                    );
+                } else if let Ok(ranges) = get_sampling_frequency_ranges(
+                    &claimed_handle.handle,
+                    clock.interface_number,
+                    clock.clock_id,
+                ) {
+                    if sampling_frequency_ranges_support_rate(&ranges, playback_format.sample_rate)
+                    {
+                        reported_sample_rate = Some(playback_format.sample_rate);
+                        clock_verification_passed = true;
+                        eprintln!(
+                            "Android USB direct: using GET_RANGE-verified fixed clock {} Hz on alt setting {} without SET_CUR",
+                            playback_format.sample_rate, candidate.alt_setting
+                        );
+                    } else {
+                        eprintln!(
+                            "[USB] Cannot verify fixed clock {}Hz for alt {} from GET_RANGE — will refuse streaming",
+                            playback_format.sample_rate, candidate.alt_setting,
+                        );
+                        reported_sample_rate = None;
+                        clock_verification_passed = false;
+                        set_clock_verification(
+                            clock_control_attempted,
+                            clock_control_succeeded,
+                            false,
+                            None,
+                        );
+                    }
                 } else {
                     eprintln!(
-                        "[USB] Cannot verify fixed clock {}Hz for alt {} — will refuse streaming",
+                        "[USB] Cannot verify fixed clock {}Hz for alt {} because GET_RANGE is unavailable — will refuse streaming",
                         playback_format.sample_rate, candidate.alt_setting,
                     );
                     reported_sample_rate = None;
@@ -2189,24 +3063,9 @@ fn create_android_usb_backend_inner(
                 );
             }
         }
-    } else if stream_descriptor_verifies_rate(&candidate, playback_format.sample_rate) {
-        clock_verification_passed = true;
-        reported_sample_rate = Some(playback_format.sample_rate);
-        set_clock_verification(
-            clock_control_attempted,
-            clock_control_succeeded,
-            true,
-            reported_sample_rate,
-        );
-        let msg = format!(
-            "[clock-diag] No clock entity; using descriptor-advertised fixed rate {}Hz on alt {}",
-            playback_format.sample_rate, candidate.alt_setting,
-        );
-        log::info!("{}", msg);
-        set_last_error(Some(msg));
     } else {
         let message = format!(
-            "[clock-diag] Cannot verify {}Hz: no clock entity + alt {} does not advertise rate — will refuse",
+            "[clock-diag] Cannot verify {}Hz: no clock entity for alt {} — will refuse",
             playback_format.sample_rate, candidate.alt_setting
         );
         reported_sample_rate = None;
@@ -2616,71 +3475,6 @@ impl Drop for AndroidDirectUsbBackend {
     }
 }
 
-impl IsoPacketScheduler {
-    fn new(sample_rate: u32, bytes_per_frame: usize, service_interval_us: u32) -> Self {
-        let packets_per_transfer = if service_interval_us >= 1_000 {
-            16usize
-        } else {
-            (4_000u32 / service_interval_us).clamp(16, 32) as usize
-        };
-
-        Self {
-            sample_rate,
-            service_interval_us,
-            nominal_remainder: 0,
-            bytes_per_frame,
-            packets_per_transfer,
-            feedback_frames_per_packet: None,
-            feedback_remainder: 0.0,
-        }
-    }
-
-    fn next_transfer_packet_bytes(&mut self) -> Vec<usize> {
-        (0..self.packets_per_transfer)
-            .map(|_| self.next_packet_bytes())
-            .collect()
-    }
-
-    fn nominal_frames_per_packet(&self) -> f64 {
-        self.sample_rate as f64 * self.service_interval_us as f64 / 1_000_000.0
-    }
-
-    fn update_feedback_frames_per_packet(&mut self, frames_per_packet: f64) {
-        if !frames_per_packet.is_finite() || frames_per_packet <= 0.0 {
-            return;
-        }
-
-        let nominal = self.nominal_frames_per_packet().max(0.001);
-        let clamped = frames_per_packet.clamp(nominal * 0.5, nominal * 1.5);
-        self.feedback_frames_per_packet = Some(match self.feedback_frames_per_packet {
-            Some(previous) => previous * 0.8 + clamped * 0.2,
-            None => clamped,
-        });
-    }
-
-    /// After enough successful isochronous completions, stop using feedback-derived frame counts.
-    fn lock_to_nominal_packet_timing(&mut self) {
-        self.feedback_frames_per_packet = None;
-        self.feedback_remainder = 0.0;
-    }
-
-    fn next_packet_bytes(&mut self) -> usize {
-        let frames = if let Some(feedback_frames_per_packet) = self.feedback_frames_per_packet {
-            self.feedback_remainder += feedback_frames_per_packet;
-            let frames = self.feedback_remainder.floor() as usize;
-            self.feedback_remainder -= frames as f64;
-            frames
-        } else {
-            let total = self.nominal_remainder
-                + (self.sample_rate as u64 * self.service_interval_us as u64);
-            let frames = (total / 1_000_000) as usize;
-            self.nominal_remainder = total % 1_000_000;
-            frames
-        };
-        frames.saturating_mul(self.bytes_per_frame)
-    }
-}
-
 fn run_usb_render_loop(
     callback_data: Arc<AudioCallbackData>,
     event_tx: Sender<AudioEvent>,
@@ -2860,6 +3654,236 @@ fn run_usb_render_loop(
     }
 }
 
+fn prepare_iso_transfer_payload(
+    scheduler: &mut IsoPacketScheduler,
+    pcm_buffer: &Arc<Mutex<AndroidDirectUsbPcmRingBuffer>>,
+    runtime_stats: &AndroidDirectUsbRuntimeStats,
+    candidate: &AndroidIsoStreamCandidate,
+    slot_bytes: usize,
+    channels: usize,
+    bytes_per_frame: usize,
+) -> Result<Option<IsoTransferPayload>, String> {
+    let packet_sizes = scheduler.next_transfer_packet_bytes();
+    let total_bytes: usize = packet_sizes.iter().sum();
+    if total_bytes == 0 {
+        return Ok(None);
+    }
+
+    if packet_sizes
+        .iter()
+        .any(|packet_size| *packet_size > candidate.max_packet_bytes)
+    {
+        return Err(format!(
+            "Android USB direct packet exceeds endpoint max packet size: packets={:?}, endpoint_max={}",
+            packet_sizes, candidate.max_packet_bytes
+        ));
+    }
+
+    if packet_sizes
+        .iter()
+        .any(|packet_size| packet_size % bytes_per_frame != 0)
+    {
+        return Err(format!(
+            "Android USB direct packet is not aligned to {}-byte transport frames: {:?}",
+            bytes_per_frame, packet_sizes
+        ));
+    }
+
+    let total_samples = total_bytes / slot_bytes;
+    let mut packet_samples = vec![0i32; total_samples];
+    let underrun = {
+        let mut guard = pcm_buffer.lock();
+        let underrun = guard.pop_into_or_pad(&mut packet_samples, channels);
+        runtime_stats
+            .buffered_samples
+            .store(guard.len_samples(), Ordering::Relaxed);
+        underrun
+    };
+
+    let mut transfer_buffer = vec![0u8; total_bytes];
+    encode_usb_pcm_slots(
+        &packet_samples,
+        &mut transfer_buffer,
+        candidate.subslot_size,
+        candidate.bit_resolution,
+    )?;
+
+    Ok(Some(IsoTransferPayload {
+        frame_count: packet_samples.len() / channels,
+        packet_sizes,
+        packet_samples,
+        transfer_buffer,
+        underrun,
+    }))
+}
+
+fn update_transfer_timing_stats(
+    runtime_stats: &AndroidDirectUsbRuntimeStats,
+    turnaround_us: u64,
+    submit_gap_us: u64,
+    stream_started_at: Instant,
+) {
+    runtime_stats
+        .last_transfer_turnaround_us
+        .store(turnaround_us, Ordering::Relaxed);
+    if turnaround_us
+        > runtime_stats
+            .max_transfer_turnaround_us
+            .load(Ordering::Relaxed)
+    {
+        runtime_stats
+            .max_transfer_turnaround_us
+            .store(turnaround_us, Ordering::Relaxed);
+    }
+
+    runtime_stats
+        .last_submit_gap_us
+        .store(submit_gap_us, Ordering::Relaxed);
+    if submit_gap_us > runtime_stats.max_submit_gap_us.load(Ordering::Relaxed) {
+        runtime_stats
+            .max_submit_gap_us
+            .store(submit_gap_us, Ordering::Relaxed);
+    }
+
+    let elapsed_us = stream_started_at.elapsed().as_micros().max(1) as u64;
+    let completed_frames = runtime_stats.consumer_frames.load(Ordering::Relaxed);
+    let effective_consumer_rate_milli_hz = completed_frames
+        .saturating_mul(1_000_000_000)
+        .checked_div(elapsed_us)
+        .unwrap_or(0);
+    runtime_stats
+        .effective_consumer_rate_milli_hz
+        .store(effective_consumer_rate_milli_hz, Ordering::Relaxed);
+}
+
+fn drain_iso_transfer_slots(context: &Context, slots: &mut [IsoTransferSlot]) {
+    for slot in slots.iter_mut() {
+        slot.cancel();
+    }
+
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while slots.iter().any(|slot| slot.in_flight) && Instant::now() < deadline {
+        let _ = context.handle_events(Some(Duration::from_millis(10)));
+        for slot in slots.iter_mut() {
+            if slot.take_completion_status().is_some() {
+                slot.mark_completed();
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_prepared_iso_transfer(
+    payload: &IsoTransferPayload,
+    playback_format: AndroidDirectUsbPlaybackFormat,
+    candidate: &AndroidIsoStreamCandidate,
+    runtime_stats: &AndroidDirectUsbRuntimeStats,
+    bytes_per_frame: usize,
+    logged_transfer_preview: &mut bool,
+    logged_usb_encode_format: &mut bool,
+    underrun_count: &mut u64,
+    loud_transfer_log_count: &mut u64,
+) {
+    if !*logged_usb_encode_format {
+        log_info!(
+            "[USB] PCM encoding: {}-bit (subslot {} bytes) per descriptor",
+            candidate.bit_resolution,
+            candidate.subslot_size,
+        );
+        *logged_usb_encode_format = true;
+    }
+
+    runtime_stats.frames_per_packet.store(
+        payload.packet_sizes.first().copied().unwrap_or_default() / bytes_per_frame,
+        Ordering::Relaxed,
+    );
+
+    let packet_max_abs_i64 = payload
+        .packet_samples
+        .iter()
+        .map(|sample| i64::from(*sample).abs())
+        .max()
+        .unwrap_or(0);
+    let packet_peak_equiv_f32 = (packet_max_abs_i64 as f64 / 2_147_483_647.0).min(1.0);
+    if packet_peak_equiv_f32 >= f64::from(ANDROID_USB_LOUD_RENDER_LOG_THRESHOLD) {
+        *loud_transfer_log_count = (*loud_transfer_log_count).saturating_add(1);
+        if *loud_transfer_log_count <= 4
+            || *loud_transfer_log_count % ANDROID_USB_LOUD_TRANSFER_LOG_INTERVAL == 0
+        {
+            let max_abs_i16 = payload
+                .packet_samples
+                .iter()
+                .map(|sample| i32::from(linear_pcm_i32_to_i16(*sample)).abs())
+                .max()
+                .unwrap_or(0);
+            let last_push_i32 = runtime_stats.last_push_max_abs_i32.load(Ordering::Relaxed);
+            let last_push_f32 = f32::from_bits(
+                runtime_stats
+                    .last_push_max_abs_f32_bits
+                    .load(Ordering::Relaxed),
+            );
+            log_info!(
+                "[USB-PEAK] loud_packet packet_peak_equiv_f32={:.6} max_abs_i32={} max_abs_i16={} samples={} subslot={} bit_resolution={} last_push_max_abs_i32={} last_push_peak_abs_f32={:.6}",
+                packet_peak_equiv_f32,
+                packet_max_abs_i64,
+                max_abs_i16,
+                payload.packet_samples.len(),
+                candidate.subslot_size,
+                candidate.bit_resolution,
+                last_push_i32,
+                last_push_f32,
+            );
+        }
+    }
+
+    if payload.underrun {
+        *underrun_count = (*underrun_count).saturating_add(1);
+        runtime_stats
+            .underrun_count
+            .store(*underrun_count, Ordering::Relaxed);
+        if *underrun_count <= 4 || *underrun_count % 64 == 0 {
+            log_info!(
+                "[USB] underrun count={} buffer_fill={}ms frames_per_packet={} packets_per_transfer={}",
+                *underrun_count,
+                runtime_stats.buffer_fill_ms(),
+                payload.packet_sizes.first().copied().unwrap_or_default() / bytes_per_frame,
+                payload.packet_sizes.len(),
+            );
+        }
+    }
+
+    if !*logged_transfer_preview {
+        let has_nonzero = payload.packet_samples.iter().any(|sample| *sample != 0);
+        if has_nonzero {
+            let i32_pre: Vec<i32> = payload.packet_samples.iter().take(10).copied().collect();
+            let byte_pre: Vec<u8> = payload.transfer_buffer.iter().take(24).copied().collect();
+            log_info!(
+                "[USB-OUTPUT] first 10 i32 samples (non-zero): {:?}",
+                i32_pre,
+            );
+            if candidate.subslot_size == 2 && candidate.bit_resolution == 16 {
+                let i16_pre: Vec<i16> = payload
+                    .packet_samples
+                    .iter()
+                    .take(10)
+                    .copied()
+                    .map(linear_pcm_i32_to_i16)
+                    .collect();
+                log_info!("[USB-OUTPUT] first 10 as i16 (linear >>16): {:?}", i16_pre,);
+            }
+            log_info!("[USB-OUTPUT] first 24 encoded bytes: {:?}", byte_pre,);
+            log_stream_debug_preview(
+                playback_format,
+                candidate,
+                &payload.packet_sizes,
+                &payload.packet_samples,
+                &payload.transfer_buffer,
+            );
+            *logged_transfer_preview = true;
+        }
+    }
+}
+
 fn run_usb_output_loop(
     claimed_handle: AndroidDirectUsbClaimedHandle,
     candidate: AndroidIsoStreamCandidate,
@@ -2921,6 +3945,10 @@ fn run_usb_output_loop(
         bytes_per_frame,
         candidate.service_interval_us,
     );
+    let transfer_slot_count = ANDROID_USB_TRANSFER_QUEUE_DEPTH.max(1);
+    runtime_stats
+        .transfer_queue_depth
+        .store(transfer_slot_count, Ordering::Relaxed);
     let mut logged_transfer_preview = false;
     let mut logged_usb_encode_format = false;
     // Isochronous OUT transfers that completed successfully (libusb COMPLETED). Not reset on underrun.
@@ -2929,6 +3957,12 @@ fn run_usb_output_loop(
     let mut underrun_count = 0u64;
     let mut feedback_report_count = 0usize;
     let mut loud_transfer_log_count = 0u64;
+    let transfer_buffer_capacity = scheduler
+        .packets_per_transfer()
+        .saturating_mul(candidate.max_packet_bytes.max(1));
+    let mut slots = Vec::with_capacity(transfer_slot_count);
+    let mut active_slots = 0usize;
+    let mut fatal_error: Option<String> = None;
 
     let priming_target = runtime_stats.buffer_target_samples;
     log_info!(
@@ -2948,182 +3982,111 @@ fn run_usb_output_loop(
         thread::sleep(Duration::from_millis(2));
     }
 
-    while !stop.load(Ordering::Acquire) {
-        let packet_bytes = scheduler.next_transfer_packet_bytes();
-        let total_bytes: usize = packet_bytes.iter().sum();
-        if total_bytes == 0 {
-            thread::sleep(Duration::from_millis(1));
-            continue;
-        }
-
-        if packet_bytes
-            .iter()
-            .any(|packet_size| *packet_size > candidate.max_packet_bytes)
-        {
-            let error = format!(
-                "Android USB direct packet exceeds endpoint max packet size: packets={:?}, endpoint_max={}",
-                packet_bytes, candidate.max_packet_bytes
-            );
-            set_last_error(Some(error.clone()));
-            set_android_usb_engine_state(AndroidDirectUsbEngineState::Error, Some(error.clone()));
-            let _ = event_tx.try_send(AudioEvent::Error { message: error });
-            break;
-        }
-
-        if packet_bytes
-            .iter()
-            .any(|packet_size| packet_size % bytes_per_frame != 0)
-        {
-            let error = format!(
-                "Android USB direct packet is not aligned to {}-byte transport frames: {:?}",
-                bytes_per_frame, packet_bytes
-            );
-            set_last_error(Some(error.clone()));
-            set_android_usb_engine_state(AndroidDirectUsbEngineState::Error, Some(error.clone()));
-            let _ = event_tx.try_send(AudioEvent::Error { message: error });
-            break;
-        }
-
-        let total_samples = total_bytes / slot_bytes;
-        let mut packet_samples = vec![0i32; total_samples];
-        let underrun = {
-            let mut guard = pcm_buffer.lock();
-            let underrun = guard.pop_into_or_pad(&mut packet_samples, channels);
-            runtime_stats
-                .buffered_samples
-                .store(guard.len_samples(), Ordering::Relaxed);
-            underrun
-        };
-        let mut transfer_buffer = vec![0u8; total_bytes];
-        if !logged_usb_encode_format {
-            log_info!(
-                "[USB] PCM encoding: {}-bit (subslot {} bytes) per descriptor",
-                candidate.bit_resolution,
-                candidate.subslot_size,
-            );
-            logged_usb_encode_format = true;
-        }
-        if let Err(error) = encode_usb_pcm_slots(
-            &packet_samples,
-            &mut transfer_buffer,
-            candidate.subslot_size,
-            candidate.bit_resolution,
-        ) {
-            let message = format!("Android USB direct PCM packing failed: {}", error);
-            set_last_error(Some(message.clone()));
-            set_android_usb_engine_state(AndroidDirectUsbEngineState::Error, Some(message.clone()));
-            let _ = event_tx.try_send(AudioEvent::Error { message });
-            break;
-        }
-
-        let packet_max_abs_i64 = packet_samples
-            .iter()
-            .map(|sample| i64::from(*sample).abs())
-            .max()
-            .unwrap_or(0);
-        let packet_peak_equiv_f32 = (packet_max_abs_i64 as f64 / 2_147_483_647.0).min(1.0);
-        if packet_peak_equiv_f32 >= f64::from(ANDROID_USB_LOUD_RENDER_LOG_THRESHOLD) {
-            loud_transfer_log_count = loud_transfer_log_count.saturating_add(1);
-            if loud_transfer_log_count <= 4
-                || loud_transfer_log_count % ANDROID_USB_LOUD_TRANSFER_LOG_INTERVAL == 0
-            {
-                let max_abs_i16 = packet_samples
-                    .iter()
-                    .map(|sample| i32::from(linear_pcm_i32_to_i16(*sample)).abs())
-                    .max()
-                    .unwrap_or(0);
-                let last_push_i32 = runtime_stats.last_push_max_abs_i32.load(Ordering::Relaxed);
-                let last_push_f32 = f32::from_bits(
-                    runtime_stats
-                        .last_push_max_abs_f32_bits
-                        .load(Ordering::Relaxed),
-                );
-                log_info!(
-                    "[USB-PEAK] loud_packet packet_peak_equiv_f32={:.6} max_abs_i32={} max_abs_i16={} samples={} subslot={} bit_resolution={} last_push_max_abs_i32={} last_push_peak_abs_f32={:.6}",
-                    packet_peak_equiv_f32,
-                    packet_max_abs_i64,
-                    max_abs_i16,
-                    packet_samples.len(),
-                    candidate.subslot_size,
-                    candidate.bit_resolution,
-                    last_push_i32,
-                    last_push_f32,
-                );
+    for _ in 0..transfer_slot_count {
+        match IsoTransferSlot::new(scheduler.packets_per_transfer(), transfer_buffer_capacity) {
+            Ok(slot) => slots.push(slot),
+            Err(error) => {
+                fatal_error = Some(format!(
+                    "Android USB direct failed to allocate transfer slot: {}",
+                    error
+                ));
+                break;
             }
         }
+    }
 
-        if underrun {
-            underrun_count = underrun_count.saturating_add(1);
-            runtime_stats
-                .underrun_count
-                .store(underrun_count, Ordering::Relaxed);
-            if underrun_count <= 4 || underrun_count % 64 == 0 {
-                log_info!(
-                    "[USB] underrun count={} buffer_fill={}ms frames_per_packet={} packets_per_transfer={}",
-                    underrun_count,
-                    runtime_stats.buffer_fill_ms(),
-                    packet_bytes.first().copied().unwrap_or_default() / bytes_per_frame,
-                    packet_bytes.len(),
-                );
-            }
-        }
-
-        if !logged_transfer_preview {
-            let has_nonzero = packet_samples.iter().any(|s| *s != 0);
-            if has_nonzero {
-                let i32_pre: Vec<i32> = packet_samples.iter().take(10).copied().collect();
-                let byte_pre: Vec<u8> = transfer_buffer.iter().take(24).copied().collect();
-                log_info!(
-                    "[USB-OUTPUT] first 10 i32 samples (non-zero): {:?}",
-                    i32_pre,
-                );
-                if candidate.subslot_size == 2 && candidate.bit_resolution == 16 {
-                    let i16_pre: Vec<i16> = packet_samples
-                        .iter()
-                        .take(10)
-                        .copied()
-                        .map(linear_pcm_i32_to_i16)
-                        .collect();
-                    log_info!("[USB-OUTPUT] first 10 as i16 (linear >>16): {:?}", i16_pre,);
+    let stream_started_at = Instant::now();
+    if fatal_error.is_none() {
+        for slot in slots.iter_mut() {
+            let payload = match prepare_iso_transfer_payload(
+                &mut scheduler,
+                &pcm_buffer,
+                &runtime_stats,
+                &candidate,
+                slot_bytes,
+                channels,
+                bytes_per_frame,
+            ) {
+                Ok(Some(payload)) => payload,
+                Ok(None) => continue,
+                Err(error) => {
+                    fatal_error = Some(format!(
+                        "Android USB direct transfer preparation failed: {}",
+                        error
+                    ));
+                    break;
                 }
-                log_info!("[USB-OUTPUT] first 24 encoded bytes: {:?}", byte_pre,);
-                log_stream_debug_preview(
-                    playback_format,
-                    &candidate,
-                    &packet_bytes,
-                    &packet_samples,
-                    &transfer_buffer,
-                );
-                logged_transfer_preview = true;
-            }
-        }
+            };
 
-        if let Err(error) = submit_iso_transfer(
-            &context,
-            &handle,
-            candidate.endpoint_address,
-            &packet_bytes,
-            transfer_buffer,
-        ) {
-            set_usb_stream_stable(false);
-            set_last_error(Some(format!(
-                "Android USB direct transfer failed: {}",
-                error
-            )));
-            set_android_usb_engine_state(
-                AndroidDirectUsbEngineState::Error,
-                Some(format!("Android USB direct transfer failed: {}", error)),
+            record_prepared_iso_transfer(
+                &payload,
+                playback_format,
+                &candidate,
+                &runtime_stats,
+                bytes_per_frame,
+                &mut logged_transfer_preview,
+                &mut logged_usb_encode_format,
+                &mut underrun_count,
+                &mut loud_transfer_log_count,
             );
-            let _ = event_tx.try_send(AudioEvent::Error {
-                message: format!("Android USB direct transfer failed: {}", error),
-            });
-            eprintln!("Android USB direct transfer failed: {}", error);
+
+            if let Err(error) = slot.submit(&handle, candidate.endpoint_address, payload) {
+                fatal_error = Some(format!("Android USB direct transfer failed: {}", error));
+                break;
+            }
+            active_slots = active_slots.saturating_add(1);
+        }
+    }
+
+    while fatal_error.is_none() && (!stop.load(Ordering::Acquire) || active_slots > 0) {
+        if active_slots == 0 {
             break;
         }
 
-        successful_transfers = successful_transfers.saturating_add(1);
+        if let Err(error) = context.handle_events(Some(Duration::from_millis(50))) {
+            fatal_error = Some(format!("libusb_handle_events failed: {}", error));
+            break;
+        }
 
-        if successful_transfers < ANDROID_USB_STABLE_TRANSFER_THRESHOLD {
+        for slot in slots.iter_mut() {
+            let Some(status) = slot.take_completion_status() else {
+                continue;
+            };
+
+            active_slots = active_slots.saturating_sub(1);
+            let turnaround_us = slot.turnaround_us().unwrap_or_default();
+            let queued_frame_count = slot.queued_frame_count as u64;
+            let completed_underrun = slot.queued_underrun;
+            let transfer_result = match status {
+                LIBUSB_TRANSFER_COMPLETED => slot.validate_packets(),
+                LIBUSB_TRANSFER_TIMED_OUT => Err("isochronous transfer timed out".to_string()),
+                LIBUSB_TRANSFER_STALL => Err("isochronous transfer stalled".to_string()),
+                LIBUSB_TRANSFER_NO_DEVICE => Err("USB DAC disconnected".to_string()),
+                LIBUSB_TRANSFER_OVERFLOW => Err("isochronous transfer overflow".to_string()),
+                LIBUSB_TRANSFER_CANCELLED => Err("isochronous transfer cancelled".to_string()),
+                LIBUSB_TRANSFER_ERROR => Err("isochronous transfer failed".to_string()),
+                other => Err(format!(
+                    "isochronous transfer returned status {} ({})",
+                    other,
+                    iso_transfer_status_label(other)
+                )),
+            };
+            slot.mark_completed();
+
+            if let Err(error) = transfer_result {
+                fatal_error = Some(format!("Android USB direct transfer failed: {}", error));
+                break;
+            }
+
+            successful_transfers = successful_transfers.saturating_add(1);
+            let completed_transfers = runtime_stats
+                .completed_transfers
+                .fetch_add(1, Ordering::Relaxed)
+                .saturating_add(1);
+            runtime_stats
+                .consumer_frames
+                .fetch_add(queued_frame_count, Ordering::Relaxed);
+
             if let Some(feedback_endpoint) = candidate.feedback_endpoint {
                 match read_feedback_report(&context, &handle, feedback_endpoint, device_fd) {
                     Ok(Some(feedback_report)) => {
@@ -3150,34 +4113,120 @@ fn run_usb_output_loop(
                     }
                 }
             }
-        }
 
-        runtime_stats.frames_per_packet.store(
-            packet_bytes.first().copied().unwrap_or_default() / bytes_per_frame,
-            Ordering::Relaxed,
-        );
-        runtime_stats
-            .consumer_frames
-            .fetch_add((packet_samples.len() / channels) as u64, Ordering::Relaxed);
+            let mut submit_gap_us = 0u64;
+            if !stop.load(Ordering::Acquire) {
+                let completion_detected_at = Instant::now();
+                match prepare_iso_transfer_payload(
+                    &mut scheduler,
+                    &pcm_buffer,
+                    &runtime_stats,
+                    &candidate,
+                    slot_bytes,
+                    channels,
+                    bytes_per_frame,
+                ) {
+                    Ok(Some(payload)) => {
+                        record_prepared_iso_transfer(
+                            &payload,
+                            playback_format,
+                            &candidate,
+                            &runtime_stats,
+                            bytes_per_frame,
+                            &mut logged_transfer_preview,
+                            &mut logged_usb_encode_format,
+                            &mut underrun_count,
+                            &mut loud_transfer_log_count,
+                        );
 
-        if successful_transfers >= ANDROID_USB_STABLE_TRANSFER_THRESHOLD {
-            if !underrun {
-                set_usb_stream_stable(true);
-                if !logged_usb_stabilized {
-                    scheduler.lock_to_nominal_packet_timing();
-                    log_info!(
-                        "[USB] USB stream stabilized after {} isochronous transfers (nominal packet timing locked)",
-                        successful_transfers
-                    );
-                    logged_usb_stabilized = true;
+                        if let Err(error) =
+                            slot.submit(&handle, candidate.endpoint_address, payload)
+                        {
+                            fatal_error =
+                                Some(format!("Android USB direct transfer failed: {}", error));
+                            break;
+                        }
+                        submit_gap_us = completion_detected_at
+                            .elapsed()
+                            .as_micros()
+                            .min(u128::from(u64::MAX))
+                            as u64;
+                        active_slots = active_slots.saturating_add(1);
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        fatal_error = Some(format!(
+                            "Android USB direct transfer preparation failed: {}",
+                            error
+                        ));
+                        break;
+                    }
+                }
+            }
+
+            update_transfer_timing_stats(
+                &runtime_stats,
+                turnaround_us,
+                submit_gap_us,
+                stream_started_at,
+            );
+
+            if completed_transfers % ANDROID_USB_TIMING_LOG_INTERVAL == 0 {
+                let effective_consumer_rate_hz = runtime_stats
+                    .effective_consumer_rate_milli_hz
+                    .load(Ordering::Relaxed)
+                    as f64
+                    / 1_000.0;
+                log_info!(
+                    "[USB-TIMING] completed={} queueDepth={} effectiveRateHz={:.3} lastTurnaroundUs={} maxTurnaroundUs={} lastSubmitGapUs={} maxSubmitGapUs={}",
+                    completed_transfers,
+                    runtime_stats.transfer_queue_depth.load(Ordering::Relaxed),
+                    effective_consumer_rate_hz,
+                    runtime_stats.last_transfer_turnaround_us.load(Ordering::Relaxed),
+                    runtime_stats.max_transfer_turnaround_us.load(Ordering::Relaxed),
+                    runtime_stats.last_submit_gap_us.load(Ordering::Relaxed),
+                    runtime_stats.max_submit_gap_us.load(Ordering::Relaxed),
+                );
+            }
+
+            if successful_transfers >= ANDROID_USB_STABLE_TRANSFER_THRESHOLD {
+                if !completed_underrun {
+                    set_usb_stream_stable(true);
+                    if !logged_usb_stabilized {
+                        if candidate.feedback_endpoint.is_none() {
+                            scheduler.lock_to_nominal_packet_timing();
+                            log_info!(
+                                "[USB] USB stream stabilized after {} isochronous transfers (nominal packet timing locked)",
+                                successful_transfers
+                            );
+                        } else {
+                            log_info!(
+                                "[USB] USB stream stabilized after {} isochronous transfers (keeping feedback-driven packet timing active)",
+                                successful_transfers
+                            );
+                        }
+                        logged_usb_stabilized = true;
+                    }
+                } else {
+                    set_usb_stream_stable(false);
                 }
             } else {
                 set_usb_stream_stable(false);
             }
-        } else {
-            set_usb_stream_stable(false);
         }
     }
+
+    if let Some(error) = fatal_error {
+        set_usb_stream_stable(false);
+        set_last_error(Some(error.clone()));
+        set_android_usb_engine_state(AndroidDirectUsbEngineState::Error, Some(error.clone()));
+        let _ = event_tx.try_send(AudioEvent::Error {
+            message: error.clone(),
+        });
+        eprintln!("{}", error);
+    }
+
+    drain_iso_transfer_slots(&context, &mut slots);
 
     cleanup_claimed_handle(
         AndroidDirectUsbClaimedHandle {
@@ -3298,6 +4347,7 @@ fn decode_feedback_report(
 
 fn select_stream_candidate(
     device: &Device<Context>,
+    handle: &DeviceHandle<Context>,
     playback_format: AndroidDirectUsbPlaybackFormat,
     speed: Speed,
 ) -> Result<AndroidIsoStreamCandidate, String> {
@@ -3305,6 +4355,9 @@ fn select_stream_candidate(
         .active_config_descriptor()
         .map_err(|error| format!("Failed to read active USB config descriptor: {}", error))?;
     let mut candidates = Vec::new();
+    let prefer_padded_24bit_transport = device_prefers_padded_24bit_transport(device);
+    let mut stream_rate_cache =
+        std::collections::HashMap::<(u8, Option<u8>), Vec<SamplingFrequencySubrange>>::new();
     for interface in config_descriptor.interfaces() {
         for descriptor in interface.descriptors() {
             if descriptor.class_code() != USB_CLASS_AUDIO
@@ -3317,20 +4370,32 @@ fn select_stream_candidate(
                 Some(format) => format,
                 None => continue,
             };
-            // TEMP: skip 24-bit until 16-bit is stable
-            if stream_format.bit_resolution > 16 {
-                eprintln!(
-                    "[USB] Skipping {}-bit candidate on interface {} alt {} (24-bit temporarily disabled)",
-                    stream_format.bit_resolution,
-                    descriptor.interface_number(),
-                    descriptor.setting_number(),
-                );
-                continue;
-            }
 
             let compatibility_penalty =
                 transport_compatibility_penalty(&stream_format, playback_format);
             if compatibility_penalty == u32::MAX {
+                continue;
+            }
+
+            let sample_rate_ranges = stream_rate_cache
+                .entry((descriptor.interface_number(), stream_format.terminal_link))
+                .or_insert_with(|| {
+                    discover_stream_sample_rate_ranges(
+                        device,
+                        handle,
+                        descriptor.interface_number(),
+                        stream_format.terminal_link,
+                    )
+                })
+                .clone();
+            let sample_rates = representative_sample_rates_from_ranges(&sample_rate_ranges);
+
+            if !sample_rate_ranges.is_empty()
+                && !sampling_frequency_ranges_support_rate(
+                    &sample_rate_ranges,
+                    playback_format.sample_rate,
+                )
+            {
                 continue;
             }
 
@@ -3388,7 +4453,7 @@ fn select_stream_candidate(
                     stream_format.channels,
                     stream_format.subslot_size,
                     stream_format.bit_resolution,
-                    stream_format.sample_rates,
+                    sample_rates,
                     compatibility_penalty,
                 );
 
@@ -3420,7 +4485,7 @@ fn select_stream_candidate(
                     channels: stream_format.channels,
                     subslot_size: stream_format.subslot_size,
                     bit_resolution: stream_format.bit_resolution,
-                    sample_rates: stream_format.sample_rates.clone(),
+                    sample_rates: sample_rates.clone(),
                     refresh: endpoint.refresh(),
                     synch_address: endpoint.synch_address(),
                     feedback_endpoint,
@@ -3437,6 +4502,11 @@ fn select_stream_candidate(
             candidate.subslot_size as usize * candidate.channels as usize,
         );
         (
+            transport_container_preference_rank(
+                candidate,
+                playback_format,
+                prefer_padded_24bit_transport,
+            ),
             transport_compatibility_penalty_for_candidate(candidate, playback_format),
             candidate.max_packet_bytes.saturating_sub(required_bytes),
             candidate.interface_number,
@@ -3907,6 +4977,57 @@ fn get_sampling_frequency_ranges(
     Ok(ranges)
 }
 
+fn discover_stream_sample_rate_ranges(
+    device: &Device<Context>,
+    handle: &DeviceHandle<Context>,
+    streaming_interface_number: u8,
+    terminal_link: Option<u8>,
+) -> Vec<SamplingFrequencySubrange> {
+    let Some(clock) = find_audio_control_clock(device, handle, terminal_link) else {
+        return Vec::new();
+    };
+
+    match get_sampling_frequency_ranges(handle, clock.interface_number, clock.clock_id) {
+        Ok(ranges) => ranges,
+        Err(error) => {
+            eprintln!(
+                "[USB] GET_RANGE probe failed for streaming interface {} via clock {} on AC interface {}: {}",
+                streaming_interface_number,
+                clock.clock_id,
+                clock.interface_number,
+                error,
+            );
+            Vec::new()
+        }
+    }
+}
+
+fn representative_sample_rates_from_ranges(ranges: &[SamplingFrequencySubrange]) -> Vec<u32> {
+    const COMMON_SAMPLE_RATES: &[u32] = &[
+        8_000, 11_025, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 64_000, 88_200, 96_000,
+        176_400, 192_000, 352_800, 384_000, 705_600, 768_000,
+    ];
+
+    let mut sample_rates = Vec::new();
+
+    for &rate in COMMON_SAMPLE_RATES {
+        if sampling_frequency_ranges_support_rate(ranges, rate) {
+            sample_rates.push(rate);
+        }
+    }
+
+    for range in ranges {
+        sample_rates.push(range.min);
+        if range.max != range.min {
+            sample_rates.push(range.max);
+        }
+    }
+
+    sample_rates.sort_unstable();
+    sample_rates.dedup();
+    sample_rates
+}
+
 fn sampling_frequency_ranges_support_rate(
     ranges: &[SamplingFrequencySubrange],
     sample_rate: u32,
@@ -4161,7 +5282,6 @@ fn parse_android_streaming_interface_format(
     let mut format_tag = None;
     let mut subslot_size = None;
     let mut bit_resolution = None;
-    let mut sample_rates = Vec::new();
     let mut terminal_link = None;
 
     for extra in DescriptorIter::new(descriptor.extra()) {
@@ -4187,11 +5307,9 @@ fn parse_android_streaming_interface_format(
             }
             UAC2_FORMAT_TYPE if extra.get(3).copied() == Some(UAC2_FORMAT_TYPE_I) => {
                 if extra.len() >= 6 {
+                    // UAC2 sample rates live on the clock entity via GET_RANGE.
                     subslot_size = Some(extra[4]);
                     bit_resolution = Some(extra[5]);
-                    if extra.len() > 6 {
-                        sample_rates = extract_sample_rates_from_type_i(extra);
-                    }
                 }
             }
             _ => {}
@@ -4207,53 +5325,8 @@ fn parse_android_streaming_interface_format(
         channels: channels.unwrap_or(2),
         subslot_size,
         bit_resolution,
-        sample_rates,
         terminal_link,
     })
-}
-
-fn extract_sample_rates_from_type_i(extra: &[u8]) -> Vec<u32> {
-    if extra.len() < 7 {
-        return Vec::new();
-    }
-
-    let count = extra[6] as usize;
-    if count == 0 {
-        if extra.len() >= 11 {
-            return vec![u32::from_le_bytes([
-                extra[7], extra[8], extra[9], extra[10],
-            ])];
-        }
-        return Vec::new();
-    }
-
-    let mut rates = Vec::new();
-    if extra.len() >= 7 + (count * 4) {
-        for index in 0..count {
-            let offset = 7 + index * 4;
-            rates.push(u32::from_le_bytes([
-                extra[offset],
-                extra[offset + 1],
-                extra[offset + 2],
-                extra[offset + 3],
-            ]));
-        }
-        return rates;
-    }
-
-    if extra.len() >= 7 + (count * 6) {
-        for index in 0..count {
-            let offset = 7 + index * 6;
-            rates.push(u32::from_le_bytes([
-                extra[offset],
-                extra[offset + 1],
-                extra[offset + 2],
-                extra[offset + 3],
-            ]));
-        }
-    }
-
-    rates
 }
 
 fn transport_compatibility_penalty(
@@ -4284,18 +5357,7 @@ fn transport_compatibility_penalty(
         return u32::MAX;
     }
 
-    let sample_rate_penalty = if stream_format
-        .sample_rates
-        .contains(&playback_format.sample_rate)
-    {
-        0
-    } else if stream_format.sample_rates.is_empty() {
-        1
-    } else {
-        return u32::MAX;
-    };
-
-    sample_rate_penalty + u32::from(stream_format.subslot_size) - min_subslot_size as u32
+    u32::from(stream_format.subslot_size) - min_subslot_size as u32
 }
 
 fn transport_compatibility_penalty_for_candidate(
@@ -4308,7 +5370,6 @@ fn transport_compatibility_penalty_for_candidate(
             channels: candidate.channels,
             subslot_size: candidate.subslot_size,
             bit_resolution: candidate.bit_resolution,
-            sample_rates: candidate.sample_rates.clone(),
             terminal_link: candidate.terminal_link,
         },
         playback_format,

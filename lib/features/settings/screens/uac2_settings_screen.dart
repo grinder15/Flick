@@ -722,6 +722,12 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
                   : Colors.amber.shade300,
             ),
           ],
+          if (diagnostics != null &&
+              diagnostics.verificationReason != null &&
+              diagnostics.verificationReason != diagnostics.fallbackReason) ...[
+            _buildDivider(),
+            _buildWarningMessage(context, diagnostics.verificationReason!),
+          ],
           if (diagnostics?.fallbackReason != null) ...[
             _buildDivider(),
             _buildWarningMessage(context, diagnostics!.fallbackReason!),

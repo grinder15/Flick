@@ -27,6 +27,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     final formatPrefAsync = ref.watch(uac2FormatPreferenceProvider);
     final preferredFormatAsync = ref.watch(uac2PreferredFormatProvider);
     final hiFiModeAsync = ref.watch(uac2HiFiModeProvider);
+    final bitPerfectAsync = ref.watch(uac2BitPerfectEnabledProvider);
     final audioEngineAsync = ref.watch(audioEnginePreferenceProvider);
     final developerModeAsync = ref.watch(developerModeEnabledProvider);
     final diagnostics = ref.watch(audioOutputDiagnosticsProvider);
@@ -71,6 +72,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                         preferencesService,
                         audioEngineAsync,
                         developerModeAsync,
+                        bitPerfectAsync,
                         hiFiModeAsync,
                         diagnostics,
                       ),
@@ -253,6 +255,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     Uac2PreferencesService service,
     AsyncValue<AudioEnginePreference> audioEngineAsync,
     AsyncValue<bool> developerModeAsync,
+    AsyncValue<bool> bitPerfectAsync,
     AsyncValue<bool> hiFiModeAsync,
     AudioOutputDiagnostics? diagnostics,
   ) {
@@ -298,12 +301,41 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
           _buildDivider(),
           _buildModeStatusTile(context, diagnostics),
           _buildDivider(),
-          _buildComingSoonTile(
-            context,
-            icon: LucideIcons.lock,
-            title: 'Bit-perfect USB',
-            subtitle:
-                'Coming soon. The current implementation is temporarily disabled while the direct USB path is being fixed.',
+          bitPerfectAsync.when(
+            data: (enabled) => _buildSwitchTile(
+              context,
+              icon: LucideIcons.lock,
+              title: 'Bit-perfect USB',
+              subtitle:
+                  'Use the verified direct USB path and disable software DSP controls that would break bit-perfect playback.',
+              value: enabled,
+              onChanged: (value) async {
+                final changed = value != enabled;
+                final applied = await ref
+                    .read(uac2ServiceProvider)
+                    .setBitPerfectEnabled(value);
+                ref.invalidate(uac2BitPerfectEnabledProvider);
+                ref.invalidate(uac2ExclusiveDacModeProvider);
+                if (!context.mounted) {
+                  return;
+                }
+                if (!applied && value) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Bit-perfect USB could not be enabled. Check the USB diagnostics for the failure reason.',
+                      ),
+                    ),
+                  );
+                  return;
+                }
+                if (changed) {
+                  _showRestartRequiredToast(context);
+                }
+              },
+            ),
+            loading: () => _buildLoadingTile(context),
+            error: (_, _) => _buildErrorTile(context),
           ),
           _buildDivider(),
           hiFiModeAsync.when(
@@ -401,82 +433,11 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     );
   }
 
-  Widget _buildComingSoonTile(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.all(AppConstants.spacingMd),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: AppColors.glassBackground,
-              borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-            ),
-            child: Icon(icon, color: context.adaptiveTextSecondary, size: 20),
-          ),
-          const SizedBox(width: AppConstants.spacingMd),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: AppConstants.spacingSm,
-                  runSpacing: 6,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: context.adaptiveTextPrimary,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.accent.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(
-                          AppConstants.radiusSm,
-                        ),
-                      ),
-                      child: Text(
-                        'Coming soon',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: context.adaptiveTextTertiary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _audioEnginePreferenceSubtitle(AudioEnginePreference engine) {
     return switch (engine) {
       AudioEnginePreference.exoPlayer => 'just_audio / ExoPlayer (default)',
       AudioEnginePreference.rustOboe => 'Rust via Oboe',
-      AudioEnginePreference.isochronousUsb => 'Isochronous USB (coming soon)',
+      AudioEnginePreference.isochronousUsb => 'Isochronous USB',
     };
   }
 
@@ -547,9 +508,22 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                 dialogContext,
                 title: 'Isochronous USB',
                 subtitle:
-                    'Coming soon. This engine is temporarily unavailable while the direct USB path is being fixed.',
+                    'Direct libusb isochronous USB engine. Best paired with Bit-perfect USB for verified external DAC playback.',
                 selected: current == AudioEnginePreference.isochronousUsb,
-                enabled: false,
+                onTap: () async {
+                  final changed =
+                      current != AudioEnginePreference.isochronousUsb;
+                  await service.setAudioEnginePreference(
+                    AudioEnginePreference.isochronousUsb,
+                  );
+                  ref.invalidate(audioEnginePreferenceProvider);
+                  if (dialogContext.mounted) {
+                    Navigator.of(dialogContext).pop();
+                  }
+                  if (changed && context.mounted) {
+                    _showRestartRequiredToast(context);
+                  }
+                },
               ),
             ],
           ),

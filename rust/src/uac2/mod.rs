@@ -16,7 +16,7 @@ mod capabilities;
 mod connection_manager;
 #[cfg(feature = "uac2")]
 pub mod constants;
-#[cfg(feature = "uac2")]
+#[cfg(all(test, feature = "uac2"))]
 mod control_requests;
 #[cfg(feature = "uac2")]
 mod descriptors;
@@ -39,6 +39,8 @@ mod fallback_handler;
 #[cfg(feature = "uac2")]
 mod format_negotiation;
 #[cfg(feature = "uac2")]
+pub(crate) mod iso_packet_scheduler;
+#[cfg(feature = "uac2")]
 mod logging;
 #[cfg(feature = "uac2")]
 mod registry;
@@ -60,13 +62,15 @@ mod tests;
 
 #[cfg(all(feature = "uac2", target_os = "android"))]
 pub use android_direct::{
-    android_direct_debug_state, android_direct_output_signature,
-    android_direct_preferred_sample_rate, clear_android_usb_device, create_android_usb_backend,
-    force_release_usb_session, is_usb_session_active, mark_android_usb_fallback,
-    negotiate_android_direct_output_sample_rate, register_android_usb_device,
-    set_android_direct_usb_enabled, set_android_usb_lock_enabled, set_android_usb_playback_format,
-    validate_android_direct_request, AndroidDirectUsbBackend, AndroidDirectUsbDebugState,
-    AndroidDirectUsbDevice, AndroidDirectUsbPlaybackFormat,
+    android_direct_cached_hardware_mute, android_direct_cached_hardware_volume,
+    android_direct_debug_state, android_direct_has_hardware_volume_control,
+    android_direct_output_signature, android_direct_preferred_sample_rate,
+    android_direct_set_hardware_mute, android_direct_set_hardware_volume, clear_android_usb_device,
+    create_android_usb_backend, force_release_usb_session, is_usb_session_active,
+    mark_android_usb_fallback, negotiate_android_direct_output_sample_rate,
+    register_android_usb_device, set_android_direct_usb_enabled, set_android_usb_lock_enabled,
+    set_android_usb_playback_format, validate_android_direct_request, AndroidDirectUsbBackend,
+    AndroidDirectUsbDebugState, AndroidDirectUsbDevice, AndroidDirectUsbPlaybackFormat,
 };
 #[cfg(feature = "uac2")]
 pub use audio_format::{
@@ -87,11 +91,6 @@ pub use capabilities::{
 };
 #[cfg(feature = "uac2")]
 pub use connection_manager::{ConnectionManager, ConnectionState};
-#[cfg(feature = "uac2")]
-pub use control_requests::{
-    ControlRequest, ControlRequestBuilder, ControlRequestType, ControlSelector, MuteControl,
-    SamplingFreqControl, VolumeControl,
-};
 #[cfg(feature = "uac2")]
 pub use descriptors::{
     parse_ac_interface_header, parse_as_interface_general, parse_feature_unit, parse_format_type_i,

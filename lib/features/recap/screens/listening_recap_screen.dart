@@ -28,6 +28,8 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
       RecentlyPlayedRepository();
   final GallerySaveService _gallerySaveService = GallerySaveService();
   final GlobalKey _cardBoundaryKey = GlobalKey();
+  final GlobalKey _topSongsPosterBoundaryKey = GlobalKey();
+  final GlobalKey _topArtistsPosterBoundaryKey = GlobalKey();
 
   ListeningRecapPeriod _selectedPeriod = ListeningRecapPeriod.daily;
   Map<ListeningRecapPeriod, ListeningRecap> _recaps = {};
@@ -122,13 +124,46 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
     }
   }
 
-  void _openRankingPoster(_RecapRankingPosterType type) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) =>
-            _RecapRankingPosterScreen(recap: _currentRecap(), type: type),
-      ),
-    );
+  GlobalKey _rankingPosterBoundaryKey(_RecapRankingPosterType type) {
+    return switch (type) {
+      _RecapRankingPosterType.topSongs => _topSongsPosterBoundaryKey,
+      _RecapRankingPosterType.topArtists => _topArtistsPosterBoundaryKey,
+    };
+  }
+
+  Future<void> _saveRankingPoster(_RecapRankingPosterType type) async {
+    if (_isSaving) return;
+
+    final recap = _currentRecap();
+    setState(() => _isSaving = true);
+
+    try {
+      final bytes = await _captureRecapPng(_rankingPosterBoundaryKey(type));
+      if (bytes == null) {
+        throw const GallerySaveException(
+          'The ranking poster is still rendering.',
+        );
+      }
+
+      await _gallerySaveService.saveImage(
+        bytes: bytes,
+        fileName: _buildRecapFileName(recap, variant: type.fileNameSuffix),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${type.title} saved to your gallery')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_saveErrorMessage(error))));
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
   }
 
   @override
@@ -139,6 +174,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
       child: Scaffold(
         backgroundColor: AppColors.background,
         body: Stack(
+          clipBehavior: Clip.none,
           children: [
             const Positioned.fill(child: _RecapBackdrop()),
             SafeArea(
@@ -205,10 +241,10 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                         title: 'Top Songs',
                                         subtitle:
                                             'The tracks that defined this ${recap.period.label.toLowerCase()}',
-                                        actionLabel: 'Poster',
+                                        actionLabel: 'Download Poster',
                                         onActionTap: recap.topSongs.isEmpty
                                             ? null
-                                            : () => _openRankingPoster(
+                                            : () => _saveRankingPoster(
                                                 _RecapRankingPosterType
                                                     .topSongs,
                                               ),
@@ -232,10 +268,10 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                         title: 'Top Artists',
                                         subtitle:
                                             'Your most replayed voices and projects',
-                                        actionLabel: 'Poster',
+                                        actionLabel: 'Download Poster',
                                         onActionTap: recap.topArtists.isEmpty
                                             ? null
-                                            : () => _openRankingPoster(
+                                            : () => _saveRankingPoster(
                                                 _RecapRankingPosterType
                                                     .topArtists,
                                               ),
@@ -261,6 +297,11 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                   ),
                 ],
               ),
+            ),
+            _HiddenRankingPosterCaptureHost(
+              recap: recap,
+              topSongsBoundaryKey: _topSongsPosterBoundaryKey,
+              topArtistsBoundaryKey: _topArtistsPosterBoundaryKey,
             ),
           ],
         ),
@@ -738,15 +779,6 @@ extension _RecapRankingPosterTypeX on _RecapRankingPosterType {
     };
   }
 
-  String get subtitle {
-    return switch (this) {
-      _RecapRankingPosterType.topSongs =>
-        'The tracks that owned this replay window',
-      _RecapRankingPosterType.topArtists =>
-        'The voices and projects that stayed on repeat',
-    };
-  }
-
   String get fileNameSuffix {
     return switch (this) {
       _RecapRankingPosterType.topSongs => 'top_songs',
@@ -800,176 +832,6 @@ extension _RecapRankingPosterTypeX on _RecapRankingPosterType {
         Color(0x006ECFFF),
       ],
     };
-  }
-}
-
-class _RecapRankingPosterScreen extends StatefulWidget {
-  final ListeningRecap recap;
-  final _RecapRankingPosterType type;
-
-  const _RecapRankingPosterScreen({required this.recap, required this.type});
-
-  @override
-  State<_RecapRankingPosterScreen> createState() =>
-      _RecapRankingPosterScreenState();
-}
-
-class _RecapRankingPosterScreenState extends State<_RecapRankingPosterScreen> {
-  final GlobalKey _posterBoundaryKey = GlobalKey();
-  final GallerySaveService _gallerySaveService = GallerySaveService();
-  bool _isSaving = false;
-
-  Future<void> _savePoster() async {
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
-
-    try {
-      final bytes = await _captureRecapPng(_posterBoundaryKey);
-      if (bytes == null) {
-        throw const GallerySaveException(
-          'The ranking poster is still rendering.',
-        );
-      }
-
-      await _gallerySaveService.saveImage(
-        bytes: bytes,
-        fileName: _buildRecapFileName(
-          widget.recap,
-          variant: widget.type.fileNameSuffix,
-        ),
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Recap saved to your gallery')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_saveErrorMessage(error))));
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Stack(
-        children: [
-          const Positioned.fill(child: _RecapBackdrop()),
-          SafeArea(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Center(
-                    child: FittedBox(
-                      fit: BoxFit.contain,
-                      alignment: Alignment.center,
-                      child: RepaintBoundary(
-                        key: _posterBoundaryKey,
-                        child: _RecapRankingPosterCard(
-                          recap: widget.recap,
-                          type: widget.type,
-                          frameSize: _RecapPosterDimensions.referenceSize,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(AppConstants.spacingMd),
-                  child: Row(
-                    children: [
-                      _PosterActionIcon(
-                        icon: LucideIcons.arrowLeft,
-                        onTap: () => Navigator.of(context).pop(),
-                      ),
-                      const Spacer(),
-                      _PosterActionIcon(
-                        icon: _isSaving
-                            ? Icons.hourglass_top_rounded
-                            : Icons.download_rounded,
-                        onTap: _isSaving ? null : _savePoster,
-                      ),
-                    ],
-                  ),
-                ),
-                Positioned(
-                  left: AppConstants.spacingLg,
-                  right: AppConstants.spacingLg,
-                  bottom: AppConstants.spacingLg,
-                  child: IgnorePointer(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppConstants.spacingMd,
-                            vertical: AppConstants.spacingSm,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.32),
-                            borderRadius: BorderRadius.circular(
-                              AppConstants.radiusRound,
-                            ),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08),
-                            ),
-                          ),
-                          child: Text(
-                            _rankingPosterSupportMessage(
-                              widget.recap,
-                              widget.type,
-                            ),
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  height: 1.4,
-                                  color: Colors.white.withValues(alpha: 0.86),
-                                ),
-                          ),
-                        ),
-                        const SizedBox(height: AppConstants.spacingSm),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: AppConstants.spacingMd,
-                            vertical: AppConstants.spacingSm,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.36),
-                            borderRadius: BorderRadius.circular(
-                              AppConstants.radiusRound,
-                            ),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08),
-                            ),
-                          ),
-                          child: Text(
-                            'Use your device screenshot gesture here, or save the poster directly to your gallery.',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -1349,6 +1211,51 @@ class _RecapPosterDimensions {
   static const double referenceHeight = 760;
   static const Size referenceSize = Size(referenceWidth, referenceHeight);
   static const double aspectRatio = referenceWidth / referenceHeight;
+}
+
+class _HiddenRankingPosterCaptureHost extends StatelessWidget {
+  final ListeningRecap recap;
+  final GlobalKey topSongsBoundaryKey;
+  final GlobalKey topArtistsBoundaryKey;
+
+  const _HiddenRankingPosterCaptureHost({
+    required this.recap,
+    required this.topSongsBoundaryKey,
+    required this.topArtistsBoundaryKey,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final offset = context.screenWidth + _RecapPosterDimensions.referenceWidth;
+
+    return IgnorePointer(
+      child: Transform.translate(
+        offset: Offset(offset, 0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RepaintBoundary(
+              key: topSongsBoundaryKey,
+              child: _RecapRankingPosterCard(
+                recap: recap,
+                type: _RecapRankingPosterType.topSongs,
+                frameSize: _RecapPosterDimensions.referenceSize,
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingLg),
+            RepaintBoundary(
+              key: topArtistsBoundaryKey,
+              child: _RecapRankingPosterCard(
+                recap: recap,
+                type: _RecapRankingPosterType.topArtists,
+                frameSize: _RecapPosterDimensions.referenceSize,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _RecapBackdrop extends StatelessWidget {
@@ -2076,28 +1983,6 @@ class _RecapActionButton extends StatelessWidget {
   }
 }
 
-class _PosterActionIcon extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback? onTap;
-
-  const _PosterActionIcon({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.glassBackground,
-        borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-        border: Border.all(color: AppColors.glassBorder),
-      ),
-      child: IconButton(
-        onPressed: onTap,
-        icon: Icon(icon, color: Colors.white),
-      ),
-    );
-  }
-}
-
 Future<Uint8List?> _captureRecapPng(GlobalKey boundaryKey) async {
   await Future.delayed(const Duration(milliseconds: 32));
 
@@ -2158,26 +2043,6 @@ String _heroClosingLine(ListeningRecap recap) {
   }
 
   return 'Your listening pattern is starting to take shape.';
-}
-
-String _rankingPosterSupportMessage(
-  ListeningRecap recap,
-  _RecapRankingPosterType type,
-) {
-  final items = switch (type) {
-    _RecapRankingPosterType.topSongs => recap.topSongs,
-    _RecapRankingPosterType.topArtists => recap.topArtists,
-  };
-
-  if (items.isEmpty) {
-    return recap.period.emptyMessage;
-  }
-
-  if (items.length == 1) {
-    return 'Keep listening to expand this list.';
-  }
-
-  return type.subtitle;
 }
 
 String _formatRecapRange(ListeningRecap recap) {

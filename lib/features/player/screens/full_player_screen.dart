@@ -2843,11 +2843,28 @@ class _PlayerControls extends StatelessWidget {
                               ).withValues(alpha: 0.6),
                               shape: BoxShape.circle,
                             ),
-                            child: IconButton(
-                              onPressed: () => playerService.toggleLoopMode(),
-                              iconSize: context.responsive(18.0, 20.0, 22.0),
-                              padding: EdgeInsets.zero,
-                              icon: Icon(icon, color: color),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                IconButton(
+                                  onPressed: () => playerService.toggleLoopMode(),
+                                  iconSize: context.responsive(18.0, 20.0, 22.0),
+                                  padding: EdgeInsets.zero,
+                                  icon: Icon(icon, color: color),
+                                ),
+                                if (loopMode == LoopMode.all)
+                                  Positioned(
+                                    bottom: 6,
+                                    child: Container(
+                                      width: 4,
+                                      height: 4,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.accent,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           );
                         },

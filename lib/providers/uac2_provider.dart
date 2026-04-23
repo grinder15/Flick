@@ -157,16 +157,6 @@ final uac2PreferencesServiceProvider = Provider((ref) {
   return Uac2PreferencesService();
 });
 
-final uac2AutoConnectProvider = FutureProvider<bool>((ref) async {
-  final service = ref.watch(uac2PreferencesServiceProvider);
-  return service.getAutoConnect();
-});
-
-final uac2AutoSelectDeviceProvider = FutureProvider<bool>((ref) async {
-  final service = ref.watch(uac2PreferencesServiceProvider);
-  return service.getAutoSelectDevice();
-});
-
 final uac2FormatPreferenceProvider = FutureProvider<Uac2FormatPreference>((
   ref,
 ) async {

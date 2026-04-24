@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/features/songs/widgets/album_art_picker_bottom_sheet.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
@@ -12,8 +15,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 /// Bottom sheet with actions for a song (add to playlist, favorites, view metadata, etc.)
 class SongActionsBottomSheet extends ConsumerWidget {
   final Song song;
+  final BuildContext rootContext;
 
-  const SongActionsBottomSheet({super.key, required this.song});
+  const SongActionsBottomSheet({
+    super.key,
+    required this.song,
+    required this.rootContext,
+  });
 
   /// Show the song actions bottom sheet
   static Future<void> show(BuildContext context, Song song) {
@@ -21,8 +29,9 @@ class SongActionsBottomSheet extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) =>
-          AppBottomSheetSurface(child: SongActionsBottomSheet(song: song)),
+      builder: (sheetContext) => AppBottomSheetSurface(
+        child: SongActionsBottomSheet(song: song, rootContext: context),
+      ),
     );
   }
 
@@ -73,6 +82,20 @@ class SongActionsBottomSheet extends ConsumerWidget {
             onTap: () {
               Navigator.pop(context);
               _showAddToPlaylistSheet(context);
+            },
+          ),
+          _buildActionTile(
+            context: context,
+            icon: LucideIcons.image,
+            label: 'Set Album Art',
+            onTap: () {
+              Navigator.pop(context);
+              unawaited(
+                Future<void>.delayed(
+                  Duration.zero,
+                  () => AlbumArtPickerBottomSheet.show(rootContext, song),
+                ),
+              );
             },
           ),
           _buildActionTile(

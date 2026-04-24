@@ -37,13 +37,14 @@ class SettingsScreen extends ConsumerStatefulWidget {
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+class _SettingsScreenState extends ConsumerState<SettingsScreen>
+    with SingleTickerProviderStateMixin {
   static final Uri _releaseNotesApiUri = Uri.parse(
     'https://api.github.com/repos/ultraelectronica/flick_player/releases/latest',
   );
   static const String _releaseNotesUrl =
       'https://github.com/ultraelectronica/flick_player/releases/latest';
-  static const bool _updatesComingSoon = true;
+  static const bool _updatesComingSoon = false;
 
   // Sample settings state
   bool _gaplessPlayback = true;
@@ -64,6 +65,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _hasScannedForUpdates = false;
   UpdateStatus? _lastScannedUpdateStatus;
   String? _updateCheckErrorMessage;
+  bool _scanSettingsExpanded = false;
+  late final AnimationController _scanSettingsController;
+  late final Animation<double> _scanSettingsRotation;
 
   // ValueNotifier for bottom sheet progress updates
   final ValueNotifier<ScanProgress?> _scanProgressNotifier = ValueNotifier(
@@ -73,6 +77,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    _scanSettingsController = AnimationController(
+      duration: AppConstants.animationFast,
+      vsync: this,
+    );
+    _scanSettingsRotation = Tween<double>(begin: 0, end: 0.5).animate(
+      CurvedAnimation(
+        parent: _scanSettingsController,
+        curve: Curves.easeInOut,
+      ),
+    );
     _loadLibraryData();
     _syncFoldersToDatabase();
     _loadAndroidDeviceNotices();
@@ -81,6 +95,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void dispose() {
     _scanProgressNotifier.dispose();
+    _scanSettingsController.dispose();
     super.dispose();
   }
 
@@ -195,16 +210,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
 
-    if (!_updater.isAvailable) {
-      setState(() {
-        _hasScannedForUpdates = true;
-        _lastScannedUpdateStatus = UpdateStatus.unavailable;
-        _updateCheckErrorMessage = null;
-      });
-      _showToast('Updates are unavailable in this build.');
-      return;
-    }
-
     setState(() {
       _isCheckingForUpdates = true;
       _updateCheckErrorMessage = null;
@@ -259,11 +264,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _installUpdate() async {
     if (_isInstallingUpdate) {
-      return;
-    }
-
-    if (!_updater.isAvailable) {
-      _showToast('Updates are unavailable in this build.');
       return;
     }
 
@@ -1263,58 +1263,7 @@ SOFTWARE.
             _buildAutoSyncToggle(context),
           ],
           _buildDivider(),
-          _buildToggleSetting(
-            context,
-            icon: LucideIcons.scanSearch,
-            title: 'Filter Non-Music Files & Folders',
-            subtitle: 'Skip unsupported files and hidden .nomedia directories',
-            value: libraryScanPreferences.filterNonMusicFilesAndFolders,
-            onChanged: (value) {
-              ref
-                  .read(libraryScanPreferencesProvider.notifier)
-                  .setFilterNonMusicFilesAndFolders(value);
-            },
-          ),
-          _buildDivider(),
-          _buildToggleSetting(
-            context,
-            icon: LucideIcons.fileMinus,
-            title: 'Ignore Tracks Under 500 KB',
-            subtitle: 'Exclude tiny clips, previews, and accidental scraps',
-            value: libraryScanPreferences.ignoreTracksSmallerThan500Kb,
-            onChanged: (value) {
-              ref
-                  .read(libraryScanPreferencesProvider.notifier)
-                  .setIgnoreTracksSmallerThan500Kb(value);
-            },
-          ),
-          _buildDivider(),
-          _buildToggleSetting(
-            context,
-            icon: LucideIcons.timerOff,
-            title: 'Ignore Tracks Under 60 Seconds',
-            subtitle: 'Hide short stingers, ringtones, and voice fragments',
-            value: libraryScanPreferences.ignoreTracksShorterThan60Seconds,
-            onChanged: (value) {
-              ref
-                  .read(libraryScanPreferencesProvider.notifier)
-                  .setIgnoreTracksShorterThan60Seconds(value);
-            },
-          ),
-          _buildDivider(),
-          _buildToggleSetting(
-            context,
-            icon: LucideIcons.listMusic,
-            title: 'Import M3U/M3U8 Playlists',
-            subtitle:
-                'Create or refresh playlists found inside scanned folders',
-            value: libraryScanPreferences.createPlaylistsFromM3uFiles,
-            onChanged: (value) {
-              ref
-                  .read(libraryScanPreferencesProvider.notifier)
-                  .setCreatePlaylistsFromM3uFiles(value);
-            },
-          ),
+          _buildExpandableScanSettings(context, libraryScanPreferences),
         ],
       ),
     );
@@ -1833,6 +1782,138 @@ SOFTWARE.
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildExpandableScanSettings(
+    BuildContext context,
+    LibraryScanPreferences prefs,
+  ) {
+    return Column(
+      children: [
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () {
+              setState(() => _scanSettingsExpanded = !_scanSettingsExpanded);
+              if (_scanSettingsExpanded) {
+                _scanSettingsController.forward();
+              } else {
+                _scanSettingsController.reverse();
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.spacingMd),
+              child: Row(
+                children: [
+                  Container(
+                    width: context.scaleSize(AppConstants.containerSizeSm),
+                    height: context.scaleSize(AppConstants.containerSizeSm),
+                    decoration: BoxDecoration(
+                      color: AppColors.glassBackgroundStrong,
+                      borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                    ),
+                    child: Icon(
+                      LucideIcons.settings2,
+                      color: context.adaptiveTextSecondary,
+                      size: context.responsiveIcon(AppConstants.iconSizeMd),
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.spacingMd),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Scanning Settings',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: context.adaptiveTextPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Filter files, size limits, and playlist import options',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: context.adaptiveTextTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  RotationTransition(
+                    turns: _scanSettingsRotation,
+                    child: Icon(
+                      LucideIcons.chevronDown,
+                      color: context.adaptiveTextTertiary,
+                      size: 20,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SizeTransition(
+          sizeFactor: _scanSettingsController,
+          child: Column(
+            children: [
+              _buildDivider(),
+              _buildToggleSetting(
+                context,
+                icon: LucideIcons.scanSearch,
+                title: 'Filter Non-Music Files & Folders',
+                subtitle: 'Skip unsupported files and hidden .nomedia directories',
+                value: prefs.filterNonMusicFilesAndFolders,
+                onChanged: (value) {
+                  ref
+                      .read(libraryScanPreferencesProvider.notifier)
+                      .setFilterNonMusicFilesAndFolders(value);
+                },
+              ),
+              _buildDivider(),
+              _buildToggleSetting(
+                context,
+                icon: LucideIcons.fileMinus,
+                title: 'Ignore Tracks Under 500 KB',
+                subtitle: 'Exclude tiny clips, previews, and accidental scraps',
+                value: prefs.ignoreTracksSmallerThan500Kb,
+                onChanged: (value) {
+                  ref
+                      .read(libraryScanPreferencesProvider.notifier)
+                      .setIgnoreTracksSmallerThan500Kb(value);
+                },
+              ),
+              _buildDivider(),
+              _buildToggleSetting(
+                context,
+                icon: LucideIcons.timerOff,
+                title: 'Ignore Tracks Under 60 Seconds',
+                subtitle: 'Hide short stingers, ringtones, and voice fragments',
+                value: prefs.ignoreTracksShorterThan60Seconds,
+                onChanged: (value) {
+                  ref
+                      .read(libraryScanPreferencesProvider.notifier)
+                      .setIgnoreTracksShorterThan60Seconds(value);
+                },
+              ),
+              _buildDivider(),
+              _buildToggleSetting(
+                context,
+                icon: LucideIcons.listMusic,
+                title: 'Import M3U/M3U8 Playlists',
+                subtitle:
+                    'Create or refresh playlists found inside scanned folders',
+                value: prefs.createPlaylistsFromM3uFiles,
+                onChanged: (value) {
+                  ref
+                      .read(libraryScanPreferencesProvider.notifier)
+                      .setCreatePlaylistsFromM3uFiles(value);
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

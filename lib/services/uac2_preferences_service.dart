@@ -10,10 +10,8 @@ enum AudioEnginePreference { exoPlayer, rustOboe, isochronousUsb }
 class Uac2PreferencesService {
   static final ValueNotifier<bool> developerModeNotifier = ValueNotifier(false);
   static const _keySelectedDevice = 'uac2_selected_device';
-  static const _keyAutoConnect = 'uac2_auto_connect';
   static const _keyPreferredFormat = 'uac2_preferred_format';
   static const _keyFormatPreference = 'uac2_format_preference';
-  static const _keyAutoSelectDevice = 'uac2_auto_select_device';
   static const _keyHiFiModeEnabled = 'uac2_hifi_mode_enabled';
   static const _keyBitPerfectEnabled = 'uac2_bit_perfect_enabled';
   static const _keyExclusiveDacModeEnabled = 'uac2_exclusive_dac_mode_enabled';
@@ -69,25 +67,6 @@ class Uac2PreferencesService {
     }
   }
 
-  Future<void> setAutoConnect(bool enabled) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_keyAutoConnect, enabled);
-    } catch (e) {
-      debugPrint('Failed to save auto-connect setting: $e');
-    }
-  }
-
-  Future<bool> getAutoConnect() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(_keyAutoConnect) ?? false;
-    } catch (e) {
-      debugPrint('Failed to load auto-connect setting: $e');
-      return false;
-    }
-  }
-
   Future<void> savePreferredFormat(Uac2AudioFormat format) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -109,25 +88,6 @@ class Uac2PreferencesService {
     } catch (e) {
       debugPrint('Failed to load preferred format: $e');
       return null;
-    }
-  }
-
-  Future<void> setAutoSelectDevice(bool enabled) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_keyAutoSelectDevice, enabled);
-    } catch (e) {
-      debugPrint('Failed to save auto-select device setting: $e');
-    }
-  }
-
-  Future<bool> getAutoSelectDevice() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(_keyAutoSelectDevice) ?? false;
-    } catch (e) {
-      debugPrint('Failed to load auto-select device setting: $e');
-      return false;
     }
   }
 
@@ -265,10 +225,8 @@ class Uac2PreferencesService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_keySelectedDevice);
-      await prefs.remove(_keyAutoConnect);
       await prefs.remove(_keyPreferredFormat);
       await prefs.remove(_keyFormatPreference);
-      await prefs.remove(_keyAutoSelectDevice);
       await prefs.remove(_keyHiFiModeEnabled);
       await prefs.remove(_keyBitPerfectEnabled);
       await prefs.remove(_keyExclusiveDacModeEnabled);

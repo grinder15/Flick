@@ -208,7 +208,6 @@ class Uac2Service {
       );
     }
 
-    final autoConnect = await _preferencesService.getAutoConnect();
     final bitPerfectEnabled = await _preferencesService.getBitPerfectEnabled();
     bitPerfectEnabledNotifier.value = bitPerfectEnabled;
     final savedDevice = await _preferencesService.loadSelectedDevice();
@@ -227,10 +226,6 @@ class Uac2Service {
         return;
       }
       await selectDevice(matchingDevice);
-      return;
-    }
-
-    if (!autoConnect) {
       return;
     }
 

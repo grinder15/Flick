@@ -202,15 +202,33 @@ class _CompactPlayerInfoLayoutState extends State<CompactPlayerInfoLayout> {
                     icon = LucideIcons.repeat1;
                     color = context.adaptiveAccent;
                   }
-                  return IconButton(
-                    onPressed: () => widget.playerService.toggleLoopMode(),
-                    padding: EdgeInsets.all(context.responsive(6.0, 8.0, 10.0)),
-                    constraints: const BoxConstraints(),
-                    icon: Icon(
-                      icon,
-                      color: color,
-                      size: context.responsive(18.0, 20.0, 22.0),
-                    ),
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.center,
+                    children: [
+                      IconButton(
+                        onPressed: () => widget.playerService.toggleLoopMode(),
+                        padding: EdgeInsets.all(context.responsive(6.0, 8.0, 10.0)),
+                        constraints: const BoxConstraints(),
+                        icon: Icon(
+                          icon,
+                          color: color,
+                          size: context.responsive(18.0, 20.0, 22.0),
+                        ),
+                      ),
+                      if (loopMode == LoopMode.all)
+                        Positioned(
+                          bottom: 2,
+                          child: Container(
+                            width: 4,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: context.adaptiveAccent,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
                   );
                 },
               ),

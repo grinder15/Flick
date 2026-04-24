@@ -219,6 +219,8 @@ The Rust backend communicates with Flutter via `flutter_rust_bridge`, providing:
 
 ## Documentation
 
+- `docs/SHOREBIRD_SETUP.md`: Shorebird release, preview, and patch workflow for in-app updates.
+
 Additional documentation is available in the `docs/` directory:
 - `DOCUMENTATION.md`: Detailed architecture and design documentation
 - `UAC2_IMPLEMENTATION_CHECKLIST.md`: Implementation checklist for the UAC 2.0 subsystem

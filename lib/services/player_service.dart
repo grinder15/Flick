@@ -1689,7 +1689,7 @@ class PlayerService {
 
     // SAF-backed URIs for ALAC/AIFF/M4A can fail format detection in some
     // decoder paths. Stage them to a local temp file with a stable extension.
-    if (isAndroidContentUri && _shouldStageForPlayback(song)) {
+    if (isAndroidContentUri && _shouldStageContentUriForPlayback(song)) {
       final stagedPath = await _stageContentUriForPlayback(
         filePath,
         extensionHint: _preferredExtension(song),
@@ -1715,6 +1715,10 @@ class PlayerService {
   bool _shouldStageForPlayback(Song song) {
     final normalized = _playbackFileType(song);
     return normalized == 'm4a' || normalized == 'aiff';
+  }
+
+  bool _shouldStageContentUriForPlayback(Song song) {
+    return song.isExternal || _shouldStageForPlayback(song);
   }
 
   Future<String?> _stageContentUriForPlayback(
@@ -1847,7 +1851,8 @@ class PlayerService {
   }
 
   Future<void> _prepareImmediatePlaybackAsset(Song song) async {
-    if (!_shouldStageForPlayback(song) && !_shouldConvertToWav(song)) {
+    if (!_shouldStageContentUriForPlayback(song) &&
+        !_shouldConvertToWav(song)) {
       return;
     }
 
@@ -3373,6 +3378,9 @@ class PlayerService {
     playbackSpeedNotifier.dispose();
     sleepTimerRemainingNotifier.dispose();
 
+    for (final stagedPath in _stagedPlaybackPathCache.values) {
+      unawaited(_deleteTemporaryPlaybackFile(stagedPath));
+    }
     for (final convertedPath in _convertedPlaybackPathCache.values) {
       unawaited(_deleteTemporaryPlaybackFile(convertedPath));
     }

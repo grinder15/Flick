@@ -10,6 +10,7 @@ import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/features/albums/screens/albums_screen.dart';
 import 'package:flick/features/artists/screens/artists_screen.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
+import 'package:flick/features/songs/widgets/album_art_picker_bottom_sheet.dart';
 import 'package:flick/models/player_screen_mode.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/player_service.dart';
@@ -773,6 +774,20 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 onTap: () {
                   Navigator.pop(sheetContext);
                   _showAddToPlaylistDialog(context, song);
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
+                icon: LucideIcons.image,
+                label: 'Set Album Art',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(
+                    Future<void>.delayed(
+                      Duration.zero,
+                      () => AlbumArtPickerBottomSheet.show(context, song),
+                    ),
+                  );
                 },
               ),
               _buildSongActionTile(
@@ -1643,7 +1658,6 @@ class _AnimatedSongScene extends StatelessWidget {
                                 letterSpacing: 0.8,
                               ),
                             ),
-                          
                           ],
                         ),
                       ],
@@ -2847,8 +2861,13 @@ class _PlayerControls extends StatelessWidget {
                               alignment: Alignment.center,
                               children: [
                                 IconButton(
-                                  onPressed: () => playerService.toggleLoopMode(),
-                                  iconSize: context.responsive(18.0, 20.0, 22.0),
+                                  onPressed: () =>
+                                      playerService.toggleLoopMode(),
+                                  iconSize: context.responsive(
+                                    18.0,
+                                    20.0,
+                                    22.0,
+                                  ),
                                   padding: EdgeInsets.zero,
                                   icon: Icon(icon, color: color),
                                 ),

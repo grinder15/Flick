@@ -46,14 +46,14 @@ Flick Player is a high-performance music player application built with Flutter a
 - Responsive layout for various screen sizes
 
 ## Future Features
-- DSD/DSF support
+
+- ~~DSD/DSF support~~
 - MQA support
-- Poweramp-style EQ filters, including low-pass
 - Themes and broader UI customization options
-- Album art improvements
-- Lyric clickability and sync
-- Scrobble settings
-- Resampler enhancements
+- ~~Album art improvements~~
+- ~~Lyric clickability and sync~~
+- ~~Scrobble settings~~
+- ~~Resampler enhancements~~
 - Advanced audio tweaks
 - Visualizations
 - Android audio settings

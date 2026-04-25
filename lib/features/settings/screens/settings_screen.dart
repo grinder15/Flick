@@ -1206,6 +1206,7 @@ SOFTWARE.
     LibraryScanPreferences libraryScanPreferences,
   ) {
     return Container(
+      clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: AppColors.surface.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(AppConstants.radiusLg),
@@ -1221,6 +1222,9 @@ SOFTWARE.
               color: Colors.transparent,
               child: InkWell(
                 onTap: _requestBatteryOptimizationDisable,
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(AppConstants.radiusLg),
+                ),
                 child: Padding(
                   padding: const EdgeInsets.all(AppConstants.spacingMd),
                   child: Row(
@@ -1731,6 +1735,7 @@ SOFTWARE.
     required List<Widget> children,
   }) {
     return Container(
+      clipBehavior: Clip.hardEdge,
       decoration: BoxDecoration(
         color: AppColors.surface.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(AppConstants.radiusLg),

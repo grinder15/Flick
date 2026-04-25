@@ -1224,7 +1224,14 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             _buildPlayerBadge(context, song.fileType.toUpperCase()),
             if (song.resolution != null) ...[
               SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
-              _buildPlayerBadge(context, song.resolution!),
+              Text(
+                song.resolution!,
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: context.responsive(9.0, 10.0, 11.0),
+                  color: Colors.white.withValues(alpha: 0.7),
+                ),
+              ),
             ],
             SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
             _buildQualityBadge(context, song),

@@ -2507,12 +2507,12 @@ pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
         .hardware_volume_control
         .clone()
         .ok_or_else(|| "Android direct USB hardware volume is unavailable".to_string())?;
-    let mut claimed_handle = open_transient_usb_handle(&state.device)?;
+    let mut claimed_handle = open_transient_usb_handle(&state.device)
+        .inspect_err(|e| eprintln!("[VolFlow] open_transient_usb_handle failed: {e}"))?;
     if let Err(error) = claimed_handle.ensure_interface_claimed(control.interface_number) {
-        log_error!(
-            "[USB] Failed to claim AudioControl interface {} for hardware volume: {}",
-            control.interface_number,
-            error
+        eprintln!(
+            "[VolFlow] interface {} claim failed: {error}",
+            control.interface_number
         );
     }
 
@@ -2522,6 +2522,8 @@ pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
         control.max_volume_raw,
         control.resolution_raw,
     );
+    eprintln!("[VolFlow] min={} max={} res={} -> raw={target_raw}",
+        control.min_volume_raw, control.max_volume_raw, control.resolution_raw);
     let write_result = write_feature_unit_i16_control(
         &claimed_handle.handle,
         control.interface_number,
@@ -2533,9 +2535,11 @@ pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
     let snapshot_result =
         refresh_android_usb_hardware_volume_snapshot_with_handle(&claimed_handle.handle, &control);
     release_claimed_interfaces(&claimed_handle.handle, &claimed_handle.claimed_interfaces);
-    write_result?;
-    let (normalized, muted) = snapshot_result?;
+    write_result.inspect_err(|e| eprintln!("[VolFlow] write_feature_unit failed: {e}"))?;
+    let (normalized, muted) = snapshot_result
+        .inspect_err(|e| eprintln!("[VolFlow] refresh_snapshot failed: {e}"))?;
     set_hardware_volume_snapshot(Some(normalized), muted);
+    eprintln!("[VolFlow] SET_CUR OK: normalized={normalized:.3}");
     Ok(())
 }
 

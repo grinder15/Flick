@@ -2992,7 +2992,11 @@ class MainActivity: FlutterActivity() {
 
     private fun setRouteVolume(volume: Double): Boolean {
         if (hasDirectUsbHardwareVolume()) {
-            return nativeSetRustDirectUsbHardwareVolume(volume.coerceIn(0.0, 1.0))
+            val clamped = volume.coerceIn(0.0, 1.0)
+            Log.d("VolFlow", "setRouteVolume hw: sending SET_CUR $clamped")
+            val ok = nativeSetRustDirectUsbHardwareVolume(clamped)
+            Log.d("VolFlow", "setRouteVolume hw: native returned $ok")
+            return ok
         }
 
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false

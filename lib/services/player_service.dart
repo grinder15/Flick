@@ -3085,9 +3085,21 @@ class PlayerService {
     final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
     _currentVolume = clampedVolume;
     if (isBitPerfectModeEnabled) {
-      if (_hasBitPerfectUsbHardwareVolumeControl()) {
-        await _uac2Service.setVolume(clampedVolume);
+      final hwVol = _hasBitPerfectUsbHardwareVolumeControl();
+      if (hwVol) {
+        debugPrint('[VolFlow] HW path: uac2 setVolume($clampedVolume)');
+        final hwOk = await _uac2Service.setVolume(clampedVolume);
+        if (hwOk) {
+          debugPrint('[VolFlow] HW SET_CUR ok → engine=1.0');
+          await _rustAudioService.setVolume(1.0);
+        } else if (_usingRustBackend) {
+          debugPrint('[VolFlow] HW SET_CUR FAILED → sw fallback engine=$clampedVolume');
+          await _rustAudioService.setVolume(clampedVolume);
+        } else {
+          debugPrint('[VolFlow] HW SET_CUR FAILED, no Rust backend → dead end');
+        }
       } else if (_usingRustBackend) {
+        debugPrint('[VolFlow] SW path: engine setVolume($clampedVolume)');
         await _rustAudioService.setVolume(clampedVolume);
       }
       return;

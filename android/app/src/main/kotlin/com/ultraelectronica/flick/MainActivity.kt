@@ -379,8 +379,8 @@ class MainActivity: FlutterActivity() {
                 "isIgnoringBatteryOptimizations" -> {
                     result.success(isIgnoringBatteryOptimizations())
                 }
-                "openBatteryOptimizationSettings" -> {
-                    result.success(openBatteryOptimizationSettings())
+                "requestIgnoreBatteryOptimizations" -> {
+                    result.success(requestIgnoreBatteryOptimizations())
                 }
                 "readTextDocument" -> {
                     val uri = call.argument<String>("uri")
@@ -1058,22 +1058,20 @@ class MainActivity: FlutterActivity() {
         return powerManager?.isIgnoringBatteryOptimizations(packageName) ?: false
     }
 
-    private fun openBatteryOptimizationSettings(): Boolean {
-        return try {
-            val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
-            } else {
-                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.parse("package:$packageName")
-                }
-            }.apply {
+    private fun requestIgnoreBatteryOptimizations(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return true
+        }
+
+        try {
+            val settingsIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            startActivity(intent)
-            true
+            startActivity(settingsIntent)
+            return true
         } catch (e: Exception) {
             Log.w("MainActivity", "Failed to open battery optimization settings", e)
-            false
+            return false
         }
     }
 

@@ -14,9 +14,11 @@ class Uac2PreferencesService {
   static const _keyFormatPreference = 'uac2_format_preference';
   static const _keyHiFiModeEnabled = 'uac2_hifi_mode_enabled';
   static const _keyBitPerfectEnabled = 'uac2_bit_perfect_enabled';
+  static const _keyDapBitPerfectEnabled = 'uac2_dap_bit_perfect_enabled';
   static const _keyExclusiveDacModeEnabled = 'uac2_exclusive_dac_mode_enabled';
   static const _keyAudioEnginePreference = 'audio_engine_preference';
   static const _keyDeveloperModeEnabled = 'developer_mode_enabled';
+  static const _keyAudioFormatEnabled = 'uac2_audio_format_enabled';
 
   static bool get isDeveloperModeEnabledSync => developerModeNotifier.value;
 
@@ -130,6 +132,25 @@ class Uac2PreferencesService {
     }
   }
 
+  Future<void> setDapBitPerfectEnabled(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyDapBitPerfectEnabled, enabled);
+    } catch (e) {
+      debugPrint('Failed to save DAP bit-perfect setting: $e');
+    }
+  }
+
+  Future<bool> getDapBitPerfectEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_keyDapBitPerfectEnabled) ?? true;
+    } catch (e) {
+      debugPrint('Failed to load DAP bit-perfect setting: $e');
+      return true;
+    }
+  }
+
   Future<void> setExclusiveDacModeEnabled(bool enabled) {
     return setBitPerfectEnabled(enabled);
   }
@@ -196,6 +217,25 @@ class Uac2PreferencesService {
     }
   }
 
+  Future<void> setAudioFormatEnabled(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyAudioFormatEnabled, enabled);
+    } catch (e) {
+      debugPrint('Failed to save audio format setting: $e');
+    }
+  }
+
+  Future<bool> getAudioFormatEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_keyAudioFormatEnabled) ?? true;
+    } catch (e) {
+      debugPrint('Failed to load audio format setting: $e');
+      return true;
+    }
+  }
+
   Future<void> setFormatPreference(Uac2FormatPreference preference) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -229,9 +269,11 @@ class Uac2PreferencesService {
       await prefs.remove(_keyFormatPreference);
       await prefs.remove(_keyHiFiModeEnabled);
       await prefs.remove(_keyBitPerfectEnabled);
+      await prefs.remove(_keyDapBitPerfectEnabled);
       await prefs.remove(_keyExclusiveDacModeEnabled);
       await prefs.remove(_keyAudioEnginePreference);
       await prefs.remove(_keyDeveloperModeEnabled);
+      await prefs.remove(_keyAudioFormatEnabled);
       developerModeNotifier.value = false;
     } catch (e) {
       debugPrint('Failed to clear preferences: $e');

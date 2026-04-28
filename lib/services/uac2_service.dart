@@ -141,6 +141,7 @@ class Uac2Service {
 
   final _preferencesService = Uac2PreferencesService();
   final ValueNotifier<bool> bitPerfectEnabledNotifier = ValueNotifier(false);
+  final ValueNotifier<bool> dapBitPerfectEnabledNotifier = ValueNotifier(true);
   Uac2DeviceStatus? _currentDeviceStatus;
   final List<ValueChanged<Uac2DeviceStatus?>> _statusListeners = [];
   bool _androidChannelConfigured = false;
@@ -155,6 +156,7 @@ class Uac2Service {
   Uac2DeviceStatus? get currentDeviceStatus => _currentDeviceStatus;
   Uac2AudioFormat? get lastKnownFormat => _lastKnownFormat;
   bool get isBitPerfectEnabledSync => bitPerfectEnabledNotifier.value;
+  bool get isDapBitPerfectEnabledSync => dapBitPerfectEnabledNotifier.value;
   bool get shouldFreezeAndroidDirectUsbSessionQueries =>
       _hasFrozenAndroidDirectUsbSession();
 
@@ -210,6 +212,8 @@ class Uac2Service {
 
     final bitPerfectEnabled = await _preferencesService.getBitPerfectEnabled();
     bitPerfectEnabledNotifier.value = bitPerfectEnabled;
+    final dapBitPerfectEnabled = await _preferencesService.getDapBitPerfectEnabled();
+    dapBitPerfectEnabledNotifier.value = dapBitPerfectEnabled;
     final savedDevice = await _preferencesService.loadSelectedDevice();
     if (savedDevice == null) {
       return;

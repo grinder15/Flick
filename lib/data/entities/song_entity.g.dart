@@ -17,70 +17,93 @@ const SongEntitySchema = CollectionSchema(
   name: r'SongEntity',
   id: -4322515446108572550,
   properties: {
-    r'album': PropertySchema(id: 0, name: r'album', type: IsarType.string),
+    r'accurateRip': PropertySchema(
+      id: 0,
+      name: r'accurateRip',
+      type: IsarType.bool,
+    ),
+    r'album': PropertySchema(id: 1, name: r'album', type: IsarType.string),
     r'albumArtPath': PropertySchema(
-      id: 1,
+      id: 2,
       name: r'albumArtPath',
       type: IsarType.string,
     ),
     r'albumArtist': PropertySchema(
-      id: 2,
+      id: 3,
       name: r'albumArtist',
       type: IsarType.string,
     ),
-    r'artist': PropertySchema(id: 3, name: r'artist', type: IsarType.string),
-    r'bitDepth': PropertySchema(id: 4, name: r'bitDepth', type: IsarType.long),
-    r'bitrate': PropertySchema(id: 5, name: r'bitrate', type: IsarType.long),
-    r'channels': PropertySchema(id: 6, name: r'channels', type: IsarType.long),
+    r'artist': PropertySchema(id: 4, name: r'artist', type: IsarType.string),
+    r'bitDepth': PropertySchema(id: 5, name: r'bitDepth', type: IsarType.long),
+    r'bitrate': PropertySchema(id: 6, name: r'bitrate', type: IsarType.long),
+    r'channels': PropertySchema(id: 7, name: r'channels', type: IsarType.long),
+    r'copyCrc': PropertySchema(id: 8, name: r'copyCrc', type: IsarType.string),
     r'dateAdded': PropertySchema(
-      id: 7,
+      id: 9,
       name: r'dateAdded',
       type: IsarType.dateTime,
     ),
     r'discNumber': PropertySchema(
-      id: 8,
+      id: 10,
       name: r'discNumber',
       type: IsarType.long,
     ),
     r'durationMs': PropertySchema(
-      id: 9,
+      id: 11,
       name: r'durationMs',
       type: IsarType.long,
     ),
+    r'endOffsetMs': PropertySchema(
+      id: 12,
+      name: r'endOffsetMs',
+      type: IsarType.long,
+    ),
     r'filePath': PropertySchema(
-      id: 10,
+      id: 13,
       name: r'filePath',
       type: IsarType.string,
     ),
-    r'fileSize': PropertySchema(id: 11, name: r'fileSize', type: IsarType.long),
+    r'fileSize': PropertySchema(id: 14, name: r'fileSize', type: IsarType.long),
     r'fileType': PropertySchema(
-      id: 12,
+      id: 15,
       name: r'fileType',
       type: IsarType.string,
     ),
     r'folderUri': PropertySchema(
-      id: 13,
+      id: 16,
       name: r'folderUri',
       type: IsarType.string,
     ),
-    r'genre': PropertySchema(id: 14, name: r'genre', type: IsarType.string),
+    r'genre': PropertySchema(id: 17, name: r'genre', type: IsarType.string),
     r'lastModified': PropertySchema(
-      id: 15,
+      id: 18,
       name: r'lastModified',
       type: IsarType.dateTime,
     ),
+    r'readMode': PropertySchema(
+      id: 19,
+      name: r'readMode',
+      type: IsarType.string,
+    ),
+    r'ripper': PropertySchema(id: 20, name: r'ripper', type: IsarType.string),
     r'sampleRate': PropertySchema(
-      id: 16,
+      id: 21,
       name: r'sampleRate',
       type: IsarType.long,
     ),
-    r'title': PropertySchema(id: 17, name: r'title', type: IsarType.string),
+    r'startOffsetMs': PropertySchema(
+      id: 22,
+      name: r'startOffsetMs',
+      type: IsarType.long,
+    ),
+    r'testCrc': PropertySchema(id: 23, name: r'testCrc', type: IsarType.string),
+    r'title': PropertySchema(id: 24, name: r'title', type: IsarType.string),
     r'trackNumber': PropertySchema(
-      id: 18,
+      id: 25,
       name: r'trackNumber',
       type: IsarType.long,
     ),
-    r'year': PropertySchema(id: 19, name: r'year', type: IsarType.long),
+    r'year': PropertySchema(id: 26, name: r'year', type: IsarType.long),
   },
 
   estimateSize: _songEntityEstimateSize,
@@ -89,9 +112,9 @@ const SongEntitySchema = CollectionSchema(
   deserializeProp: _songEntityDeserializeProp,
   idName: r'id',
   indexes: {
-    r'filePath': IndexSchema(
-      id: 2918041768256347220,
-      name: r'filePath',
+    r'filePath_startOffsetMs': IndexSchema(
+      id: 46708853494516510,
+      name: r'filePath_startOffsetMs',
       unique: true,
       replace: false,
       properties: [
@@ -99,6 +122,11 @@ const SongEntitySchema = CollectionSchema(
           name: r'filePath',
           type: IndexType.hash,
           caseSensitive: true,
+        ),
+        IndexPropertySchema(
+          name: r'startOffsetMs',
+          type: IndexType.value,
+          caseSensitive: false,
         ),
       ],
     ),
@@ -163,6 +191,12 @@ int _songEntityEstimateSize(
     }
   }
   bytesCount += 3 + object.artist.length * 3;
+  {
+    final value = object.copyCrc;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.filePath.length * 3;
   {
     final value = object.fileType;
@@ -182,6 +216,24 @@ int _songEntityEstimateSize(
       bytesCount += 3 + value.length * 3;
     }
   }
+  {
+    final value = object.readMode;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.ripper;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
+  {
+    final value = object.testCrc;
+    if (value != null) {
+      bytesCount += 3 + value.length * 3;
+    }
+  }
   bytesCount += 3 + object.title.length * 3;
   return bytesCount;
 }
@@ -192,26 +244,33 @@ void _songEntitySerialize(
   List<int> offsets,
   Map<Type, List<int>> allOffsets,
 ) {
-  writer.writeString(offsets[0], object.album);
-  writer.writeString(offsets[1], object.albumArtPath);
-  writer.writeString(offsets[2], object.albumArtist);
-  writer.writeString(offsets[3], object.artist);
-  writer.writeLong(offsets[4], object.bitDepth);
-  writer.writeLong(offsets[5], object.bitrate);
-  writer.writeLong(offsets[6], object.channels);
-  writer.writeDateTime(offsets[7], object.dateAdded);
-  writer.writeLong(offsets[8], object.discNumber);
-  writer.writeLong(offsets[9], object.durationMs);
-  writer.writeString(offsets[10], object.filePath);
-  writer.writeLong(offsets[11], object.fileSize);
-  writer.writeString(offsets[12], object.fileType);
-  writer.writeString(offsets[13], object.folderUri);
-  writer.writeString(offsets[14], object.genre);
-  writer.writeDateTime(offsets[15], object.lastModified);
-  writer.writeLong(offsets[16], object.sampleRate);
-  writer.writeString(offsets[17], object.title);
-  writer.writeLong(offsets[18], object.trackNumber);
-  writer.writeLong(offsets[19], object.year);
+  writer.writeBool(offsets[0], object.accurateRip);
+  writer.writeString(offsets[1], object.album);
+  writer.writeString(offsets[2], object.albumArtPath);
+  writer.writeString(offsets[3], object.albumArtist);
+  writer.writeString(offsets[4], object.artist);
+  writer.writeLong(offsets[5], object.bitDepth);
+  writer.writeLong(offsets[6], object.bitrate);
+  writer.writeLong(offsets[7], object.channels);
+  writer.writeString(offsets[8], object.copyCrc);
+  writer.writeDateTime(offsets[9], object.dateAdded);
+  writer.writeLong(offsets[10], object.discNumber);
+  writer.writeLong(offsets[11], object.durationMs);
+  writer.writeLong(offsets[12], object.endOffsetMs);
+  writer.writeString(offsets[13], object.filePath);
+  writer.writeLong(offsets[14], object.fileSize);
+  writer.writeString(offsets[15], object.fileType);
+  writer.writeString(offsets[16], object.folderUri);
+  writer.writeString(offsets[17], object.genre);
+  writer.writeDateTime(offsets[18], object.lastModified);
+  writer.writeString(offsets[19], object.readMode);
+  writer.writeString(offsets[20], object.ripper);
+  writer.writeLong(offsets[21], object.sampleRate);
+  writer.writeLong(offsets[22], object.startOffsetMs);
+  writer.writeString(offsets[23], object.testCrc);
+  writer.writeString(offsets[24], object.title);
+  writer.writeLong(offsets[25], object.trackNumber);
+  writer.writeLong(offsets[26], object.year);
 }
 
 SongEntity _songEntityDeserialize(
@@ -221,27 +280,34 @@ SongEntity _songEntityDeserialize(
   Map<Type, List<int>> allOffsets,
 ) {
   final object = SongEntity();
-  object.album = reader.readStringOrNull(offsets[0]);
-  object.albumArtPath = reader.readStringOrNull(offsets[1]);
-  object.albumArtist = reader.readStringOrNull(offsets[2]);
-  object.artist = reader.readString(offsets[3]);
-  object.bitDepth = reader.readLongOrNull(offsets[4]);
-  object.bitrate = reader.readLongOrNull(offsets[5]);
-  object.channels = reader.readLongOrNull(offsets[6]);
-  object.dateAdded = reader.readDateTime(offsets[7]);
-  object.discNumber = reader.readLongOrNull(offsets[8]);
-  object.durationMs = reader.readLongOrNull(offsets[9]);
-  object.filePath = reader.readString(offsets[10]);
-  object.fileSize = reader.readLongOrNull(offsets[11]);
-  object.fileType = reader.readStringOrNull(offsets[12]);
-  object.folderUri = reader.readStringOrNull(offsets[13]);
-  object.genre = reader.readStringOrNull(offsets[14]);
+  object.accurateRip = reader.readBoolOrNull(offsets[0]);
+  object.album = reader.readStringOrNull(offsets[1]);
+  object.albumArtPath = reader.readStringOrNull(offsets[2]);
+  object.albumArtist = reader.readStringOrNull(offsets[3]);
+  object.artist = reader.readString(offsets[4]);
+  object.bitDepth = reader.readLongOrNull(offsets[5]);
+  object.bitrate = reader.readLongOrNull(offsets[6]);
+  object.channels = reader.readLongOrNull(offsets[7]);
+  object.copyCrc = reader.readStringOrNull(offsets[8]);
+  object.dateAdded = reader.readDateTime(offsets[9]);
+  object.discNumber = reader.readLongOrNull(offsets[10]);
+  object.durationMs = reader.readLongOrNull(offsets[11]);
+  object.endOffsetMs = reader.readLongOrNull(offsets[12]);
+  object.filePath = reader.readString(offsets[13]);
+  object.fileSize = reader.readLongOrNull(offsets[14]);
+  object.fileType = reader.readStringOrNull(offsets[15]);
+  object.folderUri = reader.readStringOrNull(offsets[16]);
+  object.genre = reader.readStringOrNull(offsets[17]);
   object.id = id;
-  object.lastModified = reader.readDateTimeOrNull(offsets[15]);
-  object.sampleRate = reader.readLongOrNull(offsets[16]);
-  object.title = reader.readString(offsets[17]);
-  object.trackNumber = reader.readLongOrNull(offsets[18]);
-  object.year = reader.readLongOrNull(offsets[19]);
+  object.lastModified = reader.readDateTimeOrNull(offsets[18]);
+  object.readMode = reader.readStringOrNull(offsets[19]);
+  object.ripper = reader.readStringOrNull(offsets[20]);
+  object.sampleRate = reader.readLongOrNull(offsets[21]);
+  object.startOffsetMs = reader.readLongOrNull(offsets[22]);
+  object.testCrc = reader.readStringOrNull(offsets[23]);
+  object.title = reader.readString(offsets[24]);
+  object.trackNumber = reader.readLongOrNull(offsets[25]);
+  object.year = reader.readLongOrNull(offsets[26]);
   return object;
 }
 
@@ -253,44 +319,58 @@ P _songEntityDeserializeProp<P>(
 ) {
   switch (propertyId) {
     case 0:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readBoolOrNull(offset)) as P;
     case 1:
       return (reader.readStringOrNull(offset)) as P;
     case 2:
       return (reader.readStringOrNull(offset)) as P;
     case 3:
-      return (reader.readString(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 4:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 5:
       return (reader.readLongOrNull(offset)) as P;
     case 6:
       return (reader.readLongOrNull(offset)) as P;
     case 7:
-      return (reader.readDateTime(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 8:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 9:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readDateTime(offset)) as P;
     case 10:
-      return (reader.readString(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 11:
       return (reader.readLongOrNull(offset)) as P;
     case 12:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readLongOrNull(offset)) as P;
     case 13:
-      return (reader.readStringOrNull(offset)) as P;
-    case 14:
-      return (reader.readStringOrNull(offset)) as P;
-    case 15:
-      return (reader.readDateTimeOrNull(offset)) as P;
-    case 16:
-      return (reader.readLongOrNull(offset)) as P;
-    case 17:
       return (reader.readString(offset)) as P;
-    case 18:
+    case 14:
       return (reader.readLongOrNull(offset)) as P;
+    case 15:
+      return (reader.readStringOrNull(offset)) as P;
+    case 16:
+      return (reader.readStringOrNull(offset)) as P;
+    case 17:
+      return (reader.readStringOrNull(offset)) as P;
+    case 18:
+      return (reader.readDateTimeOrNull(offset)) as P;
     case 19:
+      return (reader.readStringOrNull(offset)) as P;
+    case 20:
+      return (reader.readStringOrNull(offset)) as P;
+    case 21:
+      return (reader.readLongOrNull(offset)) as P;
+    case 22:
+      return (reader.readLongOrNull(offset)) as P;
+    case 23:
+      return (reader.readStringOrNull(offset)) as P;
+    case 24:
+      return (reader.readString(offset)) as P;
+    case 25:
+      return (reader.readLongOrNull(offset)) as P;
+    case 26:
       return (reader.readLongOrNull(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -310,59 +390,130 @@ void _songEntityAttach(IsarCollection<dynamic> col, Id id, SongEntity object) {
 }
 
 extension SongEntityByIndex on IsarCollection<SongEntity> {
-  Future<SongEntity?> getByFilePath(String filePath) {
-    return getByIndex(r'filePath', [filePath]);
+  Future<SongEntity?> getByFilePathStartOffsetMs(
+    String filePath,
+    int? startOffsetMs,
+  ) {
+    return getByIndex(r'filePath_startOffsetMs', [filePath, startOffsetMs]);
   }
 
-  SongEntity? getByFilePathSync(String filePath) {
-    return getByIndexSync(r'filePath', [filePath]);
+  SongEntity? getByFilePathStartOffsetMsSync(
+    String filePath,
+    int? startOffsetMs,
+  ) {
+    return getByIndexSync(r'filePath_startOffsetMs', [filePath, startOffsetMs]);
   }
 
-  Future<bool> deleteByFilePath(String filePath) {
-    return deleteByIndex(r'filePath', [filePath]);
+  Future<bool> deleteByFilePathStartOffsetMs(
+    String filePath,
+    int? startOffsetMs,
+  ) {
+    return deleteByIndex(r'filePath_startOffsetMs', [filePath, startOffsetMs]);
   }
 
-  bool deleteByFilePathSync(String filePath) {
-    return deleteByIndexSync(r'filePath', [filePath]);
+  bool deleteByFilePathStartOffsetMsSync(String filePath, int? startOffsetMs) {
+    return deleteByIndexSync(r'filePath_startOffsetMs', [
+      filePath,
+      startOffsetMs,
+    ]);
   }
 
-  Future<List<SongEntity?>> getAllByFilePath(List<String> filePathValues) {
-    final values = filePathValues.map((e) => [e]).toList();
-    return getAllByIndex(r'filePath', values);
+  Future<List<SongEntity?>> getAllByFilePathStartOffsetMs(
+    List<String> filePathValues,
+    List<int?> startOffsetMsValues,
+  ) {
+    final len = filePathValues.length;
+    assert(
+      startOffsetMsValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([filePathValues[i], startOffsetMsValues[i]]);
+    }
+
+    return getAllByIndex(r'filePath_startOffsetMs', values);
   }
 
-  List<SongEntity?> getAllByFilePathSync(List<String> filePathValues) {
-    final values = filePathValues.map((e) => [e]).toList();
-    return getAllByIndexSync(r'filePath', values);
+  List<SongEntity?> getAllByFilePathStartOffsetMsSync(
+    List<String> filePathValues,
+    List<int?> startOffsetMsValues,
+  ) {
+    final len = filePathValues.length;
+    assert(
+      startOffsetMsValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([filePathValues[i], startOffsetMsValues[i]]);
+    }
+
+    return getAllByIndexSync(r'filePath_startOffsetMs', values);
   }
 
-  Future<int> deleteAllByFilePath(List<String> filePathValues) {
-    final values = filePathValues.map((e) => [e]).toList();
-    return deleteAllByIndex(r'filePath', values);
+  Future<int> deleteAllByFilePathStartOffsetMs(
+    List<String> filePathValues,
+    List<int?> startOffsetMsValues,
+  ) {
+    final len = filePathValues.length;
+    assert(
+      startOffsetMsValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([filePathValues[i], startOffsetMsValues[i]]);
+    }
+
+    return deleteAllByIndex(r'filePath_startOffsetMs', values);
   }
 
-  int deleteAllByFilePathSync(List<String> filePathValues) {
-    final values = filePathValues.map((e) => [e]).toList();
-    return deleteAllByIndexSync(r'filePath', values);
+  int deleteAllByFilePathStartOffsetMsSync(
+    List<String> filePathValues,
+    List<int?> startOffsetMsValues,
+  ) {
+    final len = filePathValues.length;
+    assert(
+      startOffsetMsValues.length == len,
+      'All index values must have the same length',
+    );
+    final values = <List<dynamic>>[];
+    for (var i = 0; i < len; i++) {
+      values.add([filePathValues[i], startOffsetMsValues[i]]);
+    }
+
+    return deleteAllByIndexSync(r'filePath_startOffsetMs', values);
   }
 
-  Future<Id> putByFilePath(SongEntity object) {
-    return putByIndex(r'filePath', object);
+  Future<Id> putByFilePathStartOffsetMs(SongEntity object) {
+    return putByIndex(r'filePath_startOffsetMs', object);
   }
 
-  Id putByFilePathSync(SongEntity object, {bool saveLinks = true}) {
-    return putByIndexSync(r'filePath', object, saveLinks: saveLinks);
+  Id putByFilePathStartOffsetMsSync(
+    SongEntity object, {
+    bool saveLinks = true,
+  }) {
+    return putByIndexSync(
+      r'filePath_startOffsetMs',
+      object,
+      saveLinks: saveLinks,
+    );
   }
 
-  Future<List<Id>> putAllByFilePath(List<SongEntity> objects) {
-    return putAllByIndex(r'filePath', objects);
+  Future<List<Id>> putAllByFilePathStartOffsetMs(List<SongEntity> objects) {
+    return putAllByIndex(r'filePath_startOffsetMs', objects);
   }
 
-  List<Id> putAllByFilePathSync(
+  List<Id> putAllByFilePathStartOffsetMsSync(
     List<SongEntity> objects, {
     bool saveLinks = true,
   }) {
-    return putAllByIndexSync(r'filePath', objects, saveLinks: saveLinks);
+    return putAllByIndexSync(
+      r'filePath_startOffsetMs',
+      objects,
+      saveLinks: saveLinks,
+    );
   }
 }
 
@@ -445,25 +596,26 @@ extension SongEntityQueryWhere
     });
   }
 
-  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause> filePathEqualTo(
-    String filePath,
-  ) {
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathEqualToAnyStartOffsetMs(String filePath) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
-        IndexWhereClause.equalTo(indexName: r'filePath', value: [filePath]),
+        IndexWhereClause.equalTo(
+          indexName: r'filePath_startOffsetMs',
+          value: [filePath],
+        ),
       );
     });
   }
 
-  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause> filePathNotEqualTo(
-    String filePath,
-  ) {
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathNotEqualToAnyStartOffsetMs(String filePath) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'filePath',
+                indexName: r'filePath_startOffsetMs',
                 lower: [],
                 upper: [filePath],
                 includeUpper: false,
@@ -471,7 +623,7 @@ extension SongEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'filePath',
+                indexName: r'filePath_startOffsetMs',
                 lower: [filePath],
                 includeLower: false,
                 upper: [],
@@ -481,7 +633,7 @@ extension SongEntityQueryWhere
         return query
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'filePath',
+                indexName: r'filePath_startOffsetMs',
                 lower: [filePath],
                 includeLower: false,
                 upper: [],
@@ -489,13 +641,151 @@ extension SongEntityQueryWhere
             )
             .addWhereClause(
               IndexWhereClause.between(
-                indexName: r'filePath',
+                indexName: r'filePath_startOffsetMs',
                 lower: [],
                 upper: [filePath],
                 includeUpper: false,
               ),
             );
       }
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathEqualToStartOffsetMsIsNull(String filePath) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'filePath_startOffsetMs',
+          value: [filePath, null],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathEqualToStartOffsetMsIsNotNull(String filePath) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'filePath_startOffsetMs',
+          lower: [filePath, null],
+          includeLower: false,
+          upper: [filePath],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathStartOffsetMsEqualTo(String filePath, int? startOffsetMs) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.equalTo(
+          indexName: r'filePath_startOffsetMs',
+          value: [filePath, startOffsetMs],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathEqualToStartOffsetMsNotEqualTo(String filePath, int? startOffsetMs) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'filePath_startOffsetMs',
+                lower: [filePath],
+                upper: [filePath, startOffsetMs],
+                includeUpper: false,
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'filePath_startOffsetMs',
+                lower: [filePath, startOffsetMs],
+                includeLower: false,
+                upper: [filePath],
+              ),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'filePath_startOffsetMs',
+                lower: [filePath, startOffsetMs],
+                includeLower: false,
+                upper: [filePath],
+              ),
+            )
+            .addWhereClause(
+              IndexWhereClause.between(
+                indexName: r'filePath_startOffsetMs',
+                lower: [filePath],
+                upper: [filePath, startOffsetMs],
+                includeUpper: false,
+              ),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathEqualToStartOffsetMsGreaterThan(
+    String filePath,
+    int? startOffsetMs, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'filePath_startOffsetMs',
+          lower: [filePath, startOffsetMs],
+          includeLower: include,
+          upper: [filePath],
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathEqualToStartOffsetMsLessThan(
+    String filePath,
+    int? startOffsetMs, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'filePath_startOffsetMs',
+          lower: [filePath],
+          upper: [filePath, startOffsetMs],
+          includeUpper: include,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterWhereClause>
+  filePathEqualToStartOffsetMsBetween(
+    String filePath,
+    int? lowerStartOffsetMs,
+    int? upperStartOffsetMs, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IndexWhereClause.between(
+          indexName: r'filePath_startOffsetMs',
+          lower: [filePath, lowerStartOffsetMs],
+          includeLower: includeLower,
+          upper: [filePath, upperStartOffsetMs],
+          includeUpper: includeUpper,
+        ),
+      );
     });
   }
 
@@ -631,6 +921,33 @@ extension SongEntityQueryWhere
 
 extension SongEntityQueryFilter
     on QueryBuilder<SongEntity, SongEntity, QFilterCondition> {
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  accurateRipIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'accurateRip'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  accurateRipIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'accurateRip'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  accurateRipEqualTo(bool? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'accurateRip', value: value),
+      );
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> albumIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(
@@ -1481,6 +1798,171 @@ extension SongEntityQueryFilter
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'copyCrc'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  copyCrcIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'copyCrc'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'copyCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  copyCrcGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'copyCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'copyCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'copyCrc',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'copyCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'copyCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'copyCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'copyCrc',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> copyCrcIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'copyCrc', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  copyCrcIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'copyCrc', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> dateAddedEqualTo(
     DateTime value,
   ) {
@@ -1675,6 +2157,79 @@ extension SongEntityQueryFilter
       return query.addFilterCondition(
         FilterCondition.between(
           property: r'durationMs',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  endOffsetMsIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'endOffsetMs'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  endOffsetMsIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'endOffsetMs'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  endOffsetMsEqualTo(int? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'endOffsetMs', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  endOffsetMsGreaterThan(int? value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'endOffsetMs',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  endOffsetMsLessThan(int? value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'endOffsetMs',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  endOffsetMsBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'endOffsetMs',
           lower: lower,
           includeLower: includeLower,
           upper: upper,
@@ -2529,6 +3084,334 @@ extension SongEntityQueryFilter
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> readModeIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'readMode'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  readModeIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'readMode'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> readModeEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'readMode',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  readModeGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'readMode',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> readModeLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'readMode',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> readModeBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'readMode',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  readModeStartsWith(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'readMode',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> readModeEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'readMode',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> readModeContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'readMode',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> readModeMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'readMode',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  readModeIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'readMode', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  readModeIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'readMode', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'ripper'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  ripperIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'ripper'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'ripper',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'ripper',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'ripper',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'ripper',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'ripper',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'ripper',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'ripper',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'ripper',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> ripperIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'ripper', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  ripperIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'ripper', value: ''),
+      );
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
   sampleRateIsNull() {
     return QueryBuilder.apply(this, (query) {
@@ -2598,6 +3481,244 @@ extension SongEntityQueryFilter
           upper: upper,
           includeUpper: includeUpper,
         ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  startOffsetMsIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'startOffsetMs'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  startOffsetMsIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'startOffsetMs'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  startOffsetMsEqualTo(int? value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'startOffsetMs', value: value),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  startOffsetMsGreaterThan(int? value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'startOffsetMs',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  startOffsetMsLessThan(int? value, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'startOffsetMs',
+          value: value,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  startOffsetMsBetween(
+    int? lower,
+    int? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'startOffsetMs',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcIsNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNull(property: r'testCrc'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  testCrcIsNotNull() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        const FilterCondition.isNotNull(property: r'testCrc'),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcEqualTo(
+    String? value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(
+          property: r'testCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  testCrcGreaterThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(
+          include: include,
+          property: r'testCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcLessThan(
+    String? value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.lessThan(
+          include: include,
+          property: r'testCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcBetween(
+    String? lower,
+    String? upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.between(
+          property: r'testCrc',
+          lower: lower,
+          includeLower: includeLower,
+          upper: upper,
+          includeUpper: includeUpper,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.startsWith(
+          property: r'testCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.endsWith(
+          property: r'testCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcContains(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.contains(
+          property: r'testCrc',
+          value: value,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcMatches(
+    String pattern, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.matches(
+          property: r'testCrc',
+          wildcard: pattern,
+          caseSensitive: caseSensitive,
+        ),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition> testCrcIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.equalTo(property: r'testCrc', value: ''),
+      );
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterFilterCondition>
+  testCrcIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(
+        FilterCondition.greaterThan(property: r'testCrc', value: ''),
       );
     });
   }
@@ -2906,6 +4027,18 @@ extension SongEntityQueryLinks
 
 extension SongEntityQuerySortBy
     on QueryBuilder<SongEntity, SongEntity, QSortBy> {
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByAccurateRip() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'accurateRip', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByAccurateRipDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'accurateRip', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByAlbum() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'album', Sort.asc);
@@ -2990,6 +4123,18 @@ extension SongEntityQuerySortBy
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByCopyCrc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'copyCrc', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByCopyCrcDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'copyCrc', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByDateAdded() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'dateAdded', Sort.asc);
@@ -3023,6 +4168,18 @@ extension SongEntityQuerySortBy
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByDurationMsDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'durationMs', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByEndOffsetMs() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'endOffsetMs', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByEndOffsetMsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'endOffsetMs', Sort.desc);
     });
   }
 
@@ -3098,6 +4255,30 @@ extension SongEntityQuerySortBy
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByReadMode() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'readMode', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByReadModeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'readMode', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByRipper() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ripper', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByRipperDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ripper', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortBySampleRate() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'sampleRate', Sort.asc);
@@ -3107,6 +4288,30 @@ extension SongEntityQuerySortBy
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortBySampleRateDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'sampleRate', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByStartOffsetMs() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'startOffsetMs', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByStartOffsetMsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'startOffsetMs', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByTestCrc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'testCrc', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> sortByTestCrcDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'testCrc', Sort.desc);
     });
   }
 
@@ -3149,6 +4354,18 @@ extension SongEntityQuerySortBy
 
 extension SongEntityQuerySortThenBy
     on QueryBuilder<SongEntity, SongEntity, QSortThenBy> {
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByAccurateRip() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'accurateRip', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByAccurateRipDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'accurateRip', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByAlbum() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'album', Sort.asc);
@@ -3233,6 +4450,18 @@ extension SongEntityQuerySortThenBy
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByCopyCrc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'copyCrc', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByCopyCrcDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'copyCrc', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByDateAdded() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'dateAdded', Sort.asc);
@@ -3266,6 +4495,18 @@ extension SongEntityQuerySortThenBy
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByDurationMsDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'durationMs', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByEndOffsetMs() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'endOffsetMs', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByEndOffsetMsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'endOffsetMs', Sort.desc);
     });
   }
 
@@ -3353,6 +4594,30 @@ extension SongEntityQuerySortThenBy
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByReadMode() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'readMode', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByReadModeDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'readMode', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByRipper() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ripper', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByRipperDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'ripper', Sort.desc);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenBySampleRate() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'sampleRate', Sort.asc);
@@ -3362,6 +4627,30 @@ extension SongEntityQuerySortThenBy
   QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenBySampleRateDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'sampleRate', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByStartOffsetMs() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'startOffsetMs', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByStartOffsetMsDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'startOffsetMs', Sort.desc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByTestCrc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'testCrc', Sort.asc);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QAfterSortBy> thenByTestCrcDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'testCrc', Sort.desc);
     });
   }
 
@@ -3404,6 +4693,12 @@ extension SongEntityQuerySortThenBy
 
 extension SongEntityQueryWhereDistinct
     on QueryBuilder<SongEntity, SongEntity, QDistinct> {
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByAccurateRip() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'accurateRip');
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByAlbum({
     bool caseSensitive = true,
   }) {
@@ -3454,6 +4749,14 @@ extension SongEntityQueryWhereDistinct
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByCopyCrc({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'copyCrc', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByDateAdded() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'dateAdded');
@@ -3469,6 +4772,12 @@ extension SongEntityQueryWhereDistinct
   QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByDurationMs() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'durationMs');
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByEndOffsetMs() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'endOffsetMs');
     });
   }
 
@@ -3516,9 +4825,39 @@ extension SongEntityQueryWhereDistinct
     });
   }
 
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByReadMode({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'readMode', caseSensitive: caseSensitive);
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByRipper({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'ripper', caseSensitive: caseSensitive);
+    });
+  }
+
   QueryBuilder<SongEntity, SongEntity, QDistinct> distinctBySampleRate() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'sampleRate');
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByStartOffsetMs() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'startOffsetMs');
+    });
+  }
+
+  QueryBuilder<SongEntity, SongEntity, QDistinct> distinctByTestCrc({
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'testCrc', caseSensitive: caseSensitive);
     });
   }
 
@@ -3548,6 +4887,12 @@ extension SongEntityQueryProperty
   QueryBuilder<SongEntity, int, QQueryOperations> idProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'id');
+    });
+  }
+
+  QueryBuilder<SongEntity, bool?, QQueryOperations> accurateRipProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'accurateRip');
     });
   }
 
@@ -3593,6 +4938,12 @@ extension SongEntityQueryProperty
     });
   }
 
+  QueryBuilder<SongEntity, String?, QQueryOperations> copyCrcProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'copyCrc');
+    });
+  }
+
   QueryBuilder<SongEntity, DateTime, QQueryOperations> dateAddedProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'dateAdded');
@@ -3608,6 +4959,12 @@ extension SongEntityQueryProperty
   QueryBuilder<SongEntity, int?, QQueryOperations> durationMsProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'durationMs');
+    });
+  }
+
+  QueryBuilder<SongEntity, int?, QQueryOperations> endOffsetMsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'endOffsetMs');
     });
   }
 
@@ -3647,9 +5004,33 @@ extension SongEntityQueryProperty
     });
   }
 
+  QueryBuilder<SongEntity, String?, QQueryOperations> readModeProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'readMode');
+    });
+  }
+
+  QueryBuilder<SongEntity, String?, QQueryOperations> ripperProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'ripper');
+    });
+  }
+
   QueryBuilder<SongEntity, int?, QQueryOperations> sampleRateProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'sampleRate');
+    });
+  }
+
+  QueryBuilder<SongEntity, int?, QQueryOperations> startOffsetMsProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'startOffsetMs');
+    });
+  }
+
+  QueryBuilder<SongEntity, String?, QQueryOperations> testCrcProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'testCrc');
     });
   }
 

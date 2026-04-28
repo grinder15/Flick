@@ -82,7 +82,8 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
                           _buildSectionHeader(context, 'Volume Control'),
                           const Uac2VolumeControl(),
                         ],
-                        if (deviceStatus?.state == Uac2State.streaming) ...[
+                        if (deviceStatus?.state == Uac2State.streaming ||
+                            deviceStatus?.state == Uac2State.prewarming) ...[
                           const SizedBox(height: AppConstants.spacingLg),
                           _buildSectionHeader(context, 'Pipeline Information'),
                           const Uac2PipelineInfoWidget(),
@@ -307,6 +308,7 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
     final isConnected =
         isSelected &&
         (deviceStatus?.state == Uac2State.connected ||
+            deviceStatus?.state == Uac2State.prewarming ||
             deviceStatus?.state == Uac2State.streaming);
 
     return Material(
@@ -843,6 +845,8 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
         return Colors.orange;
       case Uac2State.connected:
         return Colors.blue;
+      case Uac2State.prewarming:
+        return Colors.amber;
       case Uac2State.streaming:
         return Colors.green;
       case Uac2State.error:
@@ -858,6 +862,8 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
         return 'Connecting';
       case Uac2State.connected:
         return 'Connected';
+      case Uac2State.prewarming:
+        return 'Prewarming';
       case Uac2State.streaming:
         return 'Streaming';
       case Uac2State.error:

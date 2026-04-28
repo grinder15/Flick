@@ -8,6 +8,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbDevice
@@ -82,6 +83,7 @@ class MainActivity: FlutterActivity() {
     private var activeDirectUsbDeviceName: String? = null
     private var exclusiveDacModeEnabled = false
     private var directUsbPlaybackActive = false
+    private var killIsochronousUsbOnQuit = true
     private var directUsbFocusGain: Int? = null
     private var directUsbAudioFocusRequest: AudioFocusRequest? = null
     private val directUsbAudioFocusChangeListener =
@@ -103,6 +105,7 @@ class MainActivity: FlutterActivity() {
     private var lastObservedHardwareVolume: Double = Double.NaN
     /** Matches nativeGetRustDirectUsbHardwareMute: -1 unknown, 0/1; Int.MIN_VALUE = unset. */
     private var lastObservedHardwareMute: Int = Int.MIN_VALUE
+    private val priorityAnchorService by lazy { PriorityAnchorService(applicationContext) }
     // private var audioConverter: AudioConverter? = null
     // Coroutine scope for background tasks
     private val mainScope = CoroutineScope(Dispatchers.Main)
@@ -113,6 +116,7 @@ class MainActivity: FlutterActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         super.onCreate(savedInstanceState)
 
         if (!nativeInitRustAndroidContext(applicationContext)) {
@@ -605,6 +609,9 @@ class MainActivity: FlutterActivity() {
                 "getRouteMuted" -> {
                     result.success(getRouteMuted())
                 }
+                "verifyHardwareVolumeHealth" -> {
+                    result.success(verifyHardwareVolumeHealth())
+                }
                 "activateDirectUsb" -> {
                     val deviceName = call.argument<String>("deviceName")
                     if (deviceName != null) {
@@ -655,9 +662,22 @@ class MainActivity: FlutterActivity() {
                 "deactivateDirectUsb" -> {
                     result.success(deactivateDirectUsb())
                 }
+                "setKillIsochronousUsbOnQuit" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: true
+                    killIsochronousUsbOnQuit = enabled
+                    result.success(true)
+                }
                 "markDirectUsbFallback" -> {
                     val reason = call.argument<String>("reason")
                     result.success(nativeMarkRustDirectUsbFallback(reason))
+                }
+                "startPriorityAnchor" -> {
+                    priorityAnchorService.start()
+                    result.success(true)
+                }
+                "stopPriorityAnchor" -> {
+                    priorityAnchorService.stop()
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }
@@ -2493,10 +2513,8 @@ class MainActivity: FlutterActivity() {
             if (!stopped) {
                 Log.w(
                     "UAC2",
-                    "[USB] Timed out waiting for Rust direct USB shutdown; keeping connection open for ${deviceName ?: "unknown"}",
+                    "[USB] Timed out waiting for Rust direct USB shutdown for ${deviceName ?: "unknown"}; forcing connection close",
                 )
-                updateDirectUsbAudioFocus()
-                return false
             }
             closeDirectUsbConnection(deviceName)
             activeDirectUsbDeviceName = null
@@ -2988,6 +3006,12 @@ class MainActivity: FlutterActivity() {
         return (currentVolume.toDouble() / maxVolume.toDouble()).coerceIn(0.0, 1.0)
     }
 
+    /// Returns: 1 = healthy, 0 = mismatch (should fall back to Tier 2), -1 = error/no device
+    private fun verifyHardwareVolumeHealth(): Int {
+        if (!hasDirectUsbHardwareVolume()) return -1
+        return nativeVerifyRustDirectUsbHardwareVolumeHealth()
+    }
+
     private fun setRouteVolume(volume: Double): Boolean {
         if (hasDirectUsbHardwareVolume()) {
             val clamped = volume.coerceIn(0.0, 1.0)
@@ -3211,7 +3235,9 @@ class MainActivity: FlutterActivity() {
         justAudioProcessingController.release()
         usbHotplugReceiver = null
         usbPermissionReceiver = null
-        deactivateDirectUsb()
+        if (killIsochronousUsbOnQuit) {
+            deactivateDirectUsb()
+        }
     }
 
     companion object {
@@ -3241,6 +3267,7 @@ class MainActivity: FlutterActivity() {
     private external fun nativeSetRustDirectUsbHardwareVolume(volume: Double): Boolean
     private external fun nativeGetRustDirectUsbHardwareMute(): Int
     private external fun nativeSetRustDirectUsbHardwareMute(muted: Boolean): Boolean
+    private external fun nativeVerifyRustDirectUsbHardwareVolumeHealth(): Int
     private external fun nativeGetRustAudioDebugStateJson(): String?
     private external fun nativeClearRustDirectUsbPlayback(): Boolean
     private external fun nativeWaitRustDirectUsbSessionStopped(timeoutMs: Int): Boolean

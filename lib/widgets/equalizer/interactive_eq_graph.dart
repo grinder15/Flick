@@ -25,6 +25,7 @@ class _InteractiveEqGraphScreenState
     extends ConsumerState<InteractiveEqGraphScreen> {
   int? _draggedHandleIndex;
   int? _qAdjustHandleIndex;
+  int? _hoveredHandleIndex;
   final Map<int, Offset> _activePointers = {};
   double _qPointerStartDist = 0.0;
   double _qStartValue = 1.0;
@@ -58,7 +59,7 @@ class _InteractiveEqGraphScreenState
                     return Listener(
                       behavior: HitTestBehavior.opaque,
                       onPointerDown: (event) => _onPointerDown(event, size),
-                      onPointerMove: (event) => _onPointerMove(event, size),
+                      onPointerMove: (event) => _onPointerMoveOrHover(event, size),
                       onPointerUp: _onPointerUp,
                       onPointerCancel: _onPointerUp,
                       child: Stack(
@@ -70,7 +71,7 @@ class _InteractiveEqGraphScreenState
                               enabled: enabled,
                               state: ref.read(equalizerProvider),
                               selectedHandleIndex: _draggedHandleIndex ??
-                                  _qAdjustHandleIndex,
+                                  _qAdjustHandleIndex ?? _hoveredHandleIndex,
                               handleRadius: _handleRadius,
                               textScale: MediaQuery.textScalerOf(context).scale(1),
                             ),
@@ -90,8 +91,11 @@ class _InteractiveEqGraphScreenState
                 ),
               ),
             ),
-            if (_draggedHandleIndex != null && widget.mode == EqMode.parametric)
-              _buildParametricDetailPanel(),
+            if (_draggedHandleIndex != null ||
+                _qAdjustHandleIndex != null ||
+                _hoveredHandleIndex != null)
+              _buildDetailPanel(),
+            _buildStatusBar(),
           ],
         ),
       ),
@@ -145,9 +149,9 @@ class _InteractiveEqGraphScreenState
           vertical: AppConstants.spacingSm,
         ),
         decoration: BoxDecoration(
-          color: AppColors.glassBackgroundStrong.withValues(alpha: 0.85),
+          color: AppColors.background.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(AppConstants.radiusRound),
-          border: Border.all(color: AppColors.glassBorder),
+          border: Border.all(color: AppColors.glassBorderStrong.withValues(alpha: 0.5)),
         ),
         child: Text(
           isQ
@@ -157,7 +161,7 @@ class _InteractiveEqGraphScreenState
               : 'Drag to change frequency & gain',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: context.adaptiveTextSecondary,
+            color: context.adaptiveTextPrimary.withValues(alpha: 0.85),
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -165,47 +169,225 @@ class _InteractiveEqGraphScreenState
     );
   }
 
-  Widget _buildParametricDetailPanel() {
-    final index = _draggedHandleIndex ?? _qAdjustHandleIndex;
+  Widget _buildDetailPanel() {
+    final index = _draggedHandleIndex ?? _qAdjustHandleIndex ?? _hoveredHandleIndex;
     if (index == null) return const SizedBox.shrink();
 
-    final band = ref.watch(eqParamBandProvider(index));
-    if (!band.enabled) return const SizedBox.shrink();
+    if (widget.mode == EqMode.graphic) {
+      final freq = EqualizerState.defaultGraphicFrequenciesHz[index];
+      final gain = ref.read(eqGraphicGainDbProvider(index));
+      final bandFamily = _getBandFamily(freq);
 
-    return Container(
-      padding: const EdgeInsets.all(AppConstants.spacingMd),
-      margin: const EdgeInsets.only(
-        left: AppConstants.spacingMd,
-        right: AppConstants.spacingMd,
-        bottom: AppConstants.spacingLg,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.glassBackgroundStrong.withValues(alpha: 0.55),
-        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        border: Border.all(color: AppColors.glassBorderStrong),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _DetailItem(
-                label: 'Frequency',
-                value: equtils.hzLabel(band.frequencyHz),
-              ),
-              if (band.type.supportsGain)
+      return Container(
+        padding: const EdgeInsets.all(AppConstants.spacingMd),
+        margin: const EdgeInsets.only(
+          left: AppConstants.spacingMd,
+          right: AppConstants.spacingMd,
+          bottom: AppConstants.spacingLg,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.background.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+          border: Border.all(color: AppColors.glassBorderStrong.withValues(alpha: 0.6)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.background.withValues(alpha: 0.5),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _DetailItem(
+                  label: 'Frequency',
+                  value: equtils.hzLabel(freq),
+                ),
+                _DetailItem(
+                  label: 'Band',
+                  value: bandFamily,
+                ),
                 _DetailItem(
                   label: 'Gain',
                   value:
-                      '${band.gainDb >= 0 ? '+' : ''}${band.gainDb.toStringAsFixed(1)} dB',
+                      '${gain >= 0 ? '+' : ''}${gain.toStringAsFixed(1)} dB',
                 ),
-              _DetailItem(
-                label: band.type.qLabel,
-                value: band.q.toStringAsFixed(2),
+              ],
+            ),
+          ],
+        ),
+      );
+    } else {
+      final band = ref.watch(eqParamBandProvider(index));
+      if (!band.enabled) return const SizedBox.shrink();
+
+      return Container(
+        padding: const EdgeInsets.all(AppConstants.spacingMd),
+        margin: const EdgeInsets.only(
+          left: AppConstants.spacingMd,
+          right: AppConstants.spacingMd,
+          bottom: AppConstants.spacingLg,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.background.withValues(alpha: 0.95),
+          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+          border: Border.all(color: AppColors.glassBorderStrong.withValues(alpha: 0.6)),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.background.withValues(alpha: 0.5),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _DetailItem(
+                  label: 'Frequency',
+                  value: equtils.hzLabel(band.frequencyHz),
+                ),
+                if (band.type.supportsGain)
+                  _DetailItem(
+                    label: 'Gain',
+                    value:
+                        '${band.gainDb >= 0 ? '+' : ''}${band.gainDb.toStringAsFixed(1)} dB',
+                  ),
+                _DetailItem(
+                  label: band.type.qLabel,
+                  value: band.q.toStringAsFixed(2),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  String _getBandFamily(double freqHz) {
+    if (freqHz < 60) return 'Sub';
+    if (freqHz < 250) return 'Bass';
+    if (freqHz < 2000) return 'Mid';
+    if (freqHz < 6000) return 'Presence';
+    return 'Air';
+  }
+
+  Widget _buildStatusBar() {
+    final state = ref.watch(equalizerProvider);
+    final presetName = state.activePresetName;
+    final isEnabled = state.enabled;
+
+    String summaryText;
+    if (widget.mode == EqMode.graphic) {
+      final adjustedCount = state.graphicGainsDb.where((g) => g.abs() > 0.05).length;
+      summaryText = adjustedCount == 0 ? 'Flat' : '$adjustedCount/${state.graphicGainsDb.length} bands adjusted';
+    } else {
+      final activeCount = state.parametricBands.where((b) => b.enabled).length;
+      summaryText = '$activeCount/${state.parametricBands.length} bands active';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.spacingMd,
+        vertical: AppConstants.spacingSm,
+      ),
+      margin: const EdgeInsets.only(
+        left: AppConstants.spacingMd,
+        right: AppConstants.spacingMd,
+        bottom: AppConstants.spacingMd,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+        border: Border.all(color: AppColors.glassBorderStrong.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          // Mode chip
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.glassBackgroundStrong.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(AppConstants.radiusRound),
+            ),
+            child: Text(
+              widget.mode == EqMode.graphic ? 'Graphic' : 'Parametric',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: context.adaptiveTextPrimary,
+                fontWeight: FontWeight.w600,
+                fontSize: 10,
+              ),
+            ),
+          ),
+          const SizedBox(width: AppConstants.spacingSm),
+          // Preset name or summary
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (presetName != null)
+                  Text(
+                    presetName,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: context.adaptiveTextSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                Text(
+                  summaryText,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: context.adaptiveTextTertiary,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Enabled indicator
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(
+                  color: isEnabled ? AppColors.textPrimary : AppColors.inactiveState,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                isEnabled ? 'ON' : 'OFF',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: isEnabled ? context.adaptiveTextPrimary : context.adaptiveTextTertiary,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10,
+                ),
               ),
             ],
           ),
+          const SizedBox(width: AppConstants.spacingSm),
+          // Preamp
+          if (state.preampDb.abs() > 0.01)
+            Text(
+              '${state.preampDb >= 0 ? '+' : ''}${state.preampDb.toStringAsFixed(1)} dB',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: context.adaptiveTextSecondary,
+                fontWeight: FontWeight.w600,
+                fontSize: 10,
+              ),
+            ),
         ],
       ),
     );
@@ -232,12 +414,29 @@ class _InteractiveEqGraphScreenState
     final index = _hitTestHandle(event.localPosition, size);
     if (index != null) {
       _draggedHandleIndex = index;
+      _hoveredHandleIndex = null;
       setState(() {});
     }
   }
 
-  void _onPointerMove(PointerMoveEvent event, Size size) {
+  void _onPointerHover(PointerMoveEvent event, Size size) {
+    if (_activePointers.isNotEmpty) return;
+
+    final index = _hitTestHandle(event.localPosition, size);
+    if (index != _hoveredHandleIndex) {
+      _hoveredHandleIndex = index;
+      setState(() {});
+    }
+  }
+
+  void _onPointerMoveOrHover(PointerMoveEvent event, Size size) {
     _activePointers[event.pointer] = event.localPosition;
+
+    // Handle hover when not dragging
+    if (_activePointers.length == 1 && _draggedHandleIndex == null && _qAdjustHandleIndex == null) {
+      _onPointerHover(event, size);
+      return;
+    }
 
     if (_activePointers.length == 2 && _qAdjustHandleIndex != null) {
       _updateQFromPinch(size);
@@ -265,6 +464,7 @@ class _InteractiveEqGraphScreenState
 
     if (_activePointers.isEmpty) {
       _draggedHandleIndex = null;
+      _hoveredHandleIndex = null;
     }
 
     setState(() {});

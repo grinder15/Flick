@@ -13,7 +13,7 @@ import 'package:flick/services/uac2_exception.dart';
 
 const Object _unset = Object();
 
-enum Uac2State { idle, connecting, connected, streaming, error }
+enum Uac2State { idle, connecting, connected, prewarming, streaming, error }
 
 enum Uac2RouteType { internalDac, externalUsb, wired, bluetooth, dock, unknown }
 
@@ -142,6 +142,18 @@ class Uac2Service {
   final _preferencesService = Uac2PreferencesService();
   final ValueNotifier<bool> bitPerfectEnabledNotifier = ValueNotifier(false);
   final ValueNotifier<bool> dapBitPerfectEnabledNotifier = ValueNotifier(true);
+
+  Future<void> syncKillIsochronousUsbOnQuitToNative() async {
+    if (!Platform.isAndroid) return;
+    final enabled = Uac2PreferencesService.isKillIsochronousUsbOnQuitSync;
+    try {
+      await _channel.invokeMethod<bool>('setKillIsochronousUsbOnQuit', {
+        'enabled': enabled,
+      });
+    } catch (e) {
+      debugPrint('Uac2Service.syncKillIsochronousUsbOnQuitToNative failed: $e');
+    }
+  }
   Uac2DeviceStatus? _currentDeviceStatus;
   final List<ValueChanged<Uac2DeviceStatus?>> _statusListeners = [];
   bool _androidChannelConfigured = false;
@@ -214,6 +226,7 @@ class Uac2Service {
     bitPerfectEnabledNotifier.value = bitPerfectEnabled;
     final dapBitPerfectEnabled = await _preferencesService.getDapBitPerfectEnabled();
     dapBitPerfectEnabledNotifier.value = dapBitPerfectEnabled;
+    await syncKillIsochronousUsbOnQuitToNative();
     final savedDevice = await _preferencesService.loadSelectedDevice();
     if (savedDevice == null) {
       return;
@@ -804,7 +817,7 @@ class Uac2Service {
     );
   }
 
-  Future<void> markAndroidDirectUsbFallback(String reason) async {
+Future<void> markAndroidDirectUsbFallback(String reason) async {
     if (!Platform.isAndroid) {
       return;
     }
@@ -814,7 +827,25 @@ class Uac2Service {
         'reason': reason,
       });
     } catch (e) {
-      debugPrint('Uac2Service.markDirectUsbFallback failed: $e');
+      debugPrint('Uac2Service.markAndroidDirectUsbFallback failed: $e');
+    }
+  }
+
+  Future<void> startPriorityAnchor() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('startPriorityAnchor');
+    } catch (e) {
+      debugPrint('Uac2Service.startPriorityAnchor failed: $e');
+    }
+  }
+
+Future<void> stopPriorityAnchor() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('stopPriorityAnchor');
+    } catch (e) {
+      debugPrint('Uac2Service.stopPriorityAnchor failed: $e');
     }
   }
 
@@ -947,6 +978,24 @@ class Uac2Service {
     } catch (e) {
       debugPrint('Uac2Service.setVolume failed: $e');
       return false;
+    }
+  }
+
+  /// Health-check: reads current hardware volume via GET_CUR and compares with
+  /// the last value written by SET_CUR. Returns `true` if they match.
+  /// Returns `false` on mismatch (caller should fall back to Tier 2).
+  /// Returns `null` if the check cannot be performed (no device, not Android).
+  Future<bool?> verifyHardwareVolumeHealth() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final result = await _channel.invokeMethod<int>('verifyHardwareVolumeHealth');
+      if (result == null) return null;
+      if (result == 1) return true;
+      if (result == 0) return false;
+      return null; // -1 or any other value
+    } catch (e) {
+      debugPrint('Uac2Service.verifyHardwareVolumeHealth failed: $e');
+      return null;
     }
   }
 
@@ -1399,12 +1448,16 @@ class Uac2Service {
       directUsbRegistered: directUsbRegistered,
     );
 
+    final resolvedState = effectiveIsPlaying && isStreamingState
+        ? Uac2State.streaming
+        : (_currentDeviceStatus?.state == Uac2State.prewarming
+            ? Uac2State.prewarming
+            : Uac2State.connected);
+
     _updateStatus(
       Uac2DeviceStatus(
         device: routeDevice,
-        state: effectiveIsPlaying && isStreamingState
-            ? Uac2State.streaming
-            : Uac2State.connected,
+        state: resolvedState,
         errorMessage: null,
         warningMessage: _androidRouteWarningMessage(
           routeType,
@@ -2042,6 +2095,19 @@ class Uac2Service {
   void _updateStatus(Uac2DeviceStatus? status) {
     _currentDeviceStatus = status;
     _notifyStatusListeners();
+  }
+
+  /// Mark the engine as prewarming (format change during active USB playback).
+  /// Resets to [streaming] or [connected] by the next status refresh.
+  void setPrewarming() {
+    final current = _currentDeviceStatus;
+    if (current == null) return;
+    if (current.state != Uac2State.streaming &&
+        current.state != Uac2State.connected &&
+        current.state != Uac2State.prewarming) {
+      return;
+    }
+    _updateStatus(current.copyWith(state: Uac2State.prewarming));
   }
 
   Future<bool> setBitPerfectEnabled(bool enabled, {bool persist = true}) async {

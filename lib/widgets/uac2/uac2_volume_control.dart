@@ -7,6 +7,15 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/services/uac2_service.dart';
 
+/// Convert a linear volume (0.0–1.0) to decibels using the same
+/// exponential curve as the Rust audio engine (≈ -60 dB to 0 dB).
+String _volumeToDb(double volume) {
+  if (volume <= 0.0) return '-∞';
+  if (volume >= 1.0) return '0.0';
+  final db = 60.0 * (volume - 1.0);
+  return db.toStringAsFixed(1);
+}
+
 class Uac2VolumeControl extends ConsumerStatefulWidget {
   const Uac2VolumeControl({super.key});
 
@@ -29,42 +38,58 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
   }
 
   /// Called when the user lifts the finger — commits the value to the platform.
+  /// For software volume mode, also syncs to PlayerService so that
+  /// [_currentVolume] stays in sync with the slider.
   Future<void> _onSliderChangeEnd(double volume) async {
     setState(() => _draggingVolume = null);
 
     final notifier = ref.read(uac2DeviceStatusProvider.notifier);
-    final wasMuted = ref.read(uac2DeviceStatusProvider)?.muted ?? false;
+    final status = ref.read(uac2DeviceStatusProvider);
+    final wasMuted = status?.muted ?? false;
+    final isSoftwareVolume = status?.volumeMode == Uac2VolumeMode.software;
 
-    // Dragging above 0 while muted → auto-unmute
     if (wasMuted && volume > 0.0) {
       await notifier.setMute(false);
     }
-    // Dragging to 0 → auto-mute
     if (!wasMuted && volume == 0.0) {
-      final currentVol = ref.read(uac2DeviceStatusProvider)?.volume ?? 1.0;
+      final currentVol = isSoftwareVolume
+          ? ref.read(playerServiceProvider).currentVolume
+          : (status?.volume ?? 1.0);
       _preMuteVolume = currentVol > 0.0 ? currentVol : 1.0;
       await notifier.setMute(true);
     }
     await notifier.setVolume(volume);
+
+    if (isSoftwareVolume) {
+      await ref.read(playerServiceProvider).setVolume(volume);
+    }
   }
 
   Future<void> _toggleMute() async {
     final notifier = ref.read(uac2DeviceStatusProvider.notifier);
-    final currentMuted = ref.read(uac2DeviceStatusProvider)?.muted ?? false;
+    final status = ref.read(uac2DeviceStatusProvider);
+    final currentMuted = status?.muted ?? false;
     final newMuted = !currentMuted;
+    final isSoftwareVolume = status?.volumeMode == Uac2VolumeMode.software;
 
     setState(() => _muteUpdateInFlight = true);
 
     if (newMuted) {
-      // Muting: save current volume for restore, then mute + set volume to 0
-      _preMuteVolume = (ref.read(uac2DeviceStatusProvider)?.volume ?? 1.0)
+      _preMuteVolume = (isSoftwareVolume
+              ? ref.read(playerServiceProvider).currentVolume
+              : (status?.volume ?? 1.0))
           .clamp(0.01, 1.0);
       final success = await notifier.setMute(true);
       if (success) await notifier.setVolume(0.0);
+      if (isSoftwareVolume) {
+        await ref.read(playerServiceProvider).setVolume(0.0);
+      }
     } else {
-      // Unmuting: restore pre-mute volume, then unmute
       await notifier.setVolume(_preMuteVolume);
       await notifier.setMute(false);
+      if (isSoftwareVolume) {
+        await ref.read(playerServiceProvider).setVolume(_preMuteVolume);
+      }
     }
 
     if (mounted) setState(() => _muteUpdateInFlight = false);
@@ -80,10 +105,15 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
       return const SizedBox.shrink();
     }
 
-    final effectiveVolume = _draggingVolume ?? (deviceStatus.volume ?? 1.0);
+    final isSoftwareVolume = deviceStatus.volumeMode == Uac2VolumeMode.software;
+    final playerVolume = ref.read(playerServiceProvider).currentVolume;
+    final effectiveVolume = _draggingVolume ??
+        (isSoftwareVolume ? playerVolume : (deviceStatus.volume ?? 1.0));
     final effectiveMuted = deviceStatus.muted ?? false;
     final volumeControlWritable =
         deviceStatus.volumeControlWritable && !_muteUpdateInFlight;
+    final showDb = isSoftwareVolume ||
+        deviceStatus.volumeMode == Uac2VolumeMode.hardware;
 
     return Container(
       padding: const EdgeInsets.all(AppConstants.spacingMd),
@@ -155,7 +185,9 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
                   min: 0.0,
                   max: 1.0,
                   divisions: 100,
-                  label: '${(effectiveVolume * 100).round()}%',
+                  label: showDb
+                      ? '${(effectiveVolume * 100).round()}%  ${_volumeToDb(effectiveVolume)} dB'
+                      : '${(effectiveVolume * 100).round()}%',
                   onChanged: volumeControlWritable ? _onSliderChanged : null,
                   onChangeEnd: volumeControlWritable
                       ? _onSliderChangeEnd
@@ -171,9 +203,11 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
               ),
               const SizedBox(width: AppConstants.spacingSm),
               SizedBox(
-                width: 40,
+                width: showDb ? 82 : 40,
                 child: Text(
-                  '${(effectiveVolume * 100).round()}%',
+                  showDb
+                      ? '${(effectiveVolume * 100).round()}%  ${_volumeToDb(effectiveVolume)} dB'
+                      : '${(effectiveVolume * 100).round()}%',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.adaptiveTextSecondary,
                     fontWeight: FontWeight.w500,

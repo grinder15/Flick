@@ -23,10 +23,31 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::os::fd::RawFd;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex as StdMutex, Once};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+#[cfg(target_os = "android")]
+fn set_audio_thread_priority() -> Result<(), std::io::Error> {
+    let param = libc::sched_param { sched_priority: 2 };
+    unsafe {
+        let result = libc::sched_setscheduler(0, libc::SCHED_FIFO, &param);
+        if result != 0 {
+            let err = std::io::Error::last_os_error();
+            eprintln!(
+                "[AudioSched] SCHED_FIFO failed (errno={}): {}",
+                err.raw_os_error().unwrap_or(-1),
+                err
+            );
+            libc::setpriority(libc::PRIO_PROCESS, 0, -16);
+            eprintln!("[AudioSched] set nice=-16");
+            return Err(err);
+        }
+    }
+    eprintln!("[AudioSched] SCHED_FIFO priority=2 acquired");
+    Ok(())
+}
 
 const USB_CLASS_AUDIO: u8 = 0x01;
 const USB_SUBCLASS_AUDIOCONTROL: u8 = 0x01;
@@ -829,6 +850,7 @@ static ANDROID_DIRECT_HARDWARE_VOLUME_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mute
 static DIRECT_USB_DISCOVERY_DISABLED: Once = Once::new();
 static ANDROID_DIRECT_USB_ENABLED: AtomicBool = AtomicBool::new(true);
 static USB_SESSION_CLEAR_PENDING: AtomicBool = AtomicBool::new(false);
+static LAST_SET_HW_VOLUME: AtomicI16 = AtomicI16::new(0);
 
 /// Global guard: only one USB streaming session may be active at a time.
 /// Prevents "Resource busy" from concurrent or overlapping claim attempts.
@@ -2462,29 +2484,52 @@ fn refresh_android_usb_hardware_volume_snapshot_with_handle(
     handle: &DeviceHandle<Context>,
     control: &AndroidDirectUsbHardwareVolumeControl,
 ) -> Result<(f64, Option<bool>), String> {
-    let current_raw = read_feature_unit_i16_control(
-        handle,
-        control.interface_number,
-        control.feature_unit_id,
-        control.volume_channel,
-        UAC2_REQUEST_GET_CUR,
-        UAC2_FEATURE_UNIT_VOLUME_CONTROL,
-    )?;
-    let normalized =
-        normalize_hardware_volume(current_raw, control.min_volume_raw, control.max_volume_raw);
-    let muted = control
-        .mute_channel
-        .map(|channel| {
-            read_feature_unit_bool_control(
-                handle,
-                control.interface_number,
-                control.feature_unit_id,
-                channel,
-                UAC2_FEATURE_UNIT_MUTE_CONTROL,
-            )
-        })
-        .transpose()?;
-    Ok((normalized, muted))
+    const GET_CUR_RETRIES: u32 = 3;
+    const RETRY_DELAY_MS: u64 = 10;
+
+    let mut last_err = None;
+    for attempt in 0..GET_CUR_RETRIES {
+        match read_feature_unit_i16_control(
+            handle,
+            control.interface_number,
+            control.feature_unit_id,
+            control.volume_channel,
+            UAC2_REQUEST_GET_CUR,
+            UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+        ) {
+            Ok(raw) => {
+                let normalized = normalize_hardware_volume(
+                    raw,
+                    control.min_volume_raw,
+                    control.max_volume_raw,
+                );
+                let muted = control
+                    .mute_channel
+                    .map(|channel| {
+                        read_feature_unit_bool_control(
+                            handle,
+                            control.interface_number,
+                            control.feature_unit_id,
+                            channel,
+                            UAC2_FEATURE_UNIT_MUTE_CONTROL,
+                        )
+                    })
+                    .transpose()?;
+                return Ok((normalized, muted));
+            }
+            Err(e) => {
+                eprintln!(
+                    "[VolFlow] GET_CUR attempt {} failed: {e}",
+                    attempt + 1
+                );
+                last_err = Some(e);
+                if attempt < GET_CUR_RETRIES - 1 {
+                    std::thread::sleep(Duration::from_millis(RETRY_DELAY_MS));
+                }
+            }
+        }
+    }
+    Err(last_err.unwrap_or_else(|| "GET_CUR failed with no error recorded".to_string()))
 }
 
 pub fn android_direct_has_hardware_volume_control() -> bool {
@@ -2561,9 +2606,48 @@ pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
         ));
     }
 
+    LAST_SET_HW_VOLUME.store(target_raw, Ordering::Release);
     set_hardware_volume_snapshot(Some(normalized), muted);
     eprintln!("[VolFlow] SET_CUR OK: normalized={normalized:.3}");
     Ok(())
+}
+
+/// Periodic health check: reads current hardware volume via GET_CUR and compares
+/// with the last value written by SET_CUR. Returns `Ok(true)` if they match,
+/// `Ok(false)` if they diverge (caller should fall back to Tier 2 software volume).
+pub fn android_direct_verify_hardware_volume_health() -> Result<bool, String> {
+    let _hold = ANDROID_DIRECT_HARDWARE_VOLUME_MUTEX.lock();
+    let state = DIRECT_USB_STATE
+        .lock()
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "No Android direct USB DAC is registered".to_string())?;
+    let control = state
+        .hardware_volume_control
+        .clone()
+        .ok_or_else(|| "Android direct USB hardware volume is unavailable".to_string())?;
+    let claimed_handle = open_transient_usb_handle(&state.device)
+        .inspect_err(|e| eprintln!("[VolFlow] health: open_transient_usb_handle failed: {e}"))?;
+
+    let current_raw = read_feature_unit_i16_control(
+        &claimed_handle.handle,
+        control.interface_number,
+        control.feature_unit_id,
+        control.volume_channel,
+        UAC2_REQUEST_GET_CUR,
+        UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+    )
+    .inspect_err(|e| eprintln!("[VolFlow] health: GET_CUR failed: {e}"))?;
+
+    let expected_raw = LAST_SET_HW_VOLUME.load(Ordering::Acquire);
+    if current_raw != expected_raw {
+        eprintln!(
+            "[VolFlow] HEALTH CHECK FAILED: expected_raw={} got_raw={}",
+            expected_raw, current_raw
+        );
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 pub fn android_direct_set_hardware_mute(muted: bool) -> Result<(), String> {
@@ -3514,6 +3598,10 @@ fn create_android_usb_backend_inner(
     let producer_thread_handle = match thread::Builder::new()
         .name("android-usb-direct-render".to_string())
         .spawn(move || {
+            #[cfg(target_os = "android")]
+            if set_audio_thread_priority().is_err() {
+                eprintln!("[AudioSched] Render thread running without SCHED_FIFO");
+            }
             run_usb_render_loop(
                 producer_callback_data,
                 producer_event_tx,
@@ -3556,6 +3644,10 @@ fn create_android_usb_backend_inner(
     let thread_handle = match thread::Builder::new()
         .name("android-usb-direct-output".to_string())
         .spawn(move || {
+            #[cfg(target_os = "android")]
+            if set_audio_thread_priority().is_err() {
+                eprintln!("[AudioSched] Output thread running without SCHED_FIFO");
+            }
             run_usb_output_loop(
                 claimed_handle,
                 candidate,
@@ -3648,8 +3740,10 @@ fn run_usb_render_loop(
     let mut pcm_samples = vec![0i32; chunk_samples];
     let mut warned_no_frames = false;
     let mut logged_render_preview = false;
+    let chunk_deadline = Duration::from_millis(ANDROID_USB_RENDER_CHUNK_MS as u64);
 
     while !stop.load(Ordering::Acquire) {
+        let cycle_start = Instant::now();
         let buffered_samples = {
             let guard = pcm_buffer.lock();
             guard.len_samples()
@@ -3664,6 +3758,10 @@ fn run_usb_render_loop(
         }
 
         audio_callback(&mut render_buffer, &callback_data, &event_tx);
+        if cycle_start.elapsed() > chunk_deadline {
+            let count = crate::audio::engine::XRUN_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!("[Xrun] render cycle overrun: {:.1}ms > {}ms (total={})", cycle_start.elapsed().as_secs_f64() * 1000.0, ANDROID_USB_RENDER_CHUNK_MS, count);
+        }
         if render_buffer.is_empty() {
             if !warned_no_frames {
                 let message = "USB stream active but no PCM frames received".to_string();

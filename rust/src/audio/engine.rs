@@ -38,9 +38,11 @@ use oboe::{
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::thread;
+
+pub static XRUN_COUNT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AudioOutputRuntimeState {
@@ -128,8 +130,19 @@ impl AudioCallbackData {
         f32::from_bits(self.volume.load(Ordering::Relaxed))
     }
 
+    /// Perceptual gain from linear slider value (0-1).
+    /// Maps to ≈[-60 dB, 0 dB] so 50 % slider sounds like half loudness.
+    #[inline]
+    pub fn get_gain(&self) -> f32 {
+        volume_to_gain(self.get_volume())
+    }
+
     #[inline]
     pub fn set_volume(&self, volume: f32) {
+        debug_assert!(
+            (0.0..=1.0).contains(&volume) || volume.is_nan(),
+            "Volume out of range: {volume}"
+        );
         self.volume.store(volume.to_bits(), Ordering::Relaxed);
     }
 
@@ -1359,6 +1372,18 @@ fn sharing_label(sharing: SharingMode) -> &'static str {
     }
 }
 
+/// Convert a linear volume slider value (0.0–1.0) to a perceptual gain.
+/// Uses an exponential curve mapping to ≈[-60 dB, 0 dB], which provides
+/// a more natural loudness response where 50 % slider ≈ half perceived volume.
+#[inline]
+fn volume_to_gain(volume: f32) -> f32 {
+    if volume <= 0.0 {
+        0.0
+    } else {
+        10.0_f32.powf((volume - 1.0) * 3.0)
+    }
+}
+
 /// The real-time audio callback.
 ///
 /// This function MUST NOT:
@@ -1381,7 +1406,7 @@ pub(crate) fn audio_callback(
     // Volume IS applied: when DAC has hardware volume control it stays at 1.0
     // (no-op), when the DAC lacks it this provides the fallback volume control.
     if data.is_bit_perfect() {
-        let volume = data.get_volume();
+        let gain = data.get_gain();
         let mut sources = match data.sources.try_lock() {
             Some(s) => s,
             None => {
@@ -1398,14 +1423,14 @@ pub(crate) fn audio_callback(
             output[read..].fill(0.0);
         }
         for sample in output[..read].iter_mut() {
-            *sample *= volume;
+            *sample *= gain;
         }
         return;
     }
 
     // --- Normal (non-bit-perfect) path with full DSP chain ---
 
-    let volume = data.get_volume();
+    let volume = data.get_gain();
     let speed = data.get_playback_speed();
     let channels = data.channels();
 
@@ -1429,9 +1454,6 @@ pub(crate) fn audio_callback(
             if read < output.len() {
                 output[read..].fill(0.0);
             }
-            for sample in output.iter_mut() {
-                *sample *= volume;
-            }
             if let Some(mut eq) = data.equalizer.try_lock() {
                 eq.process(output, channels);
             }
@@ -1440,6 +1462,10 @@ pub(crate) fn audio_callback(
             }
             if let Some(mut dynamics) = data.dynamics.try_lock() {
                 dynamics.process(output, channels);
+            }
+            // Volume is always applied last, after all DSP processing.
+            for sample in output.iter_mut() {
+                *sample *= volume;
             }
             return;
         }
@@ -1565,9 +1591,6 @@ pub(crate) fn audio_callback(
         }
     }
 
-    for sample in output.iter_mut() {
-        *sample *= volume;
-    }
     if let Some(mut eq) = data.equalizer.try_lock() {
         eq.process(output, channels);
     }
@@ -1576,6 +1599,11 @@ pub(crate) fn audio_callback(
     }
     if let Some(mut dynamics) = data.dynamics.try_lock() {
         dynamics.process(output, channels);
+    }
+
+    // Volume is always applied last, after all DSP processing.
+    for sample in output.iter_mut() {
+        *sample *= volume;
     }
 }
 

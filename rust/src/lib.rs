@@ -349,6 +349,28 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
     0
 }
 
+#[cfg(all(target_os = "android", feature = "uac2"))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeVerifyRustDirectUsbHardwareVolumeHealth(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jint {
+    match crate::uac2::android_direct_verify_hardware_volume_health() {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(_) => -1,
+    }
+}
+
+#[cfg(all(target_os = "android", not(feature = "uac2")))]
+#[no_mangle]
+pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeVerifyRustDirectUsbHardwareVolumeHealth(
+    _env: JNIEnv<'_>,
+    _activity: JObject<'_>,
+) -> jint {
+    -1
+}
+
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
 pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbLockEnabled(

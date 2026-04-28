@@ -142,6 +142,18 @@ class Uac2Service {
   final _preferencesService = Uac2PreferencesService();
   final ValueNotifier<bool> bitPerfectEnabledNotifier = ValueNotifier(false);
   final ValueNotifier<bool> dapBitPerfectEnabledNotifier = ValueNotifier(true);
+
+  Future<void> syncKillIsochronousUsbOnQuitToNative() async {
+    if (!Platform.isAndroid) return;
+    final enabled = Uac2PreferencesService.isKillIsochronousUsbOnQuitSync;
+    try {
+      await _channel.invokeMethod<bool>('setKillIsochronousUsbOnQuit', {
+        'enabled': enabled,
+      });
+    } catch (e) {
+      debugPrint('Uac2Service.syncKillIsochronousUsbOnQuitToNative failed: $e');
+    }
+  }
   Uac2DeviceStatus? _currentDeviceStatus;
   final List<ValueChanged<Uac2DeviceStatus?>> _statusListeners = [];
   bool _androidChannelConfigured = false;
@@ -214,6 +226,7 @@ class Uac2Service {
     bitPerfectEnabledNotifier.value = bitPerfectEnabled;
     final dapBitPerfectEnabled = await _preferencesService.getDapBitPerfectEnabled();
     dapBitPerfectEnabledNotifier.value = dapBitPerfectEnabled;
+    await syncKillIsochronousUsbOnQuitToNative();
     final savedDevice = await _preferencesService.loadSelectedDevice();
     if (savedDevice == null) {
       return;

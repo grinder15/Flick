@@ -9,6 +9,7 @@ enum AudioEnginePreference { exoPlayer, rustOboe, isochronousUsb }
 
 class Uac2PreferencesService {
   static final ValueNotifier<bool> developerModeNotifier = ValueNotifier(false);
+  static final ValueNotifier<bool> killIsochronousUsbOnQuitNotifier = ValueNotifier(true);
   static const _keySelectedDevice = 'uac2_selected_device';
   static const _keyPreferredFormat = 'uac2_preferred_format';
   static const _keyFormatPreference = 'uac2_format_preference';
@@ -20,8 +21,10 @@ class Uac2PreferencesService {
   static const _keyDeveloperModeEnabled = 'developer_mode_enabled';
   static const _keyAudioFormatEnabled = 'uac2_audio_format_enabled';
   static const _keyUsbSoftwareVolume = 'uac2_usb_software_volume';
+  static const _keyKillIsochronousUsbOnQuit = 'uac2_kill_isochronous_usb_on_quit';
 
   static bool get isDeveloperModeEnabledSync => developerModeNotifier.value;
+  static bool get isKillIsochronousUsbOnQuitSync => killIsochronousUsbOnQuitNotifier.value;
 
   Future<void> saveSelectedDevice(Uac2DeviceInfo device) async {
     try {
@@ -194,6 +197,13 @@ class Uac2PreferencesService {
     }
   }
 
+  Future<void> initializeKillIsochronousUsbOnQuitCache() async {
+    final enabled = await getKillIsochronousUsbOnQuit();
+    if (killIsochronousUsbOnQuitNotifier.value != enabled) {
+      killIsochronousUsbOnQuitNotifier.value = enabled;
+    }
+  }
+
   Future<void> setDeveloperModeEnabled(bool enabled) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -265,6 +275,30 @@ class Uac2PreferencesService {
     }
   }
 
+  Future<void> setKillIsochronousUsbOnQuit(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyKillIsochronousUsbOnQuit, enabled);
+      killIsochronousUsbOnQuitNotifier.value = enabled;
+    } catch (e) {
+      debugPrint('Failed to save kill Isochronous USB on quit setting: $e');
+    }
+  }
+
+  Future<bool> getKillIsochronousUsbOnQuit() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool(_keyKillIsochronousUsbOnQuit) ?? true;
+      if (killIsochronousUsbOnQuitNotifier.value != enabled) {
+        killIsochronousUsbOnQuitNotifier.value = enabled;
+      }
+      return enabled;
+    } catch (e) {
+      debugPrint('Failed to load kill Isochronous USB on quit setting: $e');
+      return killIsochronousUsbOnQuitNotifier.value;
+    }
+  }
+
   Future<Uac2FormatPreference> getFormatPreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -295,7 +329,9 @@ class Uac2PreferencesService {
       await prefs.remove(_keyDeveloperModeEnabled);
       await prefs.remove(_keyAudioFormatEnabled);
       await prefs.remove(_keyUsbSoftwareVolume);
+      await prefs.remove(_keyKillIsochronousUsbOnQuit);
       developerModeNotifier.value = false;
+      killIsochronousUsbOnQuitNotifier.value = true;
     } catch (e) {
       debugPrint('Failed to clear preferences: $e');
     }

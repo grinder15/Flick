@@ -26,6 +26,27 @@ import 'package:flick/services/uac2_preferences_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/services/alac_converter_service.dart';
 
+enum HwVolumeCapability { unknown, supported, unsupported }
+
+/// Volume Control State Machine:
+///
+/// ┌──────────┐  SET_CUR OK   ┌───────────┐
+/// │ UNKNOWN  │──────────────►│ HARDWARE  │
+/// │          │               │ engine=1.0│
+/// └──────────┘               └─────┬─────┘
+///      │                           │
+///      │ SET_CUR fail              │ GET_CUR mismatch
+///      │                           │ (health check fail)
+///      ▼                           ▼
+/// ┌──────────┐               ┌───────────┐
+/// │ SOFTWARE │◄──────────────│           │
+/// │ engine=V │  fallback     │           │
+/// └──────────┘               └───────────┘
+///
+/// Reconciliation: [_reconcileVolumeForTier]
+/// Tier evaluation: [_determineCurrentTier]
+enum VolumeTier { hardware, software, system }
+
 /// Loop mode for playback
 enum LoopMode { off, one, all }
 
@@ -262,9 +283,14 @@ class PlayerService {
   String? _restoredSongId;
   Duration _restoredPosition = Duration.zero;
   double _currentVolume = 1.0;
+  HwVolumeCapability _hwVolumeCap = HwVolumeCapability.unknown;
+  VolumeTier _activeTier = VolumeTier.system;
 
   // Timer to periodically save position
   Timer? _positionSaveTimer;
+
+  // Periodic health-check for hardware volume verification
+  Timer? _hwVolumeHealthTimer;
 
   // State Notifiers
   final ValueNotifier<Song?> currentSongNotifier = _MutableValueNotifier(null);
@@ -359,7 +385,12 @@ class PlayerService {
   /// When the DAC/route reports a new hardware level (e.g. device keys), keep
   /// [_currentVolume] aligned so bit-perfect sync does not fight the DAC.
   void _mirrorUsbHardwareVolumeFromUac2Status(Uac2DeviceStatus? status) {
-    if (status == null || !Platform.isAndroid) return;
+    if (status == null) {
+      _hwVolumeCap = HwVolumeCapability.unknown;
+      unawaited(_reconcileVolumeForTier(_determineCurrentTier()));
+      return;
+    }
+    if (!Platform.isAndroid) return;
     if (currentEngineType != AudioEngineType.usbDacExperimental) return;
     if (!isBitPerfectModeEnabled) return;
     if (!status.hasVolumeControl ||
@@ -370,6 +401,9 @@ class PlayerService {
     if (v == null) return;
     if ((v - _currentVolume).abs() <= 0.01) return;
     _currentVolume = v.clamp(0.0, 1.0);
+    if (_activeTier == VolumeTier.software) {
+      unawaited(_rustAudioService.setVolume(_currentVolume));
+    }
   }
 
   Future<void> _handleBitPerfectPreferenceChanged() async {
@@ -886,13 +920,60 @@ class PlayerService {
         a.channels == b.channels;
   }
 
-  bool _hasBitPerfectUsbHardwareVolumeControl() {
-    final routeStatus = _uac2Service.currentDeviceStatus;
-    return Platform.isAndroid &&
-        currentEngineType == AudioEngineType.usbDacExperimental &&
-        isBitPerfectModeEnabled &&
-        routeStatus?.hasVolumeControl == true &&
-        routeStatus?.volumeMode == Uac2VolumeMode.hardware;
+  bool _shouldAttemptHardwareVolume() {
+    switch (_hwVolumeCap) {
+      case HwVolumeCapability.unsupported:
+        return false;
+      case HwVolumeCapability.supported:
+      case HwVolumeCapability.unknown:
+        return true;
+    }
+  }
+
+  bool get _isDirectUsbPath =>
+      Platform.isAndroid &&
+      currentEngineType == AudioEngineType.usbDacExperimental;
+
+  void _onHwVolumeResult(bool success) {
+    _hwVolumeCap = success
+        ? HwVolumeCapability.supported
+        : HwVolumeCapability.unsupported;
+    unawaited(_reconcileVolumeForTier(_determineCurrentTier()));
+  }
+
+  VolumeTier _determineCurrentTier() {
+    if (!isBitPerfectModeEnabled || !_isDirectUsbPath) {
+      return _usingRustBackend ? VolumeTier.software : VolumeTier.system;
+    }
+    switch (_hwVolumeCap) {
+      case HwVolumeCapability.supported:
+        return VolumeTier.hardware;
+      case HwVolumeCapability.unsupported:
+        return VolumeTier.software;
+      case HwVolumeCapability.unknown:
+        return VolumeTier.software;
+    }
+  }
+
+  Future<void> _reconcileVolumeForTier(VolumeTier tier) async {
+    _activeTier = tier;
+    if (tier == VolumeTier.hardware) {
+      _startHwVolumeHealthTimer();
+    } else {
+      _stopHwVolumeHealthTimer();
+    }
+    if (!_rustAudioService.isInitialized) return;
+    switch (tier) {
+      case VolumeTier.hardware:
+        await _rustAudioService.setVolume(1.0);
+        break;
+      case VolumeTier.software:
+        await _rustAudioService.setVolume(_currentVolume);
+        break;
+      case VolumeTier.system:
+        await _rustAudioService.setVolume(1.0);
+        break;
+    }
   }
 
   /// Prefer [primary], then the current-song notifier, then the last engine
@@ -2131,8 +2212,7 @@ class PlayerService {
     }
 
     if (isBitPerfectModeEnabled) {
-      final hwVol = _hasBitPerfectUsbHardwareVolumeControl();
-      await _rustAudioService.setVolume(hwVol ? 1.0 : _currentVolume);
+      await _reconcileVolumeForTier(_determineCurrentTier());
       await _rustAudioService.setPlaybackSpeed(1.0);
       await _rustAudioService.setCrossfade(
         enabled: false,
@@ -2310,7 +2390,7 @@ class PlayerService {
         },
       );
       _usingRustBackend = true;
-      await _rustAudioService.setVolume(_currentVolume);
+      await _reconcileVolumeForTier(_determineCurrentTier());
     } else {
       await _playbackManager.ensureEngine(
         engineType: to,
@@ -3113,33 +3193,30 @@ class PlayerService {
   Future<void> setVolume(double volume) async {
     final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
     _currentVolume = clampedVolume;
-    if (isBitPerfectModeEnabled) {
-      final hwVol = _hasBitPerfectUsbHardwareVolumeControl();
-      if (hwVol) {
-        debugPrint('[VolFlow] HW path: uac2 setVolume($clampedVolume)');
-        final hwOk = await _uac2Service.setVolume(clampedVolume);
-        if (hwOk) {
-          debugPrint('[VolFlow] HW SET_CUR ok → engine=1.0');
-          await _rustAudioService.setVolume(1.0);
-        } else if (_usingRustBackend) {
-          debugPrint('[VolFlow] HW SET_CUR FAILED → sw fallback engine=$clampedVolume');
-          await _rustAudioService.setVolume(clampedVolume);
-        } else {
-          debugPrint('[VolFlow] HW SET_CUR FAILED, no Rust backend → dead end');
+    final tier = _determineCurrentTier();
+    _activeTier = tier;
+    switch (tier) {
+      case VolumeTier.hardware:
+        if (_shouldAttemptHardwareVolume()) {
+          debugPrint('[VolFlow] HW path: uac2 setVolume($clampedVolume)');
+          final hwOk = await _uac2Service.setVolume(clampedVolume);
+          _onHwVolumeResult(hwOk);
         }
-      } else if (_usingRustBackend) {
-        debugPrint('[VolFlow] SW path: engine setVolume($clampedVolume)');
-        await _rustAudioService.setVolume(clampedVolume);
-      }
-      return;
-    }
-    if (_usingRustBackend) {
-      await _rustAudioService.setVolume(clampedVolume);
-    } else {
-      final player = _justAudioPlayer;
-      if (player != null) {
-        await player.setVolume(clampedVolume);
-      }
+        break;
+      case VolumeTier.software:
+        if (_usingRustBackend) {
+          debugPrint('[VolFlow] SW path: engine setVolume($clampedVolume)');
+          await _rustAudioService.setVolume(clampedVolume);
+        }
+        break;
+      case VolumeTier.system:
+        final player = _justAudioPlayer;
+        if (player != null) {
+          await player.setVolume(clampedVolume);
+        } else if (_usingRustBackend) {
+          await _rustAudioService.setVolume(clampedVolume);
+        }
+        break;
     }
   }
 
@@ -3346,6 +3423,28 @@ class PlayerService {
     );
   }
 
+  void _startHwVolumeHealthTimer() {
+    _hwVolumeHealthTimer?.cancel();
+    _hwVolumeHealthTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _checkHwVolumeHealth(),
+    );
+  }
+
+  void _stopHwVolumeHealthTimer() {
+    _hwVolumeHealthTimer?.cancel();
+    _hwVolumeHealthTimer = null;
+  }
+
+  Future<void> _checkHwVolumeHealth() async {
+    if (_activeTier != VolumeTier.hardware) return;
+    final healthy = await _uac2Service.verifyHardwareVolumeHealth();
+    if (healthy == false) {
+      debugPrint('[VolFlow] HW volume health check failed — falling back to software tier');
+      _onHwVolumeResult(false);
+    }
+  }
+
   void _publishRestoredPlaybackState(Song song, {required Duration position}) {
     if (currentSongNotifier.value != song) {
       currentSongNotifier.value = song;
@@ -3368,6 +3467,7 @@ class PlayerService {
     _playbackDiagnosticsDebounceTimer?.cancel();
     _playbackDiagnosticsDebounceTimer = null;
     _positionSaveTimer?.cancel();
+    _stopHwVolumeHealthTimer();
     unawaited(_audioFocusSubscription?.cancel());
     cancelSleepTimer();
     _notificationService.hideNotification();

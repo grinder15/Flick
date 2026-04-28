@@ -950,6 +950,24 @@ class Uac2Service {
     }
   }
 
+  /// Health-check: reads current hardware volume via GET_CUR and compares with
+  /// the last value written by SET_CUR. Returns `true` if they match.
+  /// Returns `false` on mismatch (caller should fall back to Tier 2).
+  /// Returns `null` if the check cannot be performed (no device, not Android).
+  Future<bool?> verifyHardwareVolumeHealth() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final result = await _channel.invokeMethod<int>('verifyHardwareVolumeHealth');
+      if (result == null) return null;
+      if (result == 1) return true;
+      if (result == 0) return false;
+      return null; // -1 or any other value
+    } catch (e) {
+      debugPrint('Uac2Service.verifyHardwareVolumeHealth failed: $e');
+      return null;
+    }
+  }
+
   Future<double?> getVolume() async {
     if (_currentDeviceStatus == null) return null;
 

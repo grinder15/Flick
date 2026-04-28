@@ -82,6 +82,7 @@ class MainActivity: FlutterActivity() {
     private var activeDirectUsbDeviceName: String? = null
     private var exclusiveDacModeEnabled = false
     private var directUsbPlaybackActive = false
+    private var killIsochronousUsbOnQuit = true
     private var directUsbFocusGain: Int? = null
     private var directUsbAudioFocusRequest: AudioFocusRequest? = null
     private val directUsbAudioFocusChangeListener =
@@ -658,6 +659,11 @@ class MainActivity: FlutterActivity() {
                 }
                 "deactivateDirectUsb" -> {
                     result.success(deactivateDirectUsb())
+                }
+                "setKillIsochronousUsbOnQuit" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: true
+                    killIsochronousUsbOnQuit = enabled
+                    result.success(true)
                 }
                 "markDirectUsbFallback" -> {
                     val reason = call.argument<String>("reason")
@@ -2505,10 +2511,8 @@ class MainActivity: FlutterActivity() {
             if (!stopped) {
                 Log.w(
                     "UAC2",
-                    "[USB] Timed out waiting for Rust direct USB shutdown; keeping connection open for ${deviceName ?: "unknown"}",
+                    "[USB] Timed out waiting for Rust direct USB shutdown for ${deviceName ?: "unknown"}; forcing connection close",
                 )
-                updateDirectUsbAudioFocus()
-                return false
             }
             closeDirectUsbConnection(deviceName)
             activeDirectUsbDeviceName = null
@@ -3229,7 +3233,9 @@ class MainActivity: FlutterActivity() {
         justAudioProcessingController.release()
         usbHotplugReceiver = null
         usbPermissionReceiver = null
-        deactivateDirectUsb()
+        if (killIsochronousUsbOnQuit) {
+            deactivateDirectUsb()
+        }
     }
 
     companion object {

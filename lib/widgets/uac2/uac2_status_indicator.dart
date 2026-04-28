@@ -46,7 +46,7 @@ class Uac2StatusIndicator extends ConsumerWidget {
           if (deviceStatus.currentFormat != null) ...[
             const SizedBox(width: 4),
             Text(
-              '${deviceStatus.currentFormat!.sampleRate ~/ 1000}kHz/${deviceStatus.currentFormat!.bitDepth}bit',
+              '${_effectiveSampleRate(deviceStatus, diagnostics) ~/ 1000}kHz/${deviceStatus.currentFormat!.bitDepth}bit',
               style: TextStyle(
                 fontSize: 10,
                 color: _getStatusColor(
@@ -69,6 +69,16 @@ class Uac2StatusIndicator extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  int _effectiveSampleRate(
+    Uac2DeviceStatus status,
+    AudioOutputDiagnostics? diagnostics,
+  ) {
+    if (diagnostics?.reportedOutputSampleRate != null) {
+      return diagnostics!.reportedOutputSampleRate!;
+    }
+    return status.currentFormat?.sampleRate ?? 44100;
   }
 
   Color _getStatusColor(Uac2State state) {

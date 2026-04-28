@@ -240,6 +240,7 @@ class PlayerService {
   final Uac2PreferencesService _preferencesService = Uac2PreferencesService();
   final RustAudioService _rustAudioService = RustAudioService();
   final Uac2Service _uac2Service = Uac2Service.instance;
+  bool _priorityAnchorActive = false;
   late final AudioSessionManager _sessionManager;
   late final AudioEngineManager _playbackManager;
   RustAudioEngine? _rustEngine;
@@ -378,13 +379,20 @@ class PlayerService {
     _uac2Service.bitPerfectEnabledNotifier.addListener(() {
       unawaited(_handleBitPerfectPreferenceChanged());
     });
-    _uac2Service.addStatusListener(_mirrorUsbHardwareVolumeFromUac2Status);
+    _uac2Service.addStatusListener(_mirrorUsbVolumeFromUac2Status);
     _notifyQueueChanged();
   }
 
-  /// When the DAC/route reports a new hardware level (e.g. device keys), keep
-  /// [_currentVolume] aligned so bit-perfect sync does not fight the DAC.
-  void _mirrorUsbHardwareVolumeFromUac2Status(Uac2DeviceStatus? status) {
+  /// When the DAC/route reports a new volume level, keep [_currentVolume]
+  /// aligned and propagate to the Rust engine.
+  ///
+  /// - **Hardware mode** (bit-perfect + DAC knob): mirrors the DAC level so
+  ///   reconciliation keeps the engine pinned at 1.0.
+  /// - **Software mode** (no hardware volume on DAC): the UAC2 slider calls
+  ///   [Uac2Service.setVolume], which on Android routes to
+  ///   `AudioManager.setStreamVolume` — a no-op for isochronous USB.  This
+  ///   listener bridges that gap by pushing the volume to the Rust engine.
+  void _mirrorUsbVolumeFromUac2Status(Uac2DeviceStatus? status) {
     if (status == null) {
       _hwVolumeCap = HwVolumeCapability.unknown;
       unawaited(_reconcileVolumeForTier(_determineCurrentTier()));
@@ -392,17 +400,20 @@ class PlayerService {
     }
     if (!Platform.isAndroid) return;
     if (currentEngineType != AudioEngineType.usbDacExperimental) return;
-    if (!isBitPerfectModeEnabled) return;
-    if (!status.hasVolumeControl ||
-        status.volumeMode != Uac2VolumeMode.hardware) {
-      return;
-    }
+    if (!status.hasVolumeControl) return;
+
     final v = status.volume;
     if (v == null) return;
     if ((v - _currentVolume).abs() <= 0.01) return;
     _currentVolume = v.clamp(0.0, 1.0);
-    if (_activeTier == VolumeTier.software) {
-      unawaited(_rustAudioService.setVolume(_currentVolume));
+
+    if (status.volumeMode == Uac2VolumeMode.hardware) {
+      if (!isBitPerfectModeEnabled) return;
+      unawaited(_reconcileVolumeForTier(_determineCurrentTier()));
+    } else if (status.volumeMode == Uac2VolumeMode.software) {
+      if (_usingRustBackend && _rustAudioService.isInitialized) {
+        unawaited(_rustAudioService.setVolume(_currentVolume));
+      }
     }
   }
 
@@ -933,6 +944,17 @@ class PlayerService {
   bool get _isDirectUsbPath =>
       Platform.isAndroid &&
       currentEngineType == AudioEngineType.usbDacExperimental;
+
+  void _updatePriorityAnchor() {
+    final shouldAnchor = _isDirectUsbPath && isPlayingNotifier.value;
+    if (shouldAnchor && !_priorityAnchorActive) {
+      _uac2Service.startPriorityAnchor();
+      _priorityAnchorActive = true;
+    } else if (!shouldAnchor && _priorityAnchorActive) {
+      _uac2Service.stopPriorityAnchor();
+      _priorityAnchorActive = false;
+    }
+  }
 
   void _onHwVolumeResult(bool success) {
     _hwVolumeCap = success
@@ -1724,6 +1746,7 @@ class PlayerService {
     await _savePosition();
     _positionSaveTimer?.cancel();
     _clearReplayTracking();
+    _updatePriorityAnchor();
     try {
       await _playbackManager.stop();
     } catch (e) {
@@ -2235,6 +2258,7 @@ class PlayerService {
     }
 
     await reapplyEqualizer();
+    _updatePriorityAnchor();
   }
 
   Future<bool> _retryAndroidDirectUsbPreparationWithFallbackRate({
@@ -2695,6 +2719,7 @@ class PlayerService {
           await _playbackManager.playTrack(song);
         });
         _ensurePositionSaveTimer();
+        _updatePriorityAnchor();
         await _refreshAudioOutputDiagnostics(
           reason: 'playback started',
           activeSong: song,
@@ -2803,10 +2828,10 @@ class PlayerService {
     debugPrint(
       '[Playback] pause() called, hasAttachedEngine=${_playbackManager.hasAttachedEngine}',
     );
-    // Optimistically update UI immediately so the pause button feels responsive.
     if (isPlayingNotifier.value) {
       isPlayingNotifier.value = false;
     }
+    _updatePriorityAnchor();
     // If no engine has been attached yet (e.g. pausing a restored-but-not-started
     // track), there is nothing to pause — the optimistic update above is enough.
     if (!_playbackManager.hasAttachedEngine) {
@@ -2868,6 +2893,7 @@ class PlayerService {
     }
 
     _ensurePositionSaveTimer();
+    _updatePriorityAnchor();
     await _refreshAudioOutputDiagnostics(
       reason: 'playback resumed',
       activeSong: song,

@@ -804,7 +804,7 @@ class Uac2Service {
     );
   }
 
-  Future<void> markAndroidDirectUsbFallback(String reason) async {
+Future<void> markAndroidDirectUsbFallback(String reason) async {
     if (!Platform.isAndroid) {
       return;
     }
@@ -814,7 +814,25 @@ class Uac2Service {
         'reason': reason,
       });
     } catch (e) {
-      debugPrint('Uac2Service.markDirectUsbFallback failed: $e');
+      debugPrint('Uac2Service.markAndroidDirectUsbFallback failed: $e');
+    }
+  }
+
+  Future<void> startPriorityAnchor() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('startPriorityAnchor');
+    } catch (e) {
+      debugPrint('Uac2Service.startPriorityAnchor failed: $e');
+    }
+  }
+
+Future<void> stopPriorityAnchor() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _channel.invokeMethod<bool>('stopPriorityAnchor');
+    } catch (e) {
+      debugPrint('Uac2Service.stopPriorityAnchor failed: $e');
     }
   }
 

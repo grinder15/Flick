@@ -7,6 +7,15 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/services/uac2_service.dart';
 
+/// Convert a linear volume (0.0–1.0) to decibels using the same
+/// exponential curve as the Rust audio engine (≈ -60 dB to 0 dB).
+String _volumeToDb(double volume) {
+  if (volume <= 0.0) return '-∞';
+  if (volume >= 1.0) return '0.0';
+  final db = 60.0 * (volume - 1.0);
+  return db.toStringAsFixed(1);
+}
+
 class Uac2VolumeControl extends ConsumerStatefulWidget {
   const Uac2VolumeControl({super.key});
 
@@ -84,6 +93,8 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
     final effectiveMuted = deviceStatus.muted ?? false;
     final volumeControlWritable =
         deviceStatus.volumeControlWritable && !_muteUpdateInFlight;
+    final showDb = deviceStatus.volumeMode == Uac2VolumeMode.software ||
+        deviceStatus.volumeMode == Uac2VolumeMode.hardware;
 
     return Container(
       padding: const EdgeInsets.all(AppConstants.spacingMd),
@@ -155,7 +166,9 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
                   min: 0.0,
                   max: 1.0,
                   divisions: 100,
-                  label: '${(effectiveVolume * 100).round()}%',
+                  label: showDb
+                      ? '${(effectiveVolume * 100).round()}%  ${_volumeToDb(effectiveVolume)} dB'
+                      : '${(effectiveVolume * 100).round()}%',
                   onChanged: volumeControlWritable ? _onSliderChanged : null,
                   onChangeEnd: volumeControlWritable
                       ? _onSliderChangeEnd
@@ -171,9 +184,11 @@ class _Uac2VolumeControlState extends ConsumerState<Uac2VolumeControl> {
               ),
               const SizedBox(width: AppConstants.spacingSm),
               SizedBox(
-                width: 40,
+                width: showDb ? 82 : 40,
                 child: Text(
-                  '${(effectiveVolume * 100).round()}%',
+                  showDb
+                      ? '${(effectiveVolume * 100).round()}%  ${_volumeToDb(effectiveVolume)} dB'
+                      : '${(effectiveVolume * 100).round()}%',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.adaptiveTextSecondary,
                     fontWeight: FontWeight.w500,

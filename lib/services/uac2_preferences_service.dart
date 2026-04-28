@@ -19,6 +19,7 @@ class Uac2PreferencesService {
   static const _keyAudioEnginePreference = 'audio_engine_preference';
   static const _keyDeveloperModeEnabled = 'developer_mode_enabled';
   static const _keyAudioFormatEnabled = 'uac2_audio_format_enabled';
+  static const _keyUsbSoftwareVolume = 'uac2_usb_software_volume';
 
   static bool get isDeveloperModeEnabledSync => developerModeNotifier.value;
 
@@ -245,6 +246,25 @@ class Uac2PreferencesService {
     }
   }
 
+  Future<void> setUsbSoftwareVolume(double volume) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_keyUsbSoftwareVolume, volume.clamp(0.0, 1.0));
+    } catch (e) {
+      debugPrint('Failed to save USB software volume: $e');
+    }
+  }
+
+  Future<double> getUsbSoftwareVolume() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getDouble(_keyUsbSoftwareVolume) ?? 1.0;
+    } catch (e) {
+      debugPrint('Failed to load USB software volume: $e');
+      return 1.0;
+    }
+  }
+
   Future<Uac2FormatPreference> getFormatPreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -274,6 +294,7 @@ class Uac2PreferencesService {
       await prefs.remove(_keyAudioEnginePreference);
       await prefs.remove(_keyDeveloperModeEnabled);
       await prefs.remove(_keyAudioFormatEnabled);
+      await prefs.remove(_keyUsbSoftwareVolume);
       developerModeNotifier.value = false;
     } catch (e) {
       debugPrint('Failed to clear preferences: $e');

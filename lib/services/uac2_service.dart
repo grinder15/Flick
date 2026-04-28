@@ -13,7 +13,7 @@ import 'package:flick/services/uac2_exception.dart';
 
 const Object _unset = Object();
 
-enum Uac2State { idle, connecting, connected, streaming, error }
+enum Uac2State { idle, connecting, connected, prewarming, streaming, error }
 
 enum Uac2RouteType { internalDac, externalUsb, wired, bluetooth, dock, unknown }
 
@@ -1435,12 +1435,16 @@ Future<void> stopPriorityAnchor() async {
       directUsbRegistered: directUsbRegistered,
     );
 
+    final resolvedState = effectiveIsPlaying && isStreamingState
+        ? Uac2State.streaming
+        : (_currentDeviceStatus?.state == Uac2State.prewarming
+            ? Uac2State.prewarming
+            : Uac2State.connected);
+
     _updateStatus(
       Uac2DeviceStatus(
         device: routeDevice,
-        state: effectiveIsPlaying && isStreamingState
-            ? Uac2State.streaming
-            : Uac2State.connected,
+        state: resolvedState,
         errorMessage: null,
         warningMessage: _androidRouteWarningMessage(
           routeType,
@@ -2078,6 +2082,19 @@ Future<void> stopPriorityAnchor() async {
   void _updateStatus(Uac2DeviceStatus? status) {
     _currentDeviceStatus = status;
     _notifyStatusListeners();
+  }
+
+  /// Mark the engine as prewarming (format change during active USB playback).
+  /// Resets to [streaming] or [connected] by the next status refresh.
+  void setPrewarming() {
+    final current = _currentDeviceStatus;
+    if (current == null) return;
+    if (current.state != Uac2State.streaming &&
+        current.state != Uac2State.connected &&
+        current.state != Uac2State.prewarming) {
+      return;
+    }
+    _updateStatus(current.copyWith(state: Uac2State.prewarming));
   }
 
   Future<bool> setBitPerfectEnabled(bool enabled, {bool persist = true}) async {

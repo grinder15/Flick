@@ -284,6 +284,9 @@ class PlayerService {
   String? _restoredSongId;
   Duration _restoredPosition = Duration.zero;
   double _currentVolume = 1.0;
+
+  double get currentVolume => _currentVolume;
+
   HwVolumeCapability _hwVolumeCap = HwVolumeCapability.unknown;
   VolumeTier _activeTier = VolumeTier.system;
 
@@ -388,10 +391,11 @@ class PlayerService {
   ///
   /// - **Hardware mode** (bit-perfect + DAC knob): mirrors the DAC level so
   ///   reconciliation keeps the engine pinned at 1.0.
-  /// - **Software mode** (no hardware volume on DAC): the UAC2 slider calls
-  ///   [Uac2Service.setVolume], which on Android routes to
-  ///   `AudioManager.setStreamVolume` — a no-op for isochronous USB.  This
-  ///   listener bridges that gap by pushing the volume to the Rust engine.
+  /// - **Software mode** (no hardware volume on DAC): the UAC2 status volume
+  ///   comes from Android's STREAM_MUSIC level, which is unrelated to the
+  ///   isochronous USB path.  We must NOT overwrite [_currentVolume] from it.
+  ///   Instead, we only re-push the existing [_currentVolume] to the engine
+  ///   to keep it in sync after status refreshes.
   void _mirrorUsbVolumeFromUac2Status(Uac2DeviceStatus? status) {
     if (status == null) {
       _hwVolumeCap = HwVolumeCapability.unknown;
@@ -402,13 +406,12 @@ class PlayerService {
     if (currentEngineType != AudioEngineType.usbDacExperimental) return;
     if (!status.hasVolumeControl) return;
 
-    final v = status.volume;
-    if (v == null) return;
-    if ((v - _currentVolume).abs() <= 0.01) return;
-    _currentVolume = v.clamp(0.0, 1.0);
-
     if (status.volumeMode == Uac2VolumeMode.hardware) {
       if (!isBitPerfectModeEnabled) return;
+      final v = status.volume;
+      if (v == null) return;
+      if ((v - _currentVolume).abs() <= 0.01) return;
+      _currentVolume = v.clamp(0.0, 1.0);
       unawaited(_reconcileVolumeForTier(_determineCurrentTier()));
     } else if (status.volumeMode == Uac2VolumeMode.software) {
       if (_usingRustBackend && _rustAudioService.isInitialized) {
@@ -697,6 +700,12 @@ class PlayerService {
       final dapBitPerfect = await _preferencesService.getDapBitPerfectEnabled();
       _uac2Service.dapBitPerfectEnabledNotifier.value = dapBitPerfect;
       rust_audio.audioSetDapBitPerfectEnabled(enabled: dapBitPerfect);
+
+      final savedVolume = await _preferencesService.getUsbSoftwareVolume();
+      if (savedVolume != 1.0) {
+        _currentVolume = savedVolume;
+      }
+
       _playbackManager.publishIdleState(_sessionManager.selectedMode);
       _audioInitialized = true;
       await _refreshAudioOutputDiagnostics(reason: 'audio initialized');
@@ -2623,6 +2632,7 @@ class PlayerService {
             '${preparedUsbFormat.sampleRate}Hz/${preparedUsbFormat.bitDepth}-bit/'
             '${preparedUsbFormat.channels}ch before playback',
           );
+          _uac2Service.setPrewarming();
           await _rustAudioService.prepareEngine(
             preferredSampleRate: preparedUsbFormat.sampleRate,
           );
@@ -3219,6 +3229,7 @@ class PlayerService {
   Future<void> setVolume(double volume) async {
     final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
     _currentVolume = clampedVolume;
+    unawaited(_preferencesService.setUsbSoftwareVolume(clampedVolume));
     final tier = _determineCurrentTier();
     _activeTier = tier;
     switch (tier) {

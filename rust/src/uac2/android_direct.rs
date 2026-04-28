@@ -23,7 +23,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::ffi::c_void;
 use std::os::fd::RawFd;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex as StdMutex, Once};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -829,6 +829,7 @@ static ANDROID_DIRECT_HARDWARE_VOLUME_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mute
 static DIRECT_USB_DISCOVERY_DISABLED: Once = Once::new();
 static ANDROID_DIRECT_USB_ENABLED: AtomicBool = AtomicBool::new(true);
 static USB_SESSION_CLEAR_PENDING: AtomicBool = AtomicBool::new(false);
+static LAST_SET_HW_VOLUME: AtomicI16 = AtomicI16::new(0);
 
 /// Global guard: only one USB streaming session may be active at a time.
 /// Prevents "Resource busy" from concurrent or overlapping claim attempts.
@@ -2561,9 +2562,48 @@ pub fn android_direct_set_hardware_volume(volume: f64) -> Result<(), String> {
         ));
     }
 
+    LAST_SET_HW_VOLUME.store(target_raw, Ordering::Release);
     set_hardware_volume_snapshot(Some(normalized), muted);
     eprintln!("[VolFlow] SET_CUR OK: normalized={normalized:.3}");
     Ok(())
+}
+
+/// Periodic health check: reads current hardware volume via GET_CUR and compares
+/// with the last value written by SET_CUR. Returns `Ok(true)` if they match,
+/// `Ok(false)` if they diverge (caller should fall back to Tier 2 software volume).
+pub fn android_direct_verify_hardware_volume_health() -> Result<bool, String> {
+    let _hold = ANDROID_DIRECT_HARDWARE_VOLUME_MUTEX.lock();
+    let state = DIRECT_USB_STATE
+        .lock()
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "No Android direct USB DAC is registered".to_string())?;
+    let control = state
+        .hardware_volume_control
+        .clone()
+        .ok_or_else(|| "Android direct USB hardware volume is unavailable".to_string())?;
+    let claimed_handle = open_transient_usb_handle(&state.device)
+        .inspect_err(|e| eprintln!("[VolFlow] health: open_transient_usb_handle failed: {e}"))?;
+
+    let current_raw = read_feature_unit_i16_control(
+        &claimed_handle.handle,
+        control.interface_number,
+        control.feature_unit_id,
+        control.volume_channel,
+        UAC2_REQUEST_GET_CUR,
+        UAC2_FEATURE_UNIT_VOLUME_CONTROL,
+    )
+    .inspect_err(|e| eprintln!("[VolFlow] health: GET_CUR failed: {e}"))?;
+
+    let expected_raw = LAST_SET_HW_VOLUME.load(Ordering::Acquire);
+    if current_raw != expected_raw {
+        eprintln!(
+            "[VolFlow] HEALTH CHECK FAILED: expected_raw={} got_raw={}",
+            expected_raw, current_raw
+        );
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 pub fn android_direct_set_hardware_mute(muted: bool) -> Result<(), String> {

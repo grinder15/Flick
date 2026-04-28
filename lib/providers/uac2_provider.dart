@@ -164,6 +164,11 @@ final uac2FormatPreferenceProvider = FutureProvider<Uac2FormatPreference>((
   return service.getFormatPreference();
 });
 
+final audioFormatEnabledProvider = FutureProvider<bool>((ref) async {
+  final service = ref.watch(uac2PreferencesServiceProvider);
+  return service.getAudioFormatEnabled();
+});
+
 final uac2PreferredFormatProvider = FutureProvider<Uac2AudioFormat?>((
   ref,
 ) async {
@@ -191,6 +196,11 @@ final developerModeEnabledProvider = FutureProvider<bool>((ref) async {
 final uac2BitPerfectEnabledProvider = FutureProvider<bool>((ref) async {
   final service = ref.watch(uac2PreferencesServiceProvider);
   return service.getBitPerfectEnabled();
+});
+
+final uac2DapBitPerfectEnabledProvider = FutureProvider<bool>((ref) async {
+  final service = ref.watch(uac2PreferencesServiceProvider);
+  return service.getDapBitPerfectEnabled();
 });
 
 final uac2ExclusiveDacModeProvider = uac2BitPerfectEnabledProvider;

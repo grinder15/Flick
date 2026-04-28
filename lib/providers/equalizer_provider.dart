@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'package:flick/services/equalizer_service.dart';
 
 enum EqMode { graphic, parametric }
@@ -106,6 +109,25 @@ class CompressorSettings {
       makeupGainDb: makeupGainDb ?? this.makeupGainDb,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'thresholdDb': thresholdDb,
+    'ratio': ratio,
+    'attackMs': attackMs,
+    'releaseMs': releaseMs,
+    'makeupGainDb': makeupGainDb,
+  };
+
+  factory CompressorSettings.fromJson(Map<String, dynamic> json) =>
+      CompressorSettings(
+        enabled: (json['enabled'] as bool?) ?? false,
+        thresholdDb: (json['thresholdDb'] as num?)?.toDouble() ?? -18.0,
+        ratio: (json['ratio'] as num?)?.toDouble() ?? 3.0,
+        attackMs: (json['attackMs'] as num?)?.toDouble() ?? 12.0,
+        releaseMs: (json['releaseMs'] as num?)?.toDouble() ?? 140.0,
+        makeupGainDb: (json['makeupGainDb'] as num?)?.toDouble() ?? 0.0,
+      );
 }
 
 @immutable
@@ -135,6 +157,21 @@ class LimiterSettings {
       releaseMs: releaseMs ?? this.releaseMs,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'inputGainDb': inputGainDb,
+    'ceilingDb': ceilingDb,
+    'releaseMs': releaseMs,
+  };
+
+  factory LimiterSettings.fromJson(Map<String, dynamic> json) =>
+      LimiterSettings(
+        enabled: (json['enabled'] as bool?) ?? false,
+        inputGainDb: (json['inputGainDb'] as num?)?.toDouble() ?? 0.0,
+        ceilingDb: (json['ceilingDb'] as num?)?.toDouble() ?? -0.8,
+        releaseMs: (json['releaseMs'] as num?)?.toDouble() ?? 80.0,
+      );
 }
 
 @immutable
@@ -188,6 +225,32 @@ class FxSettings {
       width: width ?? this.width,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'balance': balance,
+    'tempo': tempo,
+    'damp': damp,
+    'filterHz': filterHz,
+    'delayMs': delayMs,
+    'size': size,
+    'mix': mix,
+    'feedback': feedback,
+    'width': width,
+  };
+
+  factory FxSettings.fromJson(Map<String, dynamic> json) => FxSettings(
+    enabled: (json['enabled'] as bool?) ?? false,
+    balance: (json['balance'] as num?)?.toDouble() ?? 0.0,
+    tempo: (json['tempo'] as num?)?.toDouble() ?? 1.0,
+    damp: (json['damp'] as num?)?.toDouble() ?? 0.35,
+    filterHz: (json['filterHz'] as num?)?.toDouble() ?? 6800.0,
+    delayMs: (json['delayMs'] as num?)?.toDouble() ?? 240.0,
+    size: (json['size'] as num?)?.toDouble() ?? 0.55,
+    mix: (json['mix'] as num?)?.toDouble() ?? 0.25,
+    feedback: (json['feedback'] as num?)?.toDouble() ?? 0.35,
+    width: (json['width'] as num?)?.toDouble() ?? 1.0,
+  );
 }
 
 @immutable
@@ -219,6 +282,29 @@ class ParametricBand {
       gainDb: gainDb ?? this.gainDb,
       q: q ?? this.q,
       type: type ?? this.type,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'frequencyHz': frequencyHz,
+    'gainDb': gainDb,
+    'q': q,
+    'type': type.name,
+  };
+
+  factory ParametricBand.fromJson(Map<String, dynamic> json) {
+    final typeName = (json['type'] as String?) ?? ParametricBandType.peaking.name;
+    final type = ParametricBandType.values.firstWhere(
+      (t) => t.name == typeName,
+      orElse: () => ParametricBandType.peaking,
+    );
+    return ParametricBand(
+      enabled: (json['enabled'] as bool?) ?? true,
+      frequencyHz: (json['frequencyHz'] as num?)?.toDouble() ?? 1000.0,
+      gainDb: (json['gainDb'] as num?)?.toDouble() ?? 0.0,
+      q: (json['q'] as num?)?.toDouble() ?? 1.0,
+      type: type,
     );
   }
 }
@@ -379,6 +465,65 @@ class EqualizerState {
       fx: const FxSettings(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'mode': mode.name,
+    'preampDb': preampDb,
+    'graphicGainsDb': graphicGainsDb,
+    'parametricBands': parametricBands.map((b) => b.toJson()).toList(),
+    'activePresetName': activePresetName,
+    'compressor': compressor.toJson(),
+    'limiter': limiter.toJson(),
+    'fx': fx.toJson(),
+  };
+
+  factory EqualizerState.fromJson(Map<String, dynamic> json) {
+    final modeName = (json['mode'] as String?) ?? EqMode.graphic.name;
+    final mode = EqMode.values.firstWhere(
+      (m) => m.name == modeName,
+      orElse: () => EqMode.graphic,
+    );
+
+    final gains = (json['graphicGainsDb'] as List<dynamic>? ?? const [])
+        .map((e) => (e as num).toDouble())
+        .toList(growable: false);
+
+    final bandsJson = (json['parametricBands'] as List<dynamic>? ?? const []);
+    final bands = bandsJson
+        .map((e) => ParametricBand.fromJson(e as Map<String, dynamic>))
+        .toList(growable: false);
+
+    final compJson = (json['compressor'] as Map<String, dynamic>?);
+    final limJson = (json['limiter'] as Map<String, dynamic>?);
+    final fxJson = (json['fx'] as Map<String, dynamic>?);
+
+    return EqualizerState(
+      enabled: (json['enabled'] as bool?) ?? true,
+      mode: mode,
+      preampDb: (json['preampDb'] as num?)?.toDouble() ?? 0.0,
+      graphicGainsDb: gains.isEmpty
+          ? List<double>.filled(10, 0.0, growable: false)
+          : gains,
+      parametricBands: bands.isEmpty
+          ? List<ParametricBand>.generate(
+              5,
+              (i) => ParametricBand(
+                frequencyHz: defaultParametricFrequenciesHz[i],
+              ),
+              growable: false,
+            )
+          : bands,
+      activePresetName: json['activePresetName'] as String?,
+      compressor: compJson != null
+          ? CompressorSettings.fromJson(compJson)
+          : const CompressorSettings(),
+      limiter: limJson != null
+          ? LimiterSettings.fromJson(limJson)
+          : const LimiterSettings(),
+      fx: fxJson != null ? FxSettings.fromJson(fxJson) : const FxSettings(),
+    );
+  }
 }
 
 /// Notifies graph painter to repaint without broad rebuilds.
@@ -433,16 +578,47 @@ class EqualizerNotifier extends Notifier<EqualizerState> {
   static const double fxWidthMax = 2.0;
   static const int maxParametricBands = 10;
 
+  static const String _eqStateKey = 'eq_state_v1';
+
   @override
   EqualizerState build() {
     final initialState = EqualizerState.initial();
-    // Sync to audio once after build (e.g. on desktop; on Android needs playback started first)
-    Future.microtask(() => applyEqualizer(initialState));
+    Future(() async {
+      final saved = await _loadPersisted();
+      if (saved != null) {
+        state = saved;
+      }
+      applyEqualizer(state).ignore();
+      ref.read(eqGraphRepaintControllerProvider).bump();
+    });
     return initialState;
   }
 
   void _syncToAudio() {
     applyEqualizer(state).ignore();
+    _persist();
+  }
+
+  Future<EqualizerState?> _loadPersisted() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_eqStateKey);
+      if (raw == null || raw.isEmpty) return null;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      return EqualizerState.fromJson(json);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _persist() {
+    final current = state;
+    Future(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(_eqStateKey, jsonEncode(current.toJson()));
+      } catch (_) {}
+    });
   }
 
   void setEnabled(bool value) {

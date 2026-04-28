@@ -33,15 +33,26 @@ class Uac2PlayerStatus extends ConsumerWidget {
     }
 
     if (compact) {
-      return _buildCompactStatus(context, deviceStatus, isDirectUsb);
+      return _buildCompactStatus(context, deviceStatus, diagnostics, isDirectUsb);
     }
 
-    return _buildFullStatus(context, deviceStatus, isDirectUsb);
+    return _buildFullStatus(context, deviceStatus, diagnostics, isDirectUsb);
+  }
+
+  int _effectiveSampleRate(
+    Uac2DeviceStatus status,
+    AudioOutputDiagnostics? diagnostics,
+  ) {
+    if (diagnostics?.reportedOutputSampleRate != null) {
+      return diagnostics!.reportedOutputSampleRate!;
+    }
+    return status.currentFormat?.sampleRate ?? 44100;
   }
 
   Widget _buildCompactStatus(
     BuildContext context,
     Uac2DeviceStatus status,
+    AudioOutputDiagnostics? diagnostics,
     bool isDirectUsb,
   ) {
     return Container(
@@ -61,7 +72,7 @@ class Uac2PlayerStatus extends ConsumerWidget {
           if (status.currentFormat != null && showFormat) ...[
             const SizedBox(width: 4),
             Text(
-              '${status.currentFormat!.sampleRate ~/ 1000}kHz/${status.currentFormat!.bitDepth}bit',
+              '${_effectiveSampleRate(status, diagnostics) ~/ 1000}kHz/${status.currentFormat!.bitDepth}bit',
               style: TextStyle(
                 fontSize: 10,
                 color: _getStatusColor(status.state),
@@ -88,6 +99,7 @@ class Uac2PlayerStatus extends ConsumerWidget {
   Widget _buildFullStatus(
     BuildContext context,
     Uac2DeviceStatus status,
+    AudioOutputDiagnostics? diagnostics,
     bool isDirectUsb,
   ) {
     return Container(
@@ -167,7 +179,7 @@ class Uac2PlayerStatus extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildFormatBadge(
-                  '${status.currentFormat!.sampleRate ~/ 1000}kHz',
+                  '${_effectiveSampleRate(status, diagnostics) ~/ 1000}kHz',
                   context,
                 ),
                 const SizedBox(width: 4),

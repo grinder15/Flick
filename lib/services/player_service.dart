@@ -494,6 +494,13 @@ class PlayerService {
       resolution: song.resolution,
       sampleRate: song.sampleRate,
       bitDepth: song.bitDepth,
+      startOffsetMs: song.startOffsetMs,
+      endOffsetMs: song.endOffsetMs,
+      ripper: song.ripper,
+      readMode: song.readMode,
+      accurateRip: song.accurateRip,
+      testCrc: song.testCrc,
+      copyCrc: song.copyCrc,
       album: song.album,
       albumArtist: song.albumArtist,
       trackNumber: song.trackNumber,
@@ -559,7 +566,8 @@ class PlayerService {
       _sessionManager.initializedMode ?? _sessionManager.selectedMode;
   bool get isBitPerfectModeEnabled =>
       _uac2Service.isBitPerfectEnabledSync ||
-      currentEngineType == AudioEngineType.dapInternalHighRes;
+      (currentEngineType == AudioEngineType.dapInternalHighRes &&
+          _uac2Service.isDapBitPerfectEnabledSync);
   bool get isBitPerfectProcessingLocked =>
       isBitPerfectModeEnabled ||
       currentEngineType == AudioEngineType.usbDacExperimental;
@@ -615,7 +623,12 @@ class PlayerService {
   }
 
   Future<void> setDapBitPerfectEnabled(bool enabled) async {
-    await setHiFiModeEnabled(enabled);
+    await _preferencesService.setDapBitPerfectEnabled(enabled);
+    _uac2Service.dapBitPerfectEnabledNotifier.value = enabled;
+    rust_audio.audioSetDapBitPerfectEnabled(enabled: enabled);
+    await _sessionManager.syncRouteSelection(
+      reason: enabled ? 'DAP bit-perfect enabled' : 'DAP bit-perfect disabled',
+    );
   }
 
   Future<bool> isHiFiModeEnabled() async {
@@ -624,7 +637,7 @@ class PlayerService {
   }
 
   Future<bool> isDapBitPerfectEnabled() async {
-    return isHiFiModeEnabled();
+    return _preferencesService.getDapBitPerfectEnabled();
   }
 
   Future<void> _initializeAudio() async {
@@ -636,6 +649,9 @@ class PlayerService {
         _sessionManager.initialize(),
         _uac2Service.isBitPerfectEnabled(),
       ]);
+      final dapBitPerfect = await _preferencesService.getDapBitPerfectEnabled();
+      _uac2Service.dapBitPerfectEnabledNotifier.value = dapBitPerfect;
+      rust_audio.audioSetDapBitPerfectEnabled(enabled: dapBitPerfect);
       _playbackManager.publishIdleState(_sessionManager.selectedMode);
       _audioInitialized = true;
       await _refreshAudioOutputDiagnostics(reason: 'audio initialized');
@@ -1661,6 +1677,19 @@ class PlayerService {
     }
 
     final uri = await _resolvePlaybackUri(song);
+
+    if (song.startOffsetMs != null && song.startOffsetMs! > 0) {
+      final start = Duration(milliseconds: song.startOffsetMs!);
+      final end = song.endOffsetMs != null && song.endOffsetMs! > 0
+          ? Duration(milliseconds: song.endOffsetMs!)
+          : null;
+      return just_audio.ClippingAudioSource(
+        child: just_audio.AudioSource.uri(uri),
+        start: start,
+        end: end,
+      );
+    }
+
     return just_audio.AudioSource.uri(uri);
   }
 

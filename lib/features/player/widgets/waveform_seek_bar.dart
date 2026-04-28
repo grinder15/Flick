@@ -159,51 +159,98 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
     widget.onChangeEnd?.call(finalPosition);
   }
 
+  double _timeIndicatorLeft(double maxWidth, double progress) {
+    final effectiveWidth = maxWidth - 4;
+    final rawLeft = 2 + effectiveWidth * progress;
+    return (rawLeft - 25).clamp(0.0, maxWidth - 50);
+  }
+
+  Widget _buildTimeIndicator() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        _formatDuration(_displayPosition),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+          fontFamily: 'ProductSans',
+        ),
+      ),
+    );
+  }
+
+  String _formatDuration(Duration d) {
+    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return GestureDetector(
-          onHorizontalDragStart: _onDragStart,
-          onHorizontalDragUpdate: (details) =>
-              _onDragUpdate(details, constraints),
-          onHorizontalDragEnd: _onDragEnd,
-          onLongPressStart: (details) =>
-              _onLongPressStart(details, constraints),
-          onLongPressMoveUpdate: (details) =>
-              _onLongPressMoveUpdate(details, constraints),
-          onLongPressEnd: (_) => _endFineScrub(),
-          onTapUp: (details) => _onTapUp(details, constraints),
-          behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            height: _isFineScrubbing ? _expandedHeight : _baseHeight,
-            width: double.infinity,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              color: _isFineScrubbing
-                  ? AppColors.glassBackgroundStrong
-                  : Colors.transparent,
-            ),
-            padding: EdgeInsets.symmetric(
-              horizontal: 2,
-              vertical: _isFineScrubbing ? 6 : 0,
-            ),
-            child: RepaintBoundary(
-              child: CustomPaint(
-                painter: _WaveformPainter(
-                  waveformData: _waveformData,
-                  position: _displayPosition,
-                  duration: widget.duration,
-                  color: AppColors.textTertiary.withValues(alpha: 0.3),
-                  activeColor: AppColors.accent,
-                  barCount: widget.barCount,
-                  zoomFactor: _isFineScrubbing ? _fineScrubZoom : 1.0,
+        final isScrubbing = _isFineScrubbing || _interactivePosition != null;
+        final progress = widget.duration.inMilliseconds == 0
+            ? 0.0
+            : _displayPosition.inMilliseconds / widget.duration.inMilliseconds;
+
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            GestureDetector(
+              onHorizontalDragStart: _onDragStart,
+              onHorizontalDragUpdate: (details) =>
+                  _onDragUpdate(details, constraints),
+              onHorizontalDragEnd: _onDragEnd,
+              onLongPressStart: (details) =>
+                  _onLongPressStart(details, constraints),
+              onLongPressMoveUpdate: (details) =>
+                  _onLongPressMoveUpdate(details, constraints),
+              onLongPressEnd: (_) => _endFineScrub(),
+              onTapUp: (details) => _onTapUp(details, constraints),
+              behavior: HitTestBehavior.opaque,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                height: _isFineScrubbing ? _expandedHeight : _baseHeight,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  color: _isFineScrubbing
+                      ? AppColors.glassBackgroundStrong
+                      : Colors.transparent,
+                ),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 2,
+                  vertical: _isFineScrubbing ? 6 : 0,
+                ),
+                child: RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _WaveformPainter(
+                      waveformData: _waveformData,
+                      position: _displayPosition,
+                      duration: widget.duration,
+                      color: AppColors.textTertiary.withValues(alpha: 0.3),
+                      activeColor: AppColors.accent,
+                      barCount: widget.barCount,
+                      zoomFactor: _isFineScrubbing ? _fineScrubZoom : 1.0,
+                    ),
+                  ),
                 ),
               ),
             ),
-          ),
+            if (isScrubbing)
+              Positioned(
+                top: -22,
+                left: _timeIndicatorLeft(constraints.maxWidth, progress),
+                child: _buildTimeIndicator(),
+              ),
+          ],
         );
       },
     );

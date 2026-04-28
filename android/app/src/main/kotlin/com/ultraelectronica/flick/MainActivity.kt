@@ -1118,7 +1118,7 @@ class MainActivity: FlutterActivity() {
         val documentFile = DocumentFile.fromTreeUri(this, uri) ?: return emptyList()
 
         val audioExtensions =
-            setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "oga", "ogx", "opus", "wma", "alac", "aif", "aiff")
+            setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "oga", "ogx", "opus", "wma", "alac", "aif", "aiff", "cue")
         val result = mutableListOf<Map<String, Any?>>()
 
         fun scanDirectory(dir: DocumentFile) {
@@ -1802,7 +1802,7 @@ class MainActivity: FlutterActivity() {
     private fun readSiblingLyricsFromContentUri(audioUri: Uri): Map<String, String>? {
         val audioName = DocumentFile.fromSingleUri(this, audioUri)?.name ?: return null
         val stem = audioName.substringBeforeLast('.', audioName)
-        val candidateNames = listOf("$stem.lrc", "$stem.txt")
+        val candidateNames = listOf("$stem.lrc", "$stem.txt", "$stem.xml")
         val candidateSet = candidateNames.map { it.lowercase() }.toSet()
 
         val authority = audioUri.authority ?: return null
@@ -1894,7 +1894,7 @@ class MainActivity: FlutterActivity() {
         val audioFile = java.io.File(audioPath)
         val parent = audioFile.parentFile ?: return null
         val stem = audioFile.name.substringBeforeLast('.', audioFile.name)
-        val candidateNames = listOf("$stem.lrc", "$stem.txt", "$stem.LRC", "$stem.TXT")
+        val candidateNames = listOf("$stem.lrc", "$stem.txt", "$stem.xml", "$stem.LRC", "$stem.TXT", "$stem.XML")
 
         for (candidateName in candidateNames) {
             val candidateFile = java.io.File(parent, candidateName)

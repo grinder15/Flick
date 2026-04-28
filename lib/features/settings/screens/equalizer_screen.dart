@@ -21,6 +21,7 @@ import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 
 import 'package:flick/widgets/equalizer/parametric_eq_graph.dart';
 import 'package:flick/widgets/equalizer/graphic_eq_graph.dart';
+import 'package:flick/widgets/equalizer/interactive_eq_graph.dart';
 
 enum _PresetFileFormat { json, txt }
 
@@ -1064,30 +1065,56 @@ class _GraphicEqView extends ConsumerWidget {
         ),
         const SizedBox(height: AppConstants.spacingMd),
         _GlassCard(
-          child: Padding(
-            padding: const EdgeInsets.all(AppConstants.spacingMd),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _CardHeader(
-                  icon: LucideIcons.audioLines,
-                  title: 'Curve Preview',
-                  subtitle:
-                      'Fixed center frequencies with a ${EqualizerNotifier.gainMaxDb.toStringAsFixed(0)} dB range.',
-                  trailing: _ValueBadge(
-                    value: maxGain == 0
-                        ? '0.0 dB'
-                        : '${maxGain.toStringAsFixed(1)} dB max',
+          child: InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const InteractiveEqGraphScreen(
+                    mode: EqMode.graphic,
                   ),
                 ),
-                const SizedBox(height: AppConstants.spacingMd),
-                RepaintBoundary(
-                  child: Opacity(
-                    opacity: enabled ? 1.0 : 0.5,
-                    child: const SizedBox(height: 220, child: GraphicEqGraph()),
+              );
+            },
+            borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.spacingMd),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _CardHeader(
+                    icon: LucideIcons.audioLines,
+                    title: 'Curve Preview',
+                    subtitle:
+                        'Fixed center frequencies with a ${EqualizerNotifier.gainMaxDb.toStringAsFixed(0)} dB range. Tap to interact.',
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _ValueBadge(
+                          value: maxGain == 0
+                              ? '0.0 dB'
+                              : '${maxGain.toStringAsFixed(1)} dB max',
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          LucideIcons.maximize2,
+                          size: 16,
+                          color: context.adaptiveTextTertiary,
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: AppConstants.spacingMd),
+                  RepaintBoundary(
+                    child: Opacity(
+                      opacity: enabled ? 1.0 : 0.5,
+                      child: const SizedBox(
+                        height: 220,
+                        child: GraphicEqGraph(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -1327,30 +1354,47 @@ class _ParametricEqView extends ConsumerWidget {
         ),
         const SizedBox(height: AppConstants.spacingMd),
         _GlassCard(
-          child: Padding(
-            padding: const EdgeInsets.all(AppConstants.spacingMd),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const _CardHeader(
-                  icon: LucideIcons.gitBranchPlus,
-                  title: 'Curve Preview',
-                  subtitle:
-                      'Per-band filter types with independent frequency, gain, and Q shaping.',
-                ),
-                const SizedBox(height: AppConstants.spacingMd),
-                _ParametricBandSummary(bands: bands, enabled: enabled),
-                const SizedBox(height: AppConstants.spacingMd),
-                RepaintBoundary(
-                  child: Opacity(
-                    opacity: enabled ? 1.0 : 0.5,
-                    child: const SizedBox(
-                      height: 220,
-                      child: ParametricEqGraph(),
-                    ),
+          child: InkWell(
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const InteractiveEqGraphScreen(
+                    mode: EqMode.parametric,
                   ),
                 ),
-              ],
+              );
+            },
+            borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.spacingMd),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _CardHeader(
+                    icon: LucideIcons.gitBranchPlus,
+                    title: 'Curve Preview',
+                    subtitle:
+                        'Per-band filter types with independent frequency, gain, and Q shaping. Tap to interact.',
+                    trailing: Icon(
+                      LucideIcons.maximize2,
+                      size: 16,
+                      color: context.adaptiveTextTertiary,
+                    ),
+                  ),
+                  const SizedBox(height: AppConstants.spacingMd),
+                  _ParametricBandSummary(bands: bands, enabled: enabled),
+                  const SizedBox(height: AppConstants.spacingMd),
+                  RepaintBoundary(
+                    child: Opacity(
+                      opacity: enabled ? 1.0 : 0.5,
+                      child: const SizedBox(
+                        height: 220,
+                        child: ParametricEqGraph(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

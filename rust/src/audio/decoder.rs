@@ -452,6 +452,41 @@ fn decode_thread(
         }
     }
 
+    // Flush any remaining resampler output
+    if let Some(ref mut resampler) = resampler {
+        resample_buffer.clear();
+        resample_buffer.resize(
+            (DECODE_CHUNK_SIZE as f64 * output_sample_rate as f64
+                / source_info.original_sample_rate as f64
+                * 1.2) as usize
+                * output_channels
+                + 256,
+            0.0,
+        );
+        loop {
+            let written = resampler
+                .flush(&mut resample_buffer)
+                .map_err(DecoderError::ResamplingFailed)?;
+            if written == 0 {
+                break;
+            }
+            let mut offset = 0;
+            while offset < written {
+                if stop_signal.load(Ordering::Acquire) || producer.should_stop() {
+                    break;
+                }
+                let chunk = &resample_buffer[offset..written];
+                let w = producer.write(chunk);
+                offset += w;
+                if w == 0 {
+                    if !producer.wait_for_space(chunk.len().min(1024), 100) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     // Mark decoding as complete
     producer.finish();
 

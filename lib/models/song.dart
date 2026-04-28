@@ -27,6 +27,27 @@ class Song {
   /// Structured bit depth when available.
   final int? bitDepth;
 
+  /// Start offset in milliseconds (for CUE sheet tracks)
+  final int? startOffsetMs;
+
+  /// End offset in milliseconds (for CUE sheet tracks)
+  final int? endOffsetMs;
+
+  /// Ripper name from log file
+  final String? ripper;
+
+  /// Read mode from log file
+  final String? readMode;
+
+  /// AccurateRip verified status
+  final bool? accurateRip;
+
+  /// Test CRC from log file
+  final String? testCrc;
+
+  /// Copy CRC from log file
+  final String? copyCrc;
+
   /// Album name (optional)
   final String? album;
 
@@ -64,6 +85,13 @@ class Song {
     this.resolution,
     this.sampleRate,
     this.bitDepth,
+    this.startOffsetMs,
+    this.endOffsetMs,
+    this.ripper,
+    this.readMode,
+    this.accurateRip,
+    this.testCrc,
+    this.copyCrc,
     this.album,
     this.albumArtist,
     this.trackNumber,
@@ -100,6 +128,13 @@ class Song {
     String? resolution,
     int? sampleRate,
     int? bitDepth,
+    int? startOffsetMs,
+    int? endOffsetMs,
+    String? ripper,
+    String? readMode,
+    bool? accurateRip,
+    String? testCrc,
+    String? copyCrc,
     String? album,
     String? albumArtist,
     int? trackNumber,
@@ -120,6 +155,13 @@ class Song {
       resolution: resolution ?? this.resolution,
       sampleRate: sampleRate ?? this.sampleRate,
       bitDepth: bitDepth ?? this.bitDepth,
+      startOffsetMs: startOffsetMs ?? this.startOffsetMs,
+      endOffsetMs: endOffsetMs ?? this.endOffsetMs,
+      ripper: ripper ?? this.ripper,
+      readMode: readMode ?? this.readMode,
+      accurateRip: accurateRip ?? this.accurateRip,
+      testCrc: testCrc ?? this.testCrc,
+      copyCrc: copyCrc ?? this.copyCrc,
       album: album ?? this.album,
       albumArtist: albumArtist ?? this.albumArtist,
       trackNumber: trackNumber ?? this.trackNumber,

@@ -8,8 +8,14 @@ class SongEntity {
   Id id = Isar.autoIncrement;
 
   /// File path or content URI for the song
-  @Index(unique: true)
+  @Index(composite: [CompositeIndex('startOffsetMs')], unique: true)
   late String filePath;
+
+  /// Start offset in milliseconds (for CUE sheet tracks)
+  int? startOffsetMs;
+
+  /// End offset in milliseconds (for CUE sheet tracks)
+  int? endOffsetMs;
 
   /// Title of the song
   @Index()
@@ -56,6 +62,21 @@ class SongEntity {
 
   /// Bit depth
   int? bitDepth;
+
+  /// Ripper name from log file
+  String? ripper;
+
+  /// Read mode from log file
+  String? readMode;
+
+  /// AccurateRip verified status
+  bool? accurateRip;
+
+  /// Test CRC from log file
+  String? testCrc;
+
+  /// Copy CRC from log file
+  String? copyCrc;
 
   /// Path to album art (if extracted)
   String? albumArtPath;

@@ -8,6 +8,7 @@ import 'package:flick/models/audio_output_diagnostics.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/services/uac2_preferences_service.dart';
 import 'package:flick/services/uac2_service.dart';
+import 'package:flick/services/player_service.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
 
 class Uac2PreferencesScreen extends ConsumerStatefulWidget {
@@ -24,7 +25,9 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                     final preferencesService = ref.watch(uac2PreferencesServiceProvider);
                     final formatPrefAsync = ref.watch(uac2FormatPreferenceProvider);
                     final preferredFormatAsync = ref.watch(uac2PreferredFormatProvider);
+                    final audioFormatAsync = ref.watch(audioFormatEnabledProvider);
                     final bitPerfectAsync = ref.watch(uac2BitPerfectEnabledProvider);
+                    final dapBitPerfectAsync = ref.watch(uac2DapBitPerfectEnabledProvider);
                     final audioEngineAsync = ref.watch(audioEnginePreferenceProvider);
                     final developerModeAsync = ref.watch(developerModeEnabledProvider);
                     final diagnostics = ref.watch(audioOutputDiagnosticsProvider);
@@ -53,6 +56,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                         preferencesService,
                         formatPrefAsync,
                         preferredFormatAsync,
+                        audioFormatAsync,
                       ),
                       const SizedBox(height: AppConstants.spacingLg),
                       _buildSectionHeader(context, 'Advanced'),
@@ -62,6 +66,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                         audioEngineAsync,
                         developerModeAsync,
                         bitPerfectAsync,
+                        dapBitPerfectAsync,
                         diagnostics,
                       ),
                       const SizedBox(height: AppConstants.navBarHeight + 120),
@@ -124,9 +129,12 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     Uac2PreferencesService service,
     AsyncValue<Uac2FormatPreference> formatPrefAsync,
     AsyncValue<Uac2AudioFormat?> preferredFormatAsync,
+    AsyncValue<bool> audioFormatAsync,
   ) {
     final bitPerfectAsync = ref.watch(uac2BitPerfectEnabledProvider);
     final isBitPerfectEnabled = bitPerfectAsync.value ?? false;
+    final isAudioFormatEnabled = audioFormatAsync.value ?? true;
+    final formatBlocked = !isAudioFormatEnabled || isBitPerfectEnabled;
 
     return Container(
       decoration: BoxDecoration(
@@ -136,26 +144,53 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
       ),
       child: Column(
         children: [
+          // Audio Format master toggle
+          audioFormatAsync.when(
+            data: (enabled) => _buildSwitchTile(
+              context,
+              icon: LucideIcons.settings,
+              title: 'Audio Format',
+              subtitle: enabled
+                  ? 'Format strategy and custom format controls are active.'
+                  : 'Format controls are disabled. The engine uses its default format.',
+              value: enabled,
+              onChanged: (value) async {
+                await service.setAudioFormatEnabled(value);
+                ref.invalidate(audioFormatEnabledProvider);
+              },
+            ),
+            loading: () => _buildLoadingTile(context),
+            error: (_, _) => _buildErrorTile(context),
+          ),
+          _buildDivider(),
           formatPrefAsync.when(
             data: (formatPref) => _buildNavigationTile(
               context,
-              icon: LucideIcons.settings,
+              icon: LucideIcons.slidersHorizontal,
               title: 'Format Strategy',
-              subtitle: isBitPerfectEnabled
+              subtitle: formatBlocked
                   ? 'Disabled in bit-perfect mode (exact rate required)'
+                  : !isAudioFormatEnabled
+                  ? 'Audio Format is disabled'
                   : _getFormatPreferenceLabel(formatPref),
-              onTap: isBitPerfectEnabled
-                  ? () => _showBitPerfectBlockedDialog(
-                      context,
-                      'Format Strategy',
-                      'Format strategy is disabled in bit-perfect mode because exact sample rate matching is required. Disable bit-perfect mode to change format preferences.',
-                    )
+              onTap: formatBlocked
+                  ? () => isBitPerfectEnabled
+                      ? _showBitPerfectBlockedDialog(
+                          context,
+                          'Format Strategy',
+                          'Format strategy is disabled in bit-perfect mode because exact sample rate matching is required. Disable bit-perfect mode to change format preferences.',
+                        )
+                      : _showBitPerfectBlockedDialog(
+                          context,
+                          'Format Strategy',
+                          'Format strategy is unavailable because Audio Format is disabled in Settings.',
+                        )
                   : () => _showFormatPreferenceDialog(
                       context,
                       service,
                       formatPref,
                     ),
-              isDisabled: isBitPerfectEnabled,
+              isDisabled: formatBlocked,
             ),
             loading: () => _buildLoadingTile(context),
             error: (_, _) => _buildErrorTile(context),
@@ -166,19 +201,27 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
               context,
               icon: LucideIcons.music,
               title: 'Custom Format',
-              subtitle: isBitPerfectEnabled
-                  ? 'Disabled in bit-perfect mode (exact rate required)'
+              subtitle: formatBlocked
+                  ? isBitPerfectEnabled
+                      ? 'Disabled in bit-perfect mode (exact rate required)'
+                      : 'Audio Format is disabled'
                   : format != null
                   ? '${format.sampleRate ~/ 1000}kHz / ${format.bitDepth}bit / ${format.channels}ch'
                   : 'Not set',
-              onTap: isBitPerfectEnabled
-                  ? () => _showBitPerfectBlockedDialog(
-                      context,
-                      'Custom Format',
-                      'Custom format is disabled in bit-perfect mode because exact sample rate matching is required. Disable bit-perfect mode to set custom formats.',
-                    )
+              onTap: formatBlocked
+                  ? () => isBitPerfectEnabled
+                      ? _showBitPerfectBlockedDialog(
+                          context,
+                          'Custom Format',
+                          'Custom format is disabled in bit-perfect mode because exact sample rate matching is required. Disable bit-perfect mode to set custom formats.',
+                        )
+                      : _showBitPerfectBlockedDialog(
+                          context,
+                          'Custom Format',
+                          'Custom format is unavailable because Audio Format is disabled in Settings.',
+                        )
                   : () => _showCustomFormatDialog(context, service, format),
-              isDisabled: isBitPerfectEnabled,
+              isDisabled: formatBlocked,
             ),
             loading: () => _buildLoadingTile(context),
             error: (_, _) => _buildErrorTile(context),
@@ -194,6 +237,7 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     AsyncValue<AudioEnginePreference> audioEngineAsync,
     AsyncValue<bool> developerModeAsync,
     AsyncValue<bool> bitPerfectAsync,
+    AsyncValue<bool> dapBitPerfectAsync,
     AudioOutputDiagnostics? diagnostics,
   ) {
     return Container(
@@ -271,6 +315,39 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
             loading: () => _buildLoadingTile(context),
             error: (_, _) => _buildErrorTile(context),
           ),
+          if (diagnostics?.detectedDap == true) ...[
+            _buildDivider(),
+            dapBitPerfectAsync.when(
+              data: (enabled) => _buildSwitchTile(
+                context,
+                icon: LucideIcons.headphones,
+                title: 'DAP Bit-perfect',
+                subtitle:
+                    'Bypass all DSP (EQ, dynamics, crossfade, speed) on the native DAP high-res path. Disable to use software effects.',
+                value: enabled,
+                onChanged: (value) async {
+                  await PlayerService().setDapBitPerfectEnabled(value);
+                  ref.invalidate(uac2DapBitPerfectEnabledProvider);
+                  if (!context.mounted) return;
+                  final messenger = ScaffoldMessenger.of(context);
+                  messenger.removeCurrentSnackBar();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        value
+                            ? 'DAP bit-perfect enabled — all DSP bypassed.'
+                            : 'DAP bit-perfect disabled — software effects active.',
+                      ),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                  _showRestartRequiredToast(context);
+                },
+              ),
+              loading: () => _buildLoadingTile(context),
+              error: (_, _) => _buildErrorTile(context),
+            ),
+          ],
           _buildDivider(),
           _buildNavigationTile(
             context,

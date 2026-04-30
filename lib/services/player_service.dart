@@ -382,6 +382,9 @@ class PlayerService {
     _uac2Service.bitPerfectEnabledNotifier.addListener(() {
       unawaited(_handleBitPerfectPreferenceChanged());
     });
+    _uac2Service.dapBitPerfectEnabledNotifier.addListener(() {
+      unawaited(_handleBitPerfectPreferenceChanged());
+    });
     _uac2Service.addStatusListener(_mirrorUsbVolumeFromUac2Status);
     _notifyQueueChanged();
   }
@@ -973,7 +976,17 @@ class PlayerService {
     unawaited(_reconcileVolumeForTier(_determineCurrentTier()));
   }
 
+  bool get _isDapOnSharedPath =>
+      Platform.isAndroid &&
+      audioOutputDiagnosticsNotifier.value?.detectedDap == true &&
+      !isBitPerfectModeEnabled &&
+      !_isDirectUsbPath &&
+      _usingRustBackend;
+
   VolumeTier _determineCurrentTier() {
+    if (_isDapOnSharedPath) {
+      return VolumeTier.system;
+    }
     if (!isBitPerfectModeEnabled || !_isDirectUsbPath) {
       return _usingRustBackend ? VolumeTier.software : VolumeTier.system;
     }
@@ -3251,8 +3264,6 @@ class PlayerService {
         final player = _justAudioPlayer;
         if (player != null) {
           await player.setVolume(clampedVolume);
-        } else if (_usingRustBackend) {
-          await _rustAudioService.setVolume(clampedVolume);
         }
         break;
     }

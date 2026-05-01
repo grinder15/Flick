@@ -2175,9 +2175,16 @@ class PlayerService {
     }
 
     final formatPreference = await _preferencesService.getFormatPreference();
-    final preferredSampleRate = await _preferredSampleRateForFormatStrategy(
-      formatPreference,
-    );
+    int? preferredSampleRate;
+    if (formatPreference == Uac2FormatPreference.highestQuality) {
+      // Bit-perfect DAP is OFF in rustOboe mode; Rust forces 48k via
+      // dap_force_dsp. Pin the same rate here so the intent is explicit
+      // and the Dart/Rust layers agree.
+      preferredSampleRate = 48000;
+    } else {
+      preferredSampleRate =
+          await _preferredSampleRateForFormatStrategy(formatPreference);
+    }
     if (preferredSampleRate == null || preferredSampleRate <= 0) {
       return null;
     }

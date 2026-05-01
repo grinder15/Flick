@@ -41,8 +41,8 @@ The core audio engine in `rust/src/audio/engine.rs` features a sophisticated arc
 
 - **Lock-Free Design**: Uses atomic operations and lock-free data structures in the audio callback to prevent audio glitches
 - **Multiple Output Strategies**: Dynamically selects between USB Direct, DAP Native, Mixer Bit-Perfect, Mixer Matched, and Resampled Fallback based on device capabilities
-- **Real-Time Processing Chain**: Implements a complete DSP chain including volume control, 10-band graphic equalizer, spatial/time FX, dynamics processing (compressor/limiter), playback speed control, and crossfading
-- **Bit-Perfect Mode**: Includes a bit-perfect bypass that routes decoded audio directly to output when requested, skipping all DSP processing
+- **Real-Time Processing Chain**: Implements a complete DSP chain including volume control, 10-band graphic equalizer with preamp, spatial/time FX, dynamics processing (compressor/limiter), playback speed control, and crossfading
+- **Runtime Pipeline Mode**: Dynamically selects between `Passthrough` (bit-perfect, skips all DSP) and `Dsp` (full processing chain) at runtime, based on output strategy and device capabilities
 - **Continuous Verification**: Constantly monitors and verifies that the actual output matches the requested format for quality assurance
 - **Thread Safety**: Properly separates real-time audio processing (lock-free) from control operations (thread-safe)
 
@@ -93,11 +93,11 @@ Located in `rust/src/audio`, this is the heart of the application. It bypasses s
   - **Android Managed**: Standard audio playback through Oboe/AAudio or the Android mixer
   - **DAP Internal High-Res**: High-resolution audio through the device's internal DAC using Oboe/AAudio in exclusive mode
 
-- **Decoder (`decoder.rs`)**: Uses `symphonia` to read various audio formats (MP3, FLAC, WAV, OGG) and decode them into raw sound waves (PCM).
-  - **TODO**: ALAC and M4A files are not yet supported. These formats will not play any sound.
+- **Decoder (`decoder.rs`)**: Uses `symphonia` to read various audio formats (MP3, FLAC, WAV, OGG, M4A, ALAC, AIFF) and decode them into raw sound waves (PCM).
+- **ALAC Converter (`alac_converter.rs`)**: Lossless real-time conversion of ALAC/M4A/AIFF files to WAV/PCM, preserving original bit depth (16/24/32-bit). Session-based streaming conversion for memory efficiency.
 - **Resampler (`resampler.rs`)**: Uses `rubato` to change the audio quality on-the-fly. If a song is 44.1kHz but your speakers are 48kHz, this module smooths out the difference without losing quality.
 - **Crossfader (`crossfader.rs`)**: Handles the smooth blending between songs, so there is no silence when one track ends and the next begins.
-- **Equalizer (`equalizer.rs`)**: Implements a 10-band graphic equalizer for precise tonal control with parametric band support.
+- **Equalizer (`equalizer.rs`)**: Implements a 10-band graphic equalizer with preamp control and parametric band support for precise tonal control.
 - **FX Processing (`fx.rs`)**: Implements spatial and time effects including balance, tempo, damp, filter, delay, size, mix, feedback, and width for creative audio processing.
 - **Android Audio Processing (`android_audio_processing_service.dart`)**: On Android, uses JustAudioProcessingController for enhanced EQ and effects management with real-time processing capabilities.
 - **Source Provider (`source.rs`)**: Manages the queue for **Gapless Playback**, ensuring there are no awkward pauses between tracks by pre-loading the next song before the current one finishes.

@@ -269,9 +269,14 @@ pub fn audio_set_dap_bit_perfect_enabled(enabled: bool) {
             .as_ref()
             .is_some_and(|p| p.is_dap());
         if is_dap {
-            let _ = with_audio_engine(|handle| {
+            if let Err(e) = with_audio_engine(|handle| {
                 handle.set_pipeline_mode_passthrough(enabled)
-            });
+            }) {
+                log::warn!(
+                    "audio_set_dap_bit_perfect_enabled({}): runtime pipeline switch skipped — {}",
+                    enabled, e
+                );
+            }
         }
     }
     #[cfg(not(target_os = "android"))]

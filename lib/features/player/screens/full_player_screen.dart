@@ -19,6 +19,7 @@ import 'package:flick/services/favorites_service.dart';
 import 'package:flick/services/lyrics_service.dart';
 import 'package:flick/services/player_screen_mode_preference_service.dart';
 import 'package:flick/providers/playlist_provider.dart';
+import 'package:flick/features/player/widgets/audio_visualizer.dart';
 import 'package:flick/features/player/widgets/waveform_seek_bar.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
@@ -62,6 +63,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
   double? _cachedTopBarFontSize;
   double _cachedTopBarTextWidth = 0;
   bool _isLyricsMode = false;
+  bool _isVisualizationMode = false;
   int _songTransitionDirection = 1;
   PlayerScreenMode _playerScreenMode = PlayerScreenMode.immersive;
 
@@ -824,6 +826,19 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
               ),
               _buildSongActionTile(
                 context: sheetContext,
+                icon: Icons.graphic_eq_rounded,
+                label: _isVisualizationMode ? 'Hide Visualizer' : 'Visualizer',
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  if (mounted) {
+                    setState(() {
+                      _isVisualizationMode = !_isVisualizationMode;
+                    });
+                  }
+                },
+              ),
+              _buildSongActionTile(
+                context: sheetContext,
                 icon: LucideIcons.user,
                 label: 'Go to Artist',
                 onTap: () {
@@ -1461,6 +1476,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   key: ValueKey(song.id),
                   song: song,
                   lyricsMode: _isLyricsMode,
+                  visualizationMode: _isVisualizationMode,
                   playerScreenMode: _playerScreenMode,
                   transitionDirection: _songTransitionDirection,
                   topBarTextFontFamily: _topBarTextFontFamily,
@@ -1511,6 +1527,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
 class _AnimatedSongScene extends StatelessWidget {
   final Song song;
   final bool lyricsMode;
+  final bool visualizationMode;
   final PlayerScreenMode playerScreenMode;
   final int transitionDirection;
   final String topBarTextFontFamily;
@@ -1536,6 +1553,7 @@ class _AnimatedSongScene extends StatelessWidget {
     super.key,
     required this.song,
     required this.lyricsMode,
+    required this.visualizationMode,
     required this.playerScreenMode,
     required this.transitionDirection,
     required this.topBarTextFontFamily,
@@ -1620,6 +1638,35 @@ class _AnimatedSongScene extends StatelessWidget {
   }
 
   Widget _buildBackground(BuildContext context) {
+    if (visualizationMode && playerScreenMode != PlayerScreenMode.artworkCard) {
+      return Stack(
+        children: [
+          Positioned.fill(
+            child: AudioVisualizer(playerService: playerService),
+          ),
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    const Color(0xFF0A0A0A).withValues(alpha: 0.7),
+                    const Color(0xFF0A0A0A).withValues(alpha: 0.35),
+                    Colors.transparent,
+                    Colors.transparent,
+                    const Color(0xFF0A0A0A).withValues(alpha: 0.3),
+                    const Color(0xFF0A0A0A).withValues(alpha: 0.75),
+                  ],
+                  stops: const [0.0, 0.12, 0.28, 0.62, 0.82, 1.0],
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     if (playerScreenMode == PlayerScreenMode.artworkCard) {
       return Stack(
         children: [
@@ -1648,11 +1695,11 @@ class _AnimatedSongScene extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    const Color(0xFF080808).withValues(alpha: 0.62),
-                    const Color(0xFF101010).withValues(alpha: 0.42),
-                    const Color(0xFF0A0A0A).withValues(alpha: 0.9),
+                    const Color(0xFF080808).withValues(alpha: 0.5),
+                    const Color(0xFF0E0E0E).withValues(alpha: 0.32),
+                    const Color(0xFF0A0A0A).withValues(alpha: 0.94),
                   ],
-                  stops: const [0.0, 0.45, 1.0],
+                  stops: const [0.0, 0.5, 1.0],
                 ),
               ),
             ),
@@ -2100,23 +2147,23 @@ class _AnimatedSongScene extends StatelessWidget {
             .min(
               constraints.maxWidth - (horizontalPadding * 2),
               isVeryShortHeight
-                  ? constraints.maxHeight * 0.34
+                  ? constraints.maxHeight * 0.32
                   : isShortHeight
-                  ? constraints.maxHeight * 0.38
-                  : constraints.maxHeight * 0.44,
+                  ? constraints.maxHeight * 0.36
+                  : constraints.maxHeight * 0.42,
             )
-            .clamp(isVeryShortHeight ? 180.0 : 200.0, maxArtworkSize)
+            .clamp(isVeryShortHeight ? 160.0 : 180.0, maxArtworkSize)
             .toDouble();
         final artworkSpacing = isVeryShortHeight
-            ? 14.0
+            ? 12.0
             : isShortHeight
-            ? 18.0
-            : context.responsive(24.0, 28.0, 32.0);
+            ? 16.0
+            : context.responsive(22.0, 26.0, 30.0);
         final identitySpacing = isVeryShortHeight
-            ? 10.0
+            ? 8.0
             : isShortHeight
-            ? 14.0
-            : context.responsive(20.0, 22.0, 24.0);
+            ? 12.0
+            : context.responsive(18.0, 20.0, 22.0);
         final lyricsSpacing = isVeryShortHeight
             ? 12.0
             : context.responsive(16.0, 18.0, 20.0);
@@ -2124,10 +2171,10 @@ class _AnimatedSongScene extends StatelessWidget {
             ? 10.0
             : context.responsive(14.0, 16.0, 18.0);
         final directorySpacing = isVeryShortHeight
-            ? 8.0
+            ? 6.0
             : isShortHeight
-            ? 12.0
-            : context.responsive(14.0, 18.0, 22.0);
+            ? 10.0
+            : context.responsive(12.0, 16.0, 20.0);
 
         return Padding(
           padding: EdgeInsets.fromLTRB(
@@ -2157,7 +2204,12 @@ class _AnimatedSongScene extends StatelessWidget {
                       Flexible(
                         flex: isVeryShortHeight ? 5 : 7,
                         child: Center(
-                          child: _AlbumArtBox(song: song, size: artworkSize),
+                          child: visualizationMode
+                              ? _VisualizerArtBox(
+                                  playerService: playerService,
+                                  size: artworkSize,
+                                )
+                              : _AlbumArtBox(song: song, size: artworkSize),
                         ),
                       ),
                       SizedBox(height: artworkSpacing),
@@ -2193,18 +2245,18 @@ class _AnimatedSongScene extends StatelessWidget {
     bool veryCompact = false,
   }) {
     final titleSize = veryCompact
-        ? context.responsive(19.0, 21.0, 24.0)
+        ? context.responsive(20.0, 22.0, 25.0)
         : compact
-        ? context.responsive(21.0, 24.0, 27.0)
-        : context.responsive(24.0, 26.0, 29.0);
+        ? context.responsive(22.0, 25.0, 28.0)
+        : context.responsive(25.0, 27.0, 30.0);
     final artistSize = veryCompact
-        ? context.responsive(12.0, 13.0, 14.0)
-        : compact
         ? context.responsive(13.0, 14.0, 15.0)
-        : context.responsive(14.0, 15.0, 16.0);
+        : compact
+        ? context.responsive(14.0, 15.0, 16.0)
+        : context.responsive(15.0, 16.0, 17.0);
     final titleToArtistSpacing = veryCompact
         ? 6.0
-        : context.responsive(8.0, 9.0, 10.0);
+        : context.responsive(8.0, 10.0, 12.0);
     final artistToAlbumSpacing = veryCompact
         ? 8.0
         : compact
@@ -2245,7 +2297,7 @@ class _AnimatedSongScene extends StatelessWidget {
             fontFamily: 'ProductSans',
             fontSize: context.responsiveText(artistSize),
             fontWeight: FontWeight.w500,
-            color: Colors.white.withValues(alpha: 0.82),
+            color: Colors.white.withValues(alpha: 0.78),
           ),
         ),
         if (song.album != null && song.album!.trim().isNotEmpty) ...[
@@ -2256,9 +2308,9 @@ class _AnimatedSongScene extends StatelessWidget {
               vertical: albumVerticalPadding,
             ),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
+              color: Colors.white.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
             ),
             child: Text(
               song.album!,
@@ -2267,7 +2319,7 @@ class _AnimatedSongScene extends StatelessWidget {
               style: TextStyle(
                 fontFamily: 'ProductSans',
                 fontSize: context.responsiveText(albumFontSize),
-                color: Colors.white.withValues(alpha: 0.74),
+                color: Colors.white.withValues(alpha: 0.68),
               ),
             ),
           ),
@@ -2317,12 +2369,12 @@ class _AlbumArtBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final double resolvedSize = size ?? context.responsive(280.0, 320.0, 360.0);
-    final framePadding = resolvedSize < 220 ? 4.0 : 6.0;
-    final outerRadius = resolvedSize < 220 ? 26.0 : 32.0;
-    final innerRadius = math.max(outerRadius - 6.0, 18.0);
+    final framePadding = resolvedSize < 220 ? 5.0 : 7.0;
+    final outerRadius = resolvedSize < 220 ? 28.0 : 34.0;
+    final innerRadius = math.max(outerRadius - 7.0, 20.0);
     final iconSize = math.max(52.0, resolvedSize * 0.24);
-    final shadowBlur = resolvedSize < 220 ? 24.0 : 30.0;
-    final shadowOffsetY = resolvedSize < 220 ? 12.0 : 16.0;
+    final shadowBlur = resolvedSize < 220 ? 28.0 : 36.0;
+    final shadowOffsetY = resolvedSize < 220 ? 14.0 : 20.0;
 
     return Center(
       child: Container(
@@ -2335,16 +2387,23 @@ class _AlbumArtBox extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Colors.white.withValues(alpha: 0.2),
-              Colors.white.withValues(alpha: 0.04),
+              Colors.white.withValues(alpha: 0.16),
+              Colors.white.withValues(alpha: 0.06),
+              Colors.white.withValues(alpha: 0.02),
             ],
+            stops: const [0.0, 0.4, 1.0],
           ),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.28),
+              color: Colors.black.withValues(alpha: 0.32),
               blurRadius: shadowBlur,
               offset: Offset(0, shadowOffsetY),
+            ),
+            BoxShadow(
+              color: Colors.white.withValues(alpha: 0.06),
+              blurRadius: 1,
+              offset: const Offset(0, 1),
             ),
           ],
         ),
@@ -2355,21 +2414,79 @@ class _AlbumArtBox extends StatelessWidget {
             audioSourcePath: song.filePath,
             fit: BoxFit.cover,
             placeholder: Container(
-              color: Colors.white.withValues(alpha: 0.08),
+              color: Colors.white.withValues(alpha: 0.05),
               child: Icon(
                 LucideIcons.music,
                 size: iconSize,
-                color: Colors.white.withValues(alpha: 0.68),
+                color: Colors.white.withValues(alpha: 0.48),
               ),
             ),
             errorWidget: Container(
-              color: Colors.white.withValues(alpha: 0.08),
+              color: Colors.white.withValues(alpha: 0.05),
               child: Icon(
                 LucideIcons.music,
                 size: iconSize,
-                color: Colors.white.withValues(alpha: 0.68),
+                color: Colors.white.withValues(alpha: 0.48),
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VisualizerArtBox extends StatelessWidget {
+  final PlayerService playerService;
+  final double? size;
+
+  const _VisualizerArtBox({required this.playerService, this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final double resolvedSize = size ?? context.responsive(280.0, 320.0, 360.0);
+    final framePadding = resolvedSize < 220 ? 5.0 : 7.0;
+    final outerRadius = resolvedSize < 220 ? 28.0 : 34.0;
+    final innerRadius = math.max(outerRadius - 7.0, 20.0);
+    final shadowBlur = resolvedSize < 220 ? 28.0 : 36.0;
+    final shadowOffsetY = resolvedSize < 220 ? 14.0 : 20.0;
+
+    return Center(
+      child: Container(
+        width: resolvedSize,
+        height: resolvedSize,
+        padding: EdgeInsets.all(framePadding),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(outerRadius),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.white.withValues(alpha: 0.16),
+              Colors.white.withValues(alpha: 0.06),
+              Colors.white.withValues(alpha: 0.02),
+            ],
+            stops: const [0.0, 0.4, 1.0],
+          ),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.32),
+              blurRadius: shadowBlur,
+              offset: Offset(0, shadowOffsetY),
+            ),
+            BoxShadow(
+              color: Colors.white.withValues(alpha: 0.06),
+              blurRadius: 1,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(innerRadius),
+          child: Container(
+            color: const Color(0xFF0A0A0A),
+            child: AudioVisualizer(playerService: playerService),
           ),
         ),
       ),

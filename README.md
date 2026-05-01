@@ -6,6 +6,7 @@ Flick Player is a high-performance music player application built with Flutter a
 
 ### Audio Engine
 - **Primary**: Custom Rust audio engine with UAC 2.0 support for bit-perfect playback through USB DACs/AMPs
+- **DAP Bit-Perfect**: High-resolution playback through device's internal DAC via Oboe/AAudio exclusive mode, with device qualification for confirmed bit-perfect DAPs
 - **Fallback**: `just_audio` for standard audio playback on devices without USB audio support
 - **Audio Processing**: Advanced EQ, dynamics, and spatial/time effects via JustAudioProcessingController on Android
 - **EQ Preset Management**: Import/export functionality for EQ presets in JSON and TXT formats with parametric band support
@@ -20,7 +21,7 @@ Flick Player is a high-performance music player application built with Flutter a
 - Bit-perfect audio transmission to external USB audio devices
 
 ### Advanced Equalizer & Audio Effects
-- 10-band graphic equalizer with parametric controls
+- 10-band graphic equalizer with preamp and parametric controls
 - Real-time audio processing with EQ, dynamics, and spatial effects
 - Preset management with import/export functionality (JSON/TXT formats)
 - Spatial and time effects including balance, tempo, damp, filter, delay, size, mix, feedback, and width

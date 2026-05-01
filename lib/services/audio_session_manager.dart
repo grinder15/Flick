@@ -235,7 +235,6 @@ class AudioSessionManager {
     final info = refresh && !freezeDirectUsbSessionQueries
         ? await _deviceService.refresh()
         : _deviceService.deviceInfoNotifier.value;
-    final hiFiModeEnabled = await _preferencesService.getHiFiModeEnabled();
     final bitPerfectEnabled = await _preferencesService.getBitPerfectEnabled();
     final dapBitPerfectEnabled = await _preferencesService.getDapBitPerfectEnabled();
     final audioEnginePreference = await _preferencesService
@@ -310,57 +309,32 @@ class AudioSessionManager {
           rust_audio.AudioCapabilityType.hiResInternal,
         ) ||
         dapInfo.detected;
-    if (audioEnginePreference == AudioEnginePreference.rustOboe) {
-      if (hiFiModeEnabled && supportsHiResInternal) {
-        if (!dapBitPerfectEnabled) {
-          _debugLog(
-            '[Session] Selected RUST_OBOE because Bit-perfect (DAP Internal) is '
-            'disabled. DSP chain will run normally. '
-            '(${capabilityInfo.routeType}/${capabilityInfo.routeLabel ?? 'unknown'}; '
-            'detectedDap=${dapInfo.brand ?? 'none'})',
-          );
-          return AudioEngineType.rustOboe;
-        }
-        _debugLog(
-          '[Session] Selected DAP_INTERNAL_HIGH_RES because Rust via Oboe '
-          'is preferred and Android reports a higher-capability internal '
-          'route (${capabilityInfo.routeType}/${capabilityInfo.routeLabel ?? 'unknown'}; '
-          'detectedDap=${dapInfo.brand ?? 'none'})',
-        );
-        return AudioEngineType.dapInternalHighRes;
-      }
 
-      _debugLog(
-        '[Session] Selected RUST_OBOE because the user prefers the Rust '
-        'Android-managed engine',
-      );
-      return AudioEngineType.rustOboe;
-    }
-
-    if (hiFiModeEnabled && supportsHiResInternal) {
+    if (supportsHiResInternal) {
       if (!dapBitPerfectEnabled) {
         _debugLog(
-          '[Session] Selected RUST_OBOE (from default engine preference) '
-           'because Bit-perfect (DAP Internal) is disabled. DSP chain will run normally. '
+          '[Session] Selected RUST_OBOE because Bit-perfect (DAP Internal) is '
+          'disabled. DSP chain will run normally. '
           '(${capabilityInfo.routeType}/${capabilityInfo.routeLabel ?? 'unknown'}; '
           'detectedDap=${dapInfo.brand ?? 'none'})',
         );
         return AudioEngineType.rustOboe;
       }
       _debugLog(
-        '[Session] Selected DAP_INTERNAL_HIGH_RES because HiFi Mode is '
-        'enabled and Android reports a higher-capability internal route '
+        '[Session] Selected DAP_INTERNAL_HIGH_RES because Android reports a '
+        'higher-capability internal route '
         '(${capabilityInfo.routeType}/${capabilityInfo.routeLabel ?? 'unknown'}; '
         'detectedDap=${dapInfo.brand ?? 'none'})',
       );
       return AudioEngineType.dapInternalHighRes;
     }
 
-    if (hiFiModeEnabled && !supportsHiResInternal) {
+    if (audioEnginePreference == AudioEnginePreference.rustOboe) {
       _debugLog(
-        '[Session] HiFi Mode requested, but Android did not report a '
-        'high-resolution internal route. Staying on NORMAL_ANDROID.',
+        '[Session] Selected RUST_OBOE because the user prefers the Rust '
+        'Android-managed engine',
       );
+      return AudioEngineType.rustOboe;
     }
 
     return AudioEngineType.normalAndroid;

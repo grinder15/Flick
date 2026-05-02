@@ -264,11 +264,7 @@ abstract class RustLibApi extends BaseApi {
 
   bool crateApiUac2ApiUac2GetMute();
 
-  Uac2PipelineInfo crateApiUac2ApiUac2GetPipelineInfo();
-
   int crateApiUac2ApiUac2GetSamplingFrequency();
-
-  Uac2TransferStats crateApiUac2ApiUac2GetTransferStats();
 
   double crateApiUac2ApiUac2GetVolume();
 
@@ -279,8 +275,6 @@ abstract class RustLibApi extends BaseApi {
   bool crateApiUac2ApiUac2IsUsbSessionActive();
 
   List<Uac2DeviceInfo> crateApiUac2ApiUac2ListDevices();
-
-  Future<void> crateApiUac2ApiUac2ResetTransferStats();
 
   Future<bool> crateApiUac2ApiUac2SelectDevice({
     required Uac2DeviceInfo device,
@@ -1991,28 +1985,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "uac2_get_mute", argNames: []);
 
   @override
-  Uac2PipelineInfo crateApiUac2ApiUac2GetPipelineInfo() {
-    return handler.executeSync(
-      SyncTask(
-        callFfi: () {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 59)!;
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_uac_2_pipeline_info,
-          decodeErrorData: sse_decode_String,
-        ),
-        constMeta: kCrateApiUac2ApiUac2GetPipelineInfoConstMeta,
-        argValues: [],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiUac2ApiUac2GetPipelineInfoConstMeta =>
-      const TaskConstMeta(debugName: "uac2_get_pipeline_info", argNames: []);
-
-  @override
   int crateApiUac2ApiUac2GetSamplingFrequency() {
     return handler.executeSync(
       SyncTask(
@@ -2036,28 +2008,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         debugName: "uac2_get_sampling_frequency",
         argNames: [],
       );
-
-  @override
-  Uac2TransferStats crateApiUac2ApiUac2GetTransferStats() {
-    return handler.executeSync(
-      SyncTask(
-        callFfi: () {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 61)!;
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_uac_2_transfer_stats,
-          decodeErrorData: sse_decode_String,
-        ),
-        constMeta: kCrateApiUac2ApiUac2GetTransferStatsConstMeta,
-        argValues: [],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiUac2ApiUac2GetTransferStatsConstMeta =>
-      const TaskConstMeta(debugName: "uac2_get_transfer_stats", argNames: []);
 
   @override
   double crateApiUac2ApiUac2GetVolume() {
@@ -2176,33 +2126,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
 
   TaskConstMeta get kCrateApiUac2ApiUac2ListDevicesConstMeta =>
       const TaskConstMeta(debugName: "uac2_list_devices", argNames: []);
-
-  @override
-  Future<void> crateApiUac2ApiUac2ResetTransferStats() {
-    return handler.executeNormal(
-      NormalTask(
-        callFfi: (port_) {
-          final serializer = SseSerializer(generalizedFrbRustBinding);
-          pdeCallFfi(
-            generalizedFrbRustBinding,
-            serializer,
-            funcId: 67,
-            port: port_,
-          );
-        },
-        codec: SseCodec(
-          decodeSuccessData: sse_decode_unit,
-          decodeErrorData: sse_decode_String,
-        ),
-        constMeta: kCrateApiUac2ApiUac2ResetTransferStatsConstMeta,
-        argValues: [],
-        apiImpl: this,
-      ),
-    );
-  }
-
-  TaskConstMeta get kCrateApiUac2ApiUac2ResetTransferStatsConstMeta =>
-      const TaskConstMeta(debugName: "uac2_reset_transfer_stats", argNames: []);
 
   @override
   Future<bool> crateApiUac2ApiUac2SelectDevice({
@@ -2973,36 +2896,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  Uac2PipelineInfo dco_decode_uac_2_pipeline_info(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 3)
-      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
-    return Uac2PipelineInfo(
-      isBitPerfect: dco_decode_bool(arr[0]),
-      requiresConversion: dco_decode_bool(arr[1]),
-      converterType: dco_decode_String(arr[2]),
-    );
-  }
-
-  @protected
-  Uac2TransferStats dco_decode_uac_2_transfer_stats(dynamic raw) {
-    // Codec=Dco (DartCObject based), see doc to use other codecs
-    final arr = raw as List<dynamic>;
-    if (arr.length != 7)
-      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
-    return Uac2TransferStats(
-      totalSubmitted: dco_decode_u_64(arr[0]),
-      totalCompleted: dco_decode_u_64(arr[1]),
-      totalFailed: dco_decode_u_64(arr[2]),
-      totalRetried: dco_decode_u_64(arr[3]),
-      underruns: dco_decode_u_64(arr[4]),
-      overruns: dco_decode_u_64(arr[5]),
-      successRate: dco_decode_f_64(arr[6]),
-    );
-  }
-
-  @protected
   Uac2VolumeRange dco_decode_uac_2_volume_range(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -3759,44 +3652,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
-  Uac2PipelineInfo sse_decode_uac_2_pipeline_info(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_isBitPerfect = sse_decode_bool(deserializer);
-    var var_requiresConversion = sse_decode_bool(deserializer);
-    var var_converterType = sse_decode_String(deserializer);
-    return Uac2PipelineInfo(
-      isBitPerfect: var_isBitPerfect,
-      requiresConversion: var_requiresConversion,
-      converterType: var_converterType,
-    );
-  }
-
-  @protected
-  Uac2TransferStats sse_decode_uac_2_transfer_stats(
-    SseDeserializer deserializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    var var_totalSubmitted = sse_decode_u_64(deserializer);
-    var var_totalCompleted = sse_decode_u_64(deserializer);
-    var var_totalFailed = sse_decode_u_64(deserializer);
-    var var_totalRetried = sse_decode_u_64(deserializer);
-    var var_underruns = sse_decode_u_64(deserializer);
-    var var_overruns = sse_decode_u_64(deserializer);
-    var var_successRate = sse_decode_f_64(deserializer);
-    return Uac2TransferStats(
-      totalSubmitted: var_totalSubmitted,
-      totalCompleted: var_totalCompleted,
-      totalFailed: var_totalFailed,
-      totalRetried: var_totalRetried,
-      underruns: var_underruns,
-      overruns: var_overruns,
-      successRate: var_successRate,
-    );
-  }
-
-  @protected
   Uac2VolumeRange sse_decode_uac_2_volume_range(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_min = sse_decode_i_32(deserializer);
@@ -4492,31 +4347,6 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.fallbackName, serializer);
   }
 
-  @protected
-  void sse_encode_uac_2_pipeline_info(
-    Uac2PipelineInfo self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_bool(self.isBitPerfect, serializer);
-    sse_encode_bool(self.requiresConversion, serializer);
-    sse_encode_String(self.converterType, serializer);
-  }
-
-  @protected
-  void sse_encode_uac_2_transfer_stats(
-    Uac2TransferStats self,
-    SseSerializer serializer,
-  ) {
-    // Codec=Sse (Serialization based), see doc to use other codecs
-    sse_encode_u_64(self.totalSubmitted, serializer);
-    sse_encode_u_64(self.totalCompleted, serializer);
-    sse_encode_u_64(self.totalFailed, serializer);
-    sse_encode_u_64(self.totalRetried, serializer);
-    sse_encode_u_64(self.underruns, serializer);
-    sse_encode_u_64(self.overruns, serializer);
-    sse_encode_f_64(self.successRate, serializer);
-  }
 
   @protected
   void sse_encode_uac_2_volume_range(

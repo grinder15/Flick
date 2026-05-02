@@ -437,6 +437,28 @@ class PlayerService {
   }
 
   Future<void> _handleBitPerfectPreferenceChanged() async {
+    // When USB DAC bit-perfect is turned off, also turn off DAP bit-perfect
+    // so the DAC receives non-bit-perfect data.
+    if (!_uac2Service.isBitPerfectEnabledSync &&
+        _uac2Service.isDapBitPerfectEnabledSync) {
+      await setDapBitPerfectEnabled(false);
+      return; // setDapBitPerfectEnabled will re-trigger this listener
+    }
+
+    // When both bit-perfect options are off on a DAP, force the engine
+    // to Rust via Oboe so volume and DSP work correctly on the shared path.
+    if (Platform.isAndroid &&
+        audioOutputDiagnosticsNotifier.value?.detectedDap == true &&
+        !_uac2Service.isBitPerfectEnabledSync &&
+        !_uac2Service.isDapBitPerfectEnabledSync) {
+      final pref = await _preferencesService.getAudioEnginePreference();
+      if (pref != AudioEnginePreference.rustOboe) {
+        await _preferencesService.setAudioEnginePreference(
+          AudioEnginePreference.rustOboe,
+        );
+      }
+    }
+
     if (isBitPerfectModeEnabled) {
       if (_usingRustBackend && _rustAudioService.isInitialized) {
         await _applyRustPlaybackProcessingPolicy(currentEngineType);
@@ -1000,17 +1022,7 @@ class PlayerService {
     unawaited(_reconcileVolumeForTier(_determineCurrentTier()));
   }
 
-  bool get _isDapOnSharedPath =>
-      Platform.isAndroid &&
-      audioOutputDiagnosticsNotifier.value?.detectedDap == true &&
-      !isBitPerfectModeEnabled &&
-      !_isDirectUsbPath &&
-      _usingRustBackend;
-
   VolumeTier _determineCurrentTier() {
-    if (_isDapOnSharedPath) {
-      return VolumeTier.system;
-    }
     if (!isBitPerfectModeEnabled || !_isDirectUsbPath) {
       return _usingRustBackend ? VolumeTier.software : VolumeTier.system;
     }

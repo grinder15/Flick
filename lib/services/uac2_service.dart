@@ -177,11 +177,6 @@ class Uac2Service {
     return rust_uac2.uac2IsAvailable();
   }
 
-  bool get supportsTransferStats {
-    if (Platform.isAndroid) return false;
-    return rust_uac2.uac2IsAvailable();
-  }
-
   void addStatusListener(ValueChanged<Uac2DeviceStatus?> listener) {
     _statusListeners.add(listener);
   }
@@ -1107,46 +1102,6 @@ Future<void> stopPriorityAnchor() async {
       return rust_uac2.uac2GetSamplingFrequency();
     } catch (e) {
       debugPrint('Uac2Service.getSamplingFrequency failed: $e');
-      return null;
-    }
-  }
-
-  Future<Uac2TransferStats?> getTransferStats() async {
-    if (_currentDeviceStatus == null) return null;
-
-    try {
-      if (!supportsTransferStats) return null;
-      return rust_uac2.uac2GetTransferStats();
-    } catch (e) {
-      debugPrint('Uac2Service.getTransferStats failed: $e');
-      return null;
-    }
-  }
-
-  Future<bool> resetTransferStats() async {
-    if (_currentDeviceStatus == null) return false;
-
-    try {
-      if (!supportsTransferStats) return false;
-      await rust_uac2.uac2ResetTransferStats();
-      return true;
-    } catch (e) {
-      debugPrint('Uac2Service.resetTransferStats failed: $e');
-      return false;
-    }
-  }
-
-  Future<Uac2PipelineInfo?> getPipelineInfo() async {
-    if (_currentDeviceStatus == null) return null;
-
-    try {
-      if (Platform.isAndroid) {
-        return null;
-      }
-      if (!rust_uac2.uac2IsAvailable()) return null;
-      return rust_uac2.uac2GetPipelineInfo();
-    } catch (e) {
-      debugPrint('Uac2Service.getPipelineInfo failed: $e');
       return null;
     }
   }
@@ -2260,7 +2215,5 @@ rust_audio.AudioCapabilityType _audioCapabilityTypeFromString(String value) {
 
 typedef Uac2DeviceInfo = rust_uac2.Uac2DeviceInfo;
 typedef Uac2VolumeRange = rust_uac2.Uac2VolumeRange;
-typedef Uac2TransferStats = rust_uac2.Uac2TransferStats;
-typedef Uac2PipelineInfo = rust_uac2.Uac2PipelineInfo;
 typedef Uac2ConnectionState = rust_uac2.Uac2ConnectionState;
 typedef Uac2FallbackInfo = rust_uac2.Uac2FallbackInfo;

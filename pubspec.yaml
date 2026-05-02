@@ -44,6 +44,7 @@ dependencies:
   flutter_svg: ^2.2.3
   freezed_annotation: ^3.0.0
   http: ^1.2.0
+  image_picker: ^1.1.2
   isar_community: ^3.3.0
   isar_community_flutter_libs: ^3.3.0
   json_annotation: ^4.9.0

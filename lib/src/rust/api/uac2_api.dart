@@ -53,15 +53,6 @@ Future<void> uac2SetSamplingFrequency({required int frequency}) => RustLib
 int uac2GetSamplingFrequency() =>
     RustLib.instance.api.crateApiUac2ApiUac2GetSamplingFrequency();
 
-Uac2TransferStats uac2GetTransferStats() =>
-    RustLib.instance.api.crateApiUac2ApiUac2GetTransferStats();
-
-Future<void> uac2ResetTransferStats() =>
-    RustLib.instance.api.crateApiUac2ApiUac2ResetTransferStats();
-
-Uac2PipelineInfo uac2GetPipelineInfo() =>
-    RustLib.instance.api.crateApiUac2ApiUac2GetPipelineInfo();
-
 Uac2ConnectionState uac2GetConnectionState() =>
     RustLib.instance.api.crateApiUac2ApiUac2GetConnectionState();
 
@@ -224,76 +215,6 @@ class Uac2FallbackInfo {
           runtimeType == other.runtimeType &&
           hasActiveFallback == other.hasActiveFallback &&
           fallbackName == other.fallbackName;
-}
-
-class Uac2PipelineInfo {
-  final bool isBitPerfect;
-  final bool requiresConversion;
-  final String converterType;
-
-  const Uac2PipelineInfo({
-    required this.isBitPerfect,
-    required this.requiresConversion,
-    required this.converterType,
-  });
-
-  @override
-  int get hashCode =>
-      isBitPerfect.hashCode ^
-      requiresConversion.hashCode ^
-      converterType.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Uac2PipelineInfo &&
-          runtimeType == other.runtimeType &&
-          isBitPerfect == other.isBitPerfect &&
-          requiresConversion == other.requiresConversion &&
-          converterType == other.converterType;
-}
-
-class Uac2TransferStats {
-  final BigInt totalSubmitted;
-  final BigInt totalCompleted;
-  final BigInt totalFailed;
-  final BigInt totalRetried;
-  final BigInt underruns;
-  final BigInt overruns;
-  final double successRate;
-
-  const Uac2TransferStats({
-    required this.totalSubmitted,
-    required this.totalCompleted,
-    required this.totalFailed,
-    required this.totalRetried,
-    required this.underruns,
-    required this.overruns,
-    required this.successRate,
-  });
-
-  @override
-  int get hashCode =>
-      totalSubmitted.hashCode ^
-      totalCompleted.hashCode ^
-      totalFailed.hashCode ^
-      totalRetried.hashCode ^
-      underruns.hashCode ^
-      overruns.hashCode ^
-      successRate.hashCode;
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Uac2TransferStats &&
-          runtimeType == other.runtimeType &&
-          totalSubmitted == other.totalSubmitted &&
-          totalCompleted == other.totalCompleted &&
-          totalFailed == other.totalFailed &&
-          totalRetried == other.totalRetried &&
-          underruns == other.underruns &&
-          overruns == other.overruns &&
-          successRate == other.successRate;
 }
 
 class Uac2VolumeRange {

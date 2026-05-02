@@ -53,10 +53,9 @@ Flick Player is a high-performance music player application built with Flutter a
 - Responsive layout for various screen sizes
 
 ### In-App Updates
-- **Shorebird Integration**: Seamless in-app updates via Shorebird code push
-- **Automatic Updates**: Background update checks on app launch
-- **Manual Updates**: Settings UI allows forcing update checks and installs
-- **Patch System**: Dart-only changes can be pushed as patches without a full release
+- **Play Store Integration**: In-app updates via Google Play Store
+- **Manual Updates**: Settings UI allows checking for and installing updates
+- **Flexible Updates**: Download updates in the background while using the app
 
 ## Moss Ecosystem
 
@@ -107,7 +106,7 @@ When a song is playing in Locker and you want to switch to Flick's advanced audi
 | `fl_chart` | Equalizer visualization |
 | `flutter_cache_manager` | Image caching |
 | `freezed` | Immutable data classes |
-| `shorebird_code_push` | In-app updates |
+| `in_app_update` | In-app updates |
 
 ### Backend (Rust)
 | Crate | Purpose |

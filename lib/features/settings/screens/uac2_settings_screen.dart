@@ -12,8 +12,7 @@ import 'package:flick/widgets/common/display_mode_wrapper.dart';
 import 'package:flick/features/settings/screens/uac2_preferences_screen.dart';
 import 'package:flick/widgets/uac2/uac2_volume_control.dart';
 import 'package:flick/widgets/uac2/uac2_hotplug_monitor.dart';
-import 'package:flick/widgets/uac2/uac2_transfer_stats_widget.dart';
-import 'package:flick/widgets/uac2/uac2_pipeline_info_widget.dart';
+
 
 class Uac2SettingsScreen extends ConsumerStatefulWidget {
   const Uac2SettingsScreen({super.key});
@@ -82,15 +81,7 @@ class _Uac2SettingsScreenState extends ConsumerState<Uac2SettingsScreen> {
                           _buildSectionHeader(context, 'Volume Control'),
                           const Uac2VolumeControl(),
                         ],
-                        if (deviceStatus?.state == Uac2State.streaming ||
-                            deviceStatus?.state == Uac2State.prewarming) ...[
-                          const SizedBox(height: AppConstants.spacingLg),
-                          _buildSectionHeader(context, 'Pipeline Information'),
-                          const Uac2PipelineInfoWidget(),
-                          const SizedBox(height: AppConstants.spacingLg),
-                          _buildSectionHeader(context, 'Transfer Statistics'),
-                          const Uac2TransferStatsWidget(),
-                        ],
+
                       ],
                       const SizedBox(height: AppConstants.navBarHeight + 120),
                     ],

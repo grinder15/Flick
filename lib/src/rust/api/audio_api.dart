@@ -29,6 +29,8 @@ void audioSetHighResMode({required bool enabled}) =>
 
 /// Sync the Bit-perfect (DAP Internal) preference from Dart so the Rust engine manager
 /// can factor it into engine selection and reuse decisions.
+/// When toggled at runtime, the running engine's pipeline mode is switched
+/// between Passthrough (bit-perfect) and Dsp (full processing) on DAP devices.
 void audioSetDapBitPerfectEnabled({required bool enabled}) => RustLib
     .instance
     .api

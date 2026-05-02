@@ -5,7 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:http/http.dart' as http;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:shorebird_code_push/shorebird_code_push.dart';
+import 'package:flutter/services.dart';
+import 'package:in_app_update/in_app_update.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
@@ -44,8 +45,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   );
   static const String _releaseNotesUrl =
       'https://github.com/ultraelectronica/flick_player/releases/latest';
-  static const bool _updatesComingSoon = false;
-
   // Sample settings state
   bool _gaplessPlayback = true;
 
@@ -59,11 +58,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   ScanProgress? _scanProgress;
   bool _showBatteryOptimizationNotice = false;
   bool _isXiaomiDevice = false;
-  final ShorebirdUpdater _updater = ShorebirdUpdater();
+
+
   bool _isCheckingForUpdates = false;
   bool _isInstallingUpdate = false;
   bool _hasScannedForUpdates = false;
-  UpdateStatus? _lastScannedUpdateStatus;
+  bool _updateAvailable = false;
+  bool _updateDownloaded = false;
   String? _updateCheckErrorMessage;
   bool _scanSettingsExpanded = false;
   late final AnimationController _scanSettingsController;
@@ -219,11 +220,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   bool get _restartRequiredForUpdate {
-    return _lastScannedUpdateStatus == UpdateStatus.restartRequired;
+    return _updateDownloaded;
   }
 
   bool get _hasAvailableUpdate {
-    return _lastScannedUpdateStatus == UpdateStatus.outdated;
+    return _updateAvailable;
   }
 
   void _showToast(String message) {
@@ -235,9 +236,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   Future<void> _scanForUpdates() async {
-    if (_isCheckingForUpdates || _isInstallingUpdate) {
-      return;
-    }
+    if (_isCheckingForUpdates || _isInstallingUpdate) return;
 
     setState(() {
       _isCheckingForUpdates = true;
@@ -245,40 +244,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     });
 
     try {
-      final status = await _updater.checkForUpdate();
-      if (!mounted) {
-        return;
-      }
+      final info = await InAppUpdate.checkForUpdate();
+      if (!mounted) return;
+
+      final hasUpdate =
+          info.updateAvailability == UpdateAvailability.updateAvailable;
+      final inProgress = info.updateAvailability ==
+          UpdateAvailability.developerTriggeredUpdateInProgress;
 
       setState(() {
         _hasScannedForUpdates = true;
-        _lastScannedUpdateStatus = status;
+        _updateAvailable = hasUpdate;
+        _updateDownloaded = inProgress;
+        _updateCheckErrorMessage = null;
       });
 
-      if (status == UpdateStatus.outdated) {
+      if (hasUpdate) {
         _showToast('Update available.');
         return;
       }
-
-      if (status == UpdateStatus.restartRequired) {
-        _showToast('Update finished. Restart the app to use it.');
+      if (inProgress) {
+        _showToast('Update already in progress.');
         return;
       }
-
-      if (status == UpdateStatus.unavailable) {
-        _showToast('Updates are unavailable in this build.');
-        return;
-      }
-
       _showToast('No new update found.');
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-
+    } on PlatformException {
+      if (!mounted) return;
       setState(() {
         _hasScannedForUpdates = true;
-        _lastScannedUpdateStatus = null;
+        _updateAvailable = false;
+        _updateDownloaded = false;
+        _updateCheckErrorMessage =
+            'In-app updates only work when installed from the Play Store.';
+      });
+      _showToast(
+        'In-app updates require the Play Store version of the app.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _hasScannedForUpdates = true;
+        _updateAvailable = false;
+        _updateDownloaded = false;
         _updateCheckErrorMessage = 'Unable to reach the update service.';
       });
       _showToast('Failed to check for updates: $error');
@@ -292,9 +299,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   }
 
   Future<void> _installUpdate() async {
-    if (_isInstallingUpdate) {
-      return;
-    }
+    if (_isInstallingUpdate) return;
 
     if (_restartRequiredForUpdate) {
       _showToast('Update finished. Restart the app to use it.');
@@ -315,27 +320,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     });
 
     try {
-      _showToast('Installing update in the background. Keep using the app.');
-      await _updater.update();
-      if (!mounted) {
-        return;
-      }
+      _showToast('Downloading update in the background. Keep using the app.');
+      final result = await InAppUpdate.startFlexibleUpdate();
+      if (!mounted) return;
 
-      setState(() {
-        _hasScannedForUpdates = true;
-        _lastScannedUpdateStatus = UpdateStatus.restartRequired;
-        _updateCheckErrorMessage = null;
-      });
-      _showToast('Update finished. Restart the app to use it.');
-    } on UpdateException catch (error) {
-      if (!mounted) {
-        return;
+      if (result == AppUpdateResult.success) {
+        setState(() {
+          _hasScannedForUpdates = true;
+          _updateDownloaded = true;
+          _updateAvailable = false;
+          _updateCheckErrorMessage = null;
+        });
+        _showToast('Update downloaded. Restart the app to install.');
+      } else if (result == AppUpdateResult.userDeniedUpdate) {
+        _showToast('Update cancelled.');
+      } else {
+        _showToast('Update failed. Try again later.');
       }
-      _showToast('Failed to install update: ${error.message}');
     } catch (error) {
-      if (!mounted) {
-        return;
-      }
+      if (!mounted) return;
       _showToast('Failed to install update: $error');
     } finally {
       if (mounted) {
@@ -1109,28 +1112,21 @@ SOFTWARE.
                           _buildActionButton(
                             context,
                             icon: LucideIcons.scanSearch,
-                            title: _updatesComingSoon
-                                ? 'Scan for Updates'
-                                : _isCheckingForUpdates
+                            title: _isCheckingForUpdates
                                 ? 'Scanning for Updates...'
                                 : 'Scan for Updates',
-                            subtitle: _updatesComingSoon
-                                ? 'Coming soon'
-                                : _isCheckingForUpdates
+                            subtitle: _isCheckingForUpdates
                                 ? 'Checking for the latest update now'
                                 : 'Check manually whenever you want',
-                            onTap:
-                                _updatesComingSoon ||
-                                    _isCheckingForUpdates ||
+                            onTap: _isCheckingForUpdates ||
                                     _isInstallingUpdate
                                 ? null
                                 : _scanForUpdates,
                           ),
                           _buildDivider(),
                           _buildUpdateStatusTile(context),
-                          if (!_updatesComingSoon &&
-                              (_hasAvailableUpdate ||
-                                  _restartRequiredForUpdate)) ...[
+                          if (_hasAvailableUpdate ||
+                              _restartRequiredForUpdate) ...[
                             _buildDivider(),
                             _buildNavigationSetting(
                               context,
@@ -1140,8 +1136,7 @@ SOFTWARE.
                               onTap: _showPatchNotesBottomSheet,
                             ),
                           ],
-                          if (!_updatesComingSoon &&
-                              (_hasAvailableUpdate || _isInstallingUpdate)) ...[
+                          if (_hasAvailableUpdate || _isInstallingUpdate) ...[
                             _buildDivider(),
                             _buildActionButton(
                               context,
@@ -1607,14 +1602,6 @@ SOFTWARE.
   }
 
   ({IconData icon, String title, String subtitle}) _getUpdateStatusDetails() {
-    if (_updatesComingSoon) {
-      return (
-        icon: LucideIcons.info,
-        title: 'Coming Soon',
-        subtitle: 'In-app updates will be available in a future release',
-      );
-    }
-
     if (_isCheckingForUpdates) {
       return (
         icon: LucideIcons.refreshCw,
@@ -1655,15 +1642,10 @@ SOFTWARE.
       );
     }
 
-    if (_lastScannedUpdateStatus == UpdateStatus.unavailable) {
-      return (
-        icon: LucideIcons.info,
-        title: 'Updates Unavailable',
-        subtitle: 'This build does not support in-app updates',
-      );
-    }
-
-    if (_lastScannedUpdateStatus == UpdateStatus.upToDate) {
+    if (_hasScannedForUpdates &&
+        !_updateAvailable &&
+        !_updateDownloaded &&
+        _updateCheckErrorMessage == null) {
       return (
         icon: LucideIcons.badgeCheck,
         title: 'No Update Available',

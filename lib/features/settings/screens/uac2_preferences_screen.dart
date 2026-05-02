@@ -259,7 +259,12 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
               icon: LucideIcons.audioLines,
               title: 'Playback Engine',
               subtitle: _audioEnginePreferenceSubtitle(engine),
-              onTap: () => _showAudioEngineDialog(context, service, engine),
+               onTap: () => _showAudioEngineDialog(
+                 context,
+                 service,
+                 engine,
+                 diagnostics: diagnostics,
+               ),
             ),
             loading: () => _buildLoadingTile(context),
             error: (_, _) => _buildErrorTile(context),
@@ -329,7 +334,7 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                 icon: LucideIcons.headphones,
                 title: 'Bit-perfect (DAP Internal)',
                 subtitle:
-                    'Bypass all DSP (EQ, dynamics, crossfade, speed) on the native DAP internal high-res path. Disable to use software effects.',
+                    'Bypass all DSP (EQ, dynamics, crossfade, speed) on the native DAP internal high-res path. Disable to use software effects. Turning off Bit-perfect (USB DAC) also disables this.',
                 value: enabled,
                 onChanged: (value) async {
                   await PlayerService().setDapBitPerfectEnabled(value);
@@ -450,8 +455,18 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
   Future<void> _showAudioEngineDialog(
     BuildContext context,
     Uac2PreferencesService service,
-    AudioEnginePreference current,
-  ) async {
+    AudioEnginePreference current, {
+    AudioOutputDiagnostics? diagnostics,
+  }) async {
+    final dapBothOff = diagnostics?.detectedDap == true &&
+        !(await service.getBitPerfectEnabled()) &&
+        !(await service.getDapBitPerfectEnabled());
+    final effective = dapBothOff ? AudioEnginePreference.rustOboe : current;
+    if (dapBothOff && current != AudioEnginePreference.rustOboe) {
+      await service.setAudioEnginePreference(AudioEnginePreference.rustOboe);
+      ref.invalidate(audioEnginePreferenceProvider);
+    }
+
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -468,33 +483,45 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (dapBothOff) ...[
+                _buildEngineLockCallout(dialogContext),
+                const SizedBox(height: AppConstants.spacingMd),
+              ],
               _buildAudioEngineOption(
                 dialogContext,
                 title: 'just_audio / ExoPlayer',
-                subtitle:
-                    'Default Android playback engine used by Flick right now.',
-                selected: current == AudioEnginePreference.exoPlayer,
-                onTap: () async {
-                  final changed = current != AudioEnginePreference.exoPlayer;
-                  await service.setAudioEnginePreference(
-                    AudioEnginePreference.exoPlayer,
-                  );
-                  ref.invalidate(audioEnginePreferenceProvider);
-                  if (dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  }
-                  if (changed && context.mounted) {
-                    _showRestartRequiredToast(context);
-                  }
-                },
+                subtitle: dapBothOff
+                    ? 'Disabled while both bit-perfect options are off on this DAP.'
+                    : 'Default Android playback engine used by Flick right now.',
+                selected: effective == AudioEnginePreference.exoPlayer,
+                enabled: !dapBothOff,
+                badgeText: dapBothOff ? 'Locked' : null,
+                onTap: dapBothOff
+                    ? null
+                    : () async {
+                        final changed =
+                            current != AudioEnginePreference.exoPlayer;
+                        await service.setAudioEnginePreference(
+                          AudioEnginePreference.exoPlayer,
+                        );
+                        ref.invalidate(audioEnginePreferenceProvider);
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
+                        }
+                        if (changed && context.mounted) {
+                          _showRestartRequiredToast(context);
+                        }
+                      },
               ),
               const SizedBox(height: AppConstants.spacingSm),
               _buildAudioEngineOption(
                 dialogContext,
                 title: 'Rust via Oboe',
-                subtitle:
-                    'Android-managed Rust playback path using the native Oboe backend.',
-                selected: current == AudioEnginePreference.rustOboe,
+                subtitle: dapBothOff
+                    ? 'Required now so software volume and DSP stay active on the DAP shared path.'
+                    : 'Android-managed Rust playback path using the native Oboe backend.',
+                selected: effective == AudioEnginePreference.rustOboe,
+                badgeText: dapBothOff ? 'Active' : null,
                 onTap: () async {
                   final changed = current != AudioEnginePreference.rustOboe;
                   await service.setAudioEnginePreference(
@@ -513,28 +540,65 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
               _buildAudioEngineOption(
                 dialogContext,
                 title: 'Isochronous USB',
-                subtitle:
-                    'Direct libusb isochronous USB engine. Best paired with Bit-perfect (USB DAC) for verified external DAC playback.',
-                selected: current == AudioEnginePreference.isochronousUsb,
-                onTap: () async {
-                  final changed =
-                      current != AudioEnginePreference.isochronousUsb;
-                  await service.setAudioEnginePreference(
-                    AudioEnginePreference.isochronousUsb,
-                  );
-                  ref.invalidate(audioEnginePreferenceProvider);
-                  if (dialogContext.mounted) {
-                    Navigator.of(dialogContext).pop();
-                  }
-                  if (changed && context.mounted) {
-                    _showRestartRequiredToast(context);
-                  }
-                },
+                subtitle: dapBothOff
+                    ? 'Unavailable until Bit-perfect (USB DAC) or Bit-perfect (DAP Internal) is enabled.'
+                    : 'Direct libusb isochronous USB engine. Best paired with Bit-perfect (USB DAC) for verified external DAC playback.',
+                selected: effective == AudioEnginePreference.isochronousUsb,
+                enabled: !dapBothOff,
+                badgeText: dapBothOff ? 'Locked' : null,
+                onTap: dapBothOff
+                    ? null
+                    : () async {
+                        final changed =
+                            current != AudioEnginePreference.isochronousUsb;
+                        await service.setAudioEnginePreference(
+                          AudioEnginePreference.isochronousUsb,
+                        );
+                        ref.invalidate(audioEnginePreferenceProvider);
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
+                        }
+                        if (changed && context.mounted) {
+                          _showRestartRequiredToast(context);
+                        }
+                      },
               ),
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildEngineLockCallout(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppConstants.spacingMd),
+      decoration: BoxDecoration(
+        color: AppColors.accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+        border: Border.all(color: AppColors.accent.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            LucideIcons.lock,
+            color: AppColors.accent,
+            size: 18,
+          ),
+          const SizedBox(width: AppConstants.spacingSm),
+          Expanded(
+            child: Text(
+              'Both bit-perfect options are off on this DAP, so playback is locked to Rust via Oboe for non-bit-perfect output, DSP, and software volume.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: context.adaptiveTextSecondary,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -544,8 +608,11 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
     required String subtitle,
     required bool selected,
     bool enabled = true,
+    String? badgeText,
+    String? disabledText,
     VoidCallback? onTap,
   }) {
+    final chipText = badgeText ?? (!enabled ? disabledText : null);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -593,7 +660,7 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                                   ),
                             ),
                           ),
-                          if (!enabled)
+                          if (chipText != null)
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
@@ -606,7 +673,7 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                                 ),
                               ),
                               child: Text(
-                                'Coming soon',
+                                chipText,
                                 style: Theme.of(context).textTheme.labelSmall
                                     ?.copyWith(
                                       color: AppColors.accent,

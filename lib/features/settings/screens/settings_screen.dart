@@ -59,7 +59,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
   bool _showBatteryOptimizationNotice = false;
   bool _isXiaomiDevice = false;
 
-
   bool _isCheckingForUpdates = false;
   bool _isInstallingUpdate = false;
   bool _hasScannedForUpdates = false;
@@ -85,10 +84,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
       vsync: this,
     );
     _scanSettingsRotation = Tween<double>(begin: 0, end: 0.5).animate(
-      CurvedAnimation(
-        parent: _scanSettingsController,
-        curve: Curves.easeInOut,
-      ),
+      CurvedAnimation(parent: _scanSettingsController, curve: Curves.easeInOut),
     );
     _donationPulseController = AnimationController(
       duration: const Duration(milliseconds: 2000),
@@ -191,7 +187,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     final permissionService = PermissionService();
 
     try {
-      final launched = await permissionService.requestIgnoreBatteryOptimizations();
+      final launched = await permissionService
+          .requestIgnoreBatteryOptimizations();
       if (!mounted) {
         return;
       }
@@ -249,7 +246,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
 
       final hasUpdate =
           info.updateAvailability == UpdateAvailability.updateAvailable;
-      final inProgress = info.updateAvailability ==
+      final inProgress =
+          info.updateAvailability ==
           UpdateAvailability.developerTriggeredUpdateInProgress;
 
       setState(() {
@@ -277,9 +275,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         _updateCheckErrorMessage =
             'In-app updates only work when installed from the Play Store.';
       });
-      _showToast(
-        'In-app updates require the Play Store version of the app.',
-      );
+      _showToast('In-app updates require the Play Store version of the app.');
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -804,7 +800,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
           ),
           const SizedBox(height: 4),
           const Text(
-            'Version 0.12.0-beta.2',
+            'Version 0.13.0-beta.2',
             style: TextStyle(
               fontFamily: 'ProductSans',
               fontSize: 14,
@@ -865,10 +861,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
         mode: LaunchMode.externalApplication,
       );
       if (!launched) {
-        launched = await launchUrl(
-          uri,
-          mode: LaunchMode.platformDefault,
-        );
+        launched = await launchUrl(uri, mode: LaunchMode.platformDefault);
       }
       if (!launched && mounted) {
         _showToast('Could not open the link');
@@ -1118,8 +1111,7 @@ SOFTWARE.
                             subtitle: _isCheckingForUpdates
                                 ? 'Checking for the latest update now'
                                 : 'Check manually whenever you want',
-                            onTap: _isCheckingForUpdates ||
-                                    _isInstallingUpdate
+                            onTap: _isCheckingForUpdates || _isInstallingUpdate
                                 ? null
                                 : _scanForUpdates,
                           ),
@@ -1166,7 +1158,7 @@ SOFTWARE.
                             context,
                             icon: LucideIcons.info,
                             title: 'About Flick Player',
-                            subtitle: 'Version 0.12.0-beta.2',
+                            subtitle: 'Version 0.13.0-beta.2',
                             onTap: _showAboutBottomSheet,
                           ),
                           _buildDivider(),
@@ -1191,7 +1183,8 @@ SOFTWARE.
                             context,
                             border: Border.all(
                               color: AppColors.textPrimary.withValues(
-                                alpha: 0.25 + _donationPulseAnimation.value * 0.55,
+                                alpha:
+                                    0.25 + _donationPulseAnimation.value * 0.55,
                               ),
                               width: 1.0 + _donationPulseAnimation.value * 1.2,
                             ),
@@ -1289,7 +1282,9 @@ SOFTWARE.
                         height: context.scaleSize(AppConstants.containerSizeSm),
                         decoration: BoxDecoration(
                           color: AppColors.glassBackgroundStrong,
-                          borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusSm,
+                          ),
                         ),
                         child: Icon(
                           LucideIcons.batteryWarning,
@@ -1306,18 +1301,20 @@ SOFTWARE.
                               _isXiaomiDevice
                                   ? 'Disable Battery Optimization (Recommended)'
                                   : 'Disable Battery Optimization',
-                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                color: context.adaptiveTextPrimary,
-                              ),
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    color: context.adaptiveTextPrimary,
+                                  ),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               _isXiaomiDevice
                                   ? 'Required on many Xiaomi, Redmi, and POCO devices so rescans and background features keep working'
                                   : 'Allow Flick to run without aggressive background limits so rescans and background features keep working',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: context.adaptiveTextTertiary,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: context.adaptiveTextTertiary,
+                                  ),
                             ),
                           ],
                         ),
@@ -1927,7 +1924,9 @@ SOFTWARE.
                     height: context.scaleSize(AppConstants.containerSizeSm),
                     decoration: BoxDecoration(
                       color: AppColors.glassBackgroundStrong,
-                      borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusSm,
+                      ),
                     ),
                     child: Icon(
                       LucideIcons.settings2,
@@ -1942,16 +1941,14 @@ SOFTWARE.
                       children: [
                         Text(
                           'Scanning Settings',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: context.adaptiveTextPrimary,
-                          ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(color: context.adaptiveTextPrimary),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           'Filter files, size limits, and playlist import options',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: context.adaptiveTextTertiary,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: context.adaptiveTextTertiary),
                         ),
                       ],
                     ),
@@ -1978,7 +1975,8 @@ SOFTWARE.
                 context,
                 icon: LucideIcons.scanSearch,
                 title: 'Filter Non-Music Files & Folders',
-                subtitle: 'Skip unsupported files and hidden .nomedia directories',
+                subtitle:
+                    'Skip unsupported files and hidden .nomedia directories',
                 value: prefs.filterNonMusicFilesAndFolders,
                 onChanged: (value) {
                   ref

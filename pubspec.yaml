@@ -57,7 +57,7 @@ dependencies:
   rust_lib_flick_player:
     path: rust_builder
   shared_preferences: ^2.2.2
-  shorebird_code_push: ^2.0.5
+  in_app_update: ^4.2.0
   skeletonizer: ^2.1.2
   url_launcher: ^6.3.2
 
@@ -109,7 +109,7 @@ flutter:
     - assets/icons/svg/settings_white.svg
     - assets/icons/svg/shuffle_black.svg
     - assets/icons/svg/shuffle_white.svg
-    - shorebird.yaml
+
 
   fonts:
     - family: ProductSans

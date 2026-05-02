@@ -14,6 +14,8 @@
     <!-- Android 13+ media permission -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <!-- Camera permission for Flick Replay custom poster backgrounds -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <!-- Background playback permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />

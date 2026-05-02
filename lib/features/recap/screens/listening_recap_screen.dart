@@ -13,7 +13,9 @@ import 'package:flick/data/repositories/recently_played_repository.dart';
 import 'package:flick/services/gallery_save_service.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Wrapped-style listening recap with daily, weekly, monthly, and yearly views.
 class ListeningRecapScreen extends StatefulWidget {
@@ -27,14 +29,18 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
   final RecentlyPlayedRepository _recentlyPlayedRepository =
       RecentlyPlayedRepository();
   final GallerySaveService _gallerySaveService = GallerySaveService();
+  final ImagePicker _imagePicker = ImagePicker();
   final GlobalKey _cardBoundaryKey = GlobalKey();
   final GlobalKey _topSongsPosterBoundaryKey = GlobalKey();
   final GlobalKey _topArtistsPosterBoundaryKey = GlobalKey();
 
   ListeningRecapPeriod _selectedPeriod = ListeningRecapPeriod.daily;
+  _RecapPosterBackgroundMode _posterBackgroundMode =
+      _RecapPosterBackgroundMode.defaultArt;
   Map<ListeningRecapPeriod, ListeningRecap> _recaps = {};
   bool _isLoading = true;
   bool _isSaving = false;
+  String? _cameraBackgroundPath;
   _RecapRankingPosterType? _savingPosterType;
   _RecapRankingPosterType? _savedPosterType;
   StreamSubscription<void>? _historySubscription;
@@ -89,6 +95,75 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
           _selectedPeriod,
           _selectedPeriod.rangeFor(DateTime.now()),
         );
+  }
+
+  String? _recapAlbumArtPath(ListeningRecap recap) {
+    final path =
+        recap.topSong?.song.albumArt ??
+        recap.topAlbum?.representativeSong.albumArt;
+    return path == null || path.isEmpty ? null : path;
+  }
+
+  String? _posterBackgroundImagePath(ListeningRecap recap) {
+    return switch (_posterBackgroundMode) {
+      _RecapPosterBackgroundMode.defaultArt => null,
+      _RecapPosterBackgroundMode.albumArt => _recapAlbumArtPath(recap),
+      _RecapPosterBackgroundMode.cameraPhoto => _cameraBackgroundPath,
+    };
+  }
+
+  void _selectDefaultPosterBackground() {
+    setState(() {
+      _posterBackgroundMode = _RecapPosterBackgroundMode.defaultArt;
+    });
+  }
+
+  void _selectAlbumArtPosterBackground() {
+    final hasAlbumArt = _recapAlbumArtPath(_currentRecap()) != null;
+    if (!hasAlbumArt) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No album art is available yet.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _posterBackgroundMode = _RecapPosterBackgroundMode.albumArt;
+    });
+  }
+
+  Future<void> _takePosterBackgroundPhoto() async {
+    final status = await Permission.camera.request();
+    if (!mounted) return;
+
+    if (!status.isGranted) {
+      final canOpenSettings = status.isPermanentlyDenied || status.isRestricted;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            canOpenSettings
+                ? 'Camera permission is disabled. Enable it in settings to take a poster background photo.'
+                : 'Camera permission is needed to take a poster background photo.',
+          ),
+          action: canOpenSettings
+              ? SnackBarAction(label: 'Settings', onPressed: openAppSettings)
+              : null,
+        ),
+      );
+      return;
+    }
+
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 88,
+      maxWidth: 1800,
+    );
+    if (!mounted || image == null) return;
+
+    setState(() {
+      _cameraBackgroundPath = image.path;
+      _posterBackgroundMode = _RecapPosterBackgroundMode.cameraPhoto;
+    });
   }
 
   Future<void> _saveCurrentRecap() async {
@@ -203,6 +278,19 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                   _buildHeader(context),
                   _buildPeriodPicker(context),
                   const SizedBox(height: AppConstants.spacingSm),
+                  if (!recap.hasData)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                        bottom: AppConstants.spacingMd,
+                      ),
+                      child: Text(
+                        recap.period.emptyMessage,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: context.adaptiveTextSecondary,
+                        ),
+                      ),
+                    ),
                   Expanded(
                     child: _isLoading && _recaps.isEmpty
                         ? _buildLoadingState(context)
@@ -236,6 +324,12 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                             key: _cardBoundaryKey,
                                             child: _ListeningRecapHeroCard(
                                               recap: recap,
+                                              backgroundMode:
+                                                  _posterBackgroundMode,
+                                              backgroundImagePath:
+                                                  _posterBackgroundImagePath(
+                                                    recap,
+                                                  ),
                                               frameSize: _RecapPosterDimensions
                                                   .referenceSize,
                                             ),
@@ -246,7 +340,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                     const SizedBox(
                                       height: AppConstants.spacingMd,
                                     ),
-                                    _buildActionRow(),
+                                    _buildActionRow(recap),
                                     const SizedBox(
                                       height: AppConstants.spacingLg,
                                     ),
@@ -260,6 +354,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                         title: 'Top Songs',
                                         subtitle:
                                             'The tracks that defined this ${recap.period.label.toLowerCase()}',
+                                        type: _RecapRankingPosterType.topSongs,
                                         actionLabel: 'Download Poster',
                                         onActionTap: recap.topSongs.isEmpty
                                             ? null
@@ -267,20 +362,43 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                                 _RecapRankingPosterType
                                                     .topSongs,
                                               ),
-                                        isSaving: _savingPosterType ==
+                                        isSaving:
+                                            _savingPosterType ==
                                             _RecapRankingPosterType.topSongs,
-                                        isSuccess: _savedPosterType ==
+                                        isSuccess:
+                                            _savedPosterType ==
                                             _RecapRankingPosterType.topSongs,
                                         children: [
-                                          for (
-                                            var index = 0;
-                                            index < recap.topSongs.length;
-                                            index++
-                                          )
-                                            _RankingTile.song(
-                                              rank: index + 1,
-                                              item: recap.topSongs[index],
+                                          if (recap.topSongs.isNotEmpty)
+                                            _RankingHeroTile.song(
+                                              item: recap.topSongs.first,
+                                              accent: _RecapRankingPosterType
+                                                  .topSongs
+                                                  .accent,
                                             ),
+                                          if (recap.topSongs.length > 1) ...[
+                                            const SizedBox(
+                                              height: AppConstants.spacingMd,
+                                            ),
+                                            for (
+                                              var index = 1;
+                                              index <
+                                                  math.min(
+                                                    recap.topSongs.length,
+                                                    5,
+                                                  );
+                                              index++
+                                            )
+                                              _RankingTile.song(
+                                                rank: index + 1,
+                                                item: recap.topSongs[index],
+                                                maxPlays:
+                                                    recap.topSongs.first.plays,
+                                                accent: _RecapRankingPosterType
+                                                    .topSongs
+                                                    .accent,
+                                              ),
+                                          ],
                                         ],
                                       ),
                                       const SizedBox(
@@ -291,6 +409,8 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                         title: 'Top Artists',
                                         subtitle:
                                             'Your most replayed voices and projects',
+                                        type:
+                                            _RecapRankingPosterType.topArtists,
                                         actionLabel: 'Download Poster',
                                         onActionTap: recap.topArtists.isEmpty
                                             ? null
@@ -298,20 +418,45 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
                                                 _RecapRankingPosterType
                                                     .topArtists,
                                               ),
-                                        isSaving: _savingPosterType ==
+                                        isSaving:
+                                            _savingPosterType ==
                                             _RecapRankingPosterType.topArtists,
-                                        isSuccess: _savedPosterType ==
+                                        isSuccess:
+                                            _savedPosterType ==
                                             _RecapRankingPosterType.topArtists,
                                         children: [
-                                          for (
-                                            var index = 0;
-                                            index < recap.topArtists.length;
-                                            index++
-                                          )
-                                            _RankingTile.artist(
-                                              rank: index + 1,
-                                              item: recap.topArtists[index],
+                                          if (recap.topArtists.isNotEmpty)
+                                            _RankingHeroTile.artist(
+                                              item: recap.topArtists.first,
+                                              accent: _RecapRankingPosterType
+                                                  .topArtists
+                                                  .accent,
                                             ),
+                                          if (recap.topArtists.length > 1) ...[
+                                            const SizedBox(
+                                              height: AppConstants.spacingMd,
+                                            ),
+                                            for (
+                                              var index = 1;
+                                              index <
+                                                  math.min(
+                                                    recap.topArtists.length,
+                                                    5,
+                                                  );
+                                              index++
+                                            )
+                                              _RankingTile.artist(
+                                                rank: index + 1,
+                                                item: recap.topArtists[index],
+                                                maxPlays: recap
+                                                    .topArtists
+                                                    .first
+                                                    .plays,
+                                                accent: _RecapRankingPosterType
+                                                    .topArtists
+                                                    .accent,
+                                              ),
+                                          ],
                                         ],
                                       ),
                                     ] else
@@ -450,12 +595,26 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
     );
   }
 
-  Widget _buildActionRow() {
-    return _RecapActionButton(
-      icon: Icons.download_rounded,
-      label: _isSaving ? 'Saving...' : 'Save to Gallery',
-      isPrimary: true,
-      onTap: _isSaving ? null : _saveCurrentRecap,
+  Widget _buildActionRow(ListeningRecap recap) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PosterBackgroundSelector(
+          mode: _posterBackgroundMode,
+          hasAlbumArt: _recapAlbumArtPath(recap) != null,
+          hasCameraPhoto: _cameraBackgroundPath != null,
+          onDefaultTap: _selectDefaultPosterBackground,
+          onAlbumArtTap: _selectAlbumArtPosterBackground,
+          onCameraTap: _takePosterBackgroundPhoto,
+        ),
+        const SizedBox(height: AppConstants.spacingSm),
+        _RecapActionButton(
+          icon: Icons.download_rounded,
+          label: _isSaving ? 'Saving...' : 'Save to Gallery',
+          isPrimary: true,
+          onTap: _isSaving ? null : _saveCurrentRecap,
+        ),
+      ],
     );
   }
 
@@ -507,60 +666,85 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
     required String title,
     required String subtitle,
     required List<Widget> children,
+    required _RecapRankingPosterType type,
     String? actionLabel,
     VoidCallback? onActionTap,
     bool isSaving = false,
     bool isSuccess = false,
   }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppConstants.spacingMd),
-      decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        border: Border.all(color: AppColors.glassBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: context.adaptiveTextPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.adaptiveTextTertiary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (actionLabel != null && onActionTap != null) ...[
-                const SizedBox(width: AppConstants.spacingSm),
-                _SectionPosterButton(
-                  label: actionLabel,
-                  onTap: onActionTap,
-                  isSaving: isSaving,
-                  isSuccess: isSuccess,
-                ),
-              ],
-            ],
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppConstants.radiusXl),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: type.gradientColors,
           ),
-          const SizedBox(height: AppConstants.spacingMd),
-          ...children,
-        ],
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              top: -60,
+              left: -30,
+              child: _GlowOrb(size: 180, colors: type.leadingOrbColors),
+            ),
+            Positioned(
+              bottom: -70,
+              right: -20,
+              child: _GlowOrb(size: 200, colors: type.trailingOrbColors),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(AppConstants.spacingLg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: -0.8,
+                                    color: Colors.white,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              subtitle,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (actionLabel != null && onActionTap != null) ...[
+                        const SizedBox(width: AppConstants.spacingSm),
+                        _SectionPosterButton(
+                          label: actionLabel,
+                          onTap: onActionTap,
+                          isSaving: isSaving,
+                          isSuccess: isSuccess,
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.spacingLg),
+                  ...children,
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -602,196 +786,333 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
   }
 }
 
-class _ListeningRecapHeroCard extends StatelessWidget {
-  final ListeningRecap recap;
-  final Size frameSize;
+enum _RecapPosterBackgroundMode { defaultArt, albumArt, cameraPhoto }
 
-  const _ListeningRecapHeroCard({required this.recap, required this.frameSize});
+extension _RecapPosterBackgroundModeX on _RecapPosterBackgroundMode {
+  String get label {
+    return switch (this) {
+      _RecapPosterBackgroundMode.defaultArt => 'Default',
+      _RecapPosterBackgroundMode.albumArt => 'Album Art',
+      _RecapPosterBackgroundMode.cameraPhoto => 'Camera',
+    };
+  }
+
+  IconData get icon {
+    return switch (this) {
+      _RecapPosterBackgroundMode.defaultArt => Icons.auto_awesome_rounded,
+      _RecapPosterBackgroundMode.albumArt => LucideIcons.disc,
+      _RecapPosterBackgroundMode.cameraPhoto => Icons.photo_camera_rounded,
+    };
+  }
+}
+
+class _PosterBackgroundSelector extends StatelessWidget {
+  final _RecapPosterBackgroundMode mode;
+  final bool hasAlbumArt;
+  final bool hasCameraPhoto;
+  final VoidCallback onDefaultTap;
+  final VoidCallback onAlbumArtTap;
+  final VoidCallback onCameraTap;
+
+  const _PosterBackgroundSelector({
+    required this.mode,
+    required this.hasAlbumArt,
+    required this.hasCameraPhoto,
+    required this.onDefaultTap,
+    required this.onAlbumArtTap,
+    required this.onCameraTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final card = ClipRRect(
-      borderRadius: BorderRadius.circular(28),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF08111D), Color(0xFF141925), Color(0xFF21161A)],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Poster background',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: context.adaptiveTextSecondary,
+            fontWeight: FontWeight.w700,
           ),
         ),
-        child: Stack(
+        const SizedBox(height: AppConstants.spacingSm),
+        Wrap(
+          spacing: AppConstants.spacingXs,
+          runSpacing: AppConstants.spacingXs,
           children: [
-            Positioned(
-              top: -80,
-              left: -20,
-              child: _GlowOrb(
-                size: 220,
-                colors: const [Color(0xFF5A9BFF), Color(0x005A9BFF)],
-              ),
+            _PosterBackgroundChoice(
+              mode: _RecapPosterBackgroundMode.defaultArt,
+              isSelected: mode == _RecapPosterBackgroundMode.defaultArt,
+              onTap: onDefaultTap,
             ),
-            Positioned(
-              bottom: -110,
-              right: -10,
-              child: _GlowOrb(
-                size: 260,
-                colors: const [Color(0xFFFFB35A), Color(0x00FFB35A)],
-              ),
+            _PosterBackgroundChoice(
+              mode: _RecapPosterBackgroundMode.albumArt,
+              isSelected: mode == _RecapPosterBackgroundMode.albumArt,
+              onTap: hasAlbumArt ? onAlbumArtTap : null,
             ),
-            Positioned(
-              top: 24,
-              right: 24,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppConstants.spacingSm,
-                  vertical: AppConstants.spacingXs,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(AppConstants.radiusRound),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.16),
-                  ),
-                ),
-                child: Text(
-                  recap.period.label.toUpperCase(),
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    letterSpacing: 1.4,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white.withValues(alpha: 0.9),
-                  ),
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(AppConstants.spacingLg),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppConstants.spacingSm,
-                      vertical: AppConstants.spacingXs,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.radiusRound,
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.14),
-                      ),
-                    ),
-                    child: Text(
-                      'Flick Replay',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.92),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: AppConstants.spacingLg),
-                  Text(
-                    _heroHeadline(recap),
-                    style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      height: 0.92,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      fontSize: 38,
-                    ),
-                  ),
-                  const SizedBox(height: AppConstants.spacingSm),
-                  Text(
-                    _heroHeadlineCaption(recap),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      height: 1.35,
-                      color: Colors.white.withValues(alpha: 0.82),
-                    ),
-                  ),
-                  const SizedBox(height: AppConstants.spacingSm),
-                  Text(
-                    _formatRecapRange(recap),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.72),
-                    ),
-                  ),
-                  const Spacer(),
-                  Align(
-                    child: _HeroAlbumArt(
-                      imagePath:
-                          recap.topSong?.song.albumArt ??
-                          recap.topAlbum?.representativeSong.albumArt,
-                    ),
-                  ),
-                  const SizedBox(height: AppConstants.spacingMd),
-                  if (recap.topSong != null) ...[
-                    Text(
-                      recap.topSong!.song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      recap.topSong!.song.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.7),
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingSm),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: AppConstants.spacingXs,
-                      runSpacing: AppConstants.spacingXs,
-                      children: [
-                        _PosterStatChip(
-                          label:
-                              'Top song · ${_formatPlayCount(recap.topSong!.plays)}',
-                        ),
-                      ],
-                    ),
-                  ] else ...[
-                    Text(
-                      'No plays yet',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      recap.period.emptyMessage,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: AppConstants.spacingLg),
-                  _RecapMetricGrid(recap: recap),
-                  const SizedBox(height: AppConstants.spacingMd),
-                  Text(
-                    _heroClosingLine(recap),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      height: 1.45,
-                      color: Colors.white.withValues(alpha: 0.84),
-                    ),
-                  ),
-                ],
-              ),
+            _PosterBackgroundChoice(
+              mode: _RecapPosterBackgroundMode.cameraPhoto,
+              isSelected: mode == _RecapPosterBackgroundMode.cameraPhoto,
+              label: hasCameraPhoto ? 'Retake' : null,
+              onTap: onCameraTap,
             ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _PosterBackgroundChoice extends StatelessWidget {
+  final _RecapPosterBackgroundMode mode;
+  final bool isSelected;
+  final String? label;
+  final VoidCallback? onTap;
+
+  const _PosterBackgroundChoice({
+    required this.mode,
+    required this.isSelected,
+    required this.onTap,
+    this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isEnabled = onTap != null;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppConstants.radiusRound),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.spacingSm,
+            vertical: AppConstants.spacingXs,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppConstants.radiusRound),
+            gradient: isSelected
+                ? const LinearGradient(
+                    colors: [Color(0xFFF5F7FF), Color(0xFF9CC4FF)],
+                  )
+                : null,
+            color: isSelected ? null : Colors.white.withValues(alpha: 0.06),
+            border: Border.all(
+              color: isSelected
+                  ? Colors.white.withValues(alpha: 0.26)
+                  : Colors.white.withValues(alpha: 0.1),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                mode.icon,
+                size: 16,
+                color: isSelected
+                    ? AppColors.background
+                    : Colors.white.withValues(alpha: isEnabled ? 0.82 : 0.38),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label ?? mode.label,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: isSelected
+                      ? AppColors.background
+                      : Colors.white.withValues(alpha: isEnabled ? 0.88 : 0.42),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ListeningRecapHeroCard extends StatelessWidget {
+  final ListeningRecap recap;
+  final _RecapPosterBackgroundMode backgroundMode;
+  final String? backgroundImagePath;
+  final Size frameSize;
+
+  const _ListeningRecapHeroCard({
+    required this.recap,
+    required this.backgroundMode,
+    required this.backgroundImagePath,
+    required this.frameSize,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final topSong = recap.topSong;
+    final albumArtPath =
+        topSong?.song.albumArt ?? recap.topAlbum?.representativeSong.albumArt;
+
+    final card = ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: Stack(
+        children: [
+          const Positioned.fill(child: _PosterDefaultBackground()),
+          if (backgroundImagePath != null)
+            Positioned.fill(
+              child: _PosterImageBackground(
+                imagePath: backgroundImagePath!,
+                blurSigma: backgroundMode == _RecapPosterBackgroundMode.albumArt
+                    ? 24
+                    : 8,
+              ),
+            ),
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.14),
+                    Colors.black.withValues(alpha: 0.34),
+                    Colors.black.withValues(alpha: 0.72),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 30,
+            left: 26,
+            child: Text(
+              'Flick\nReplay',
+              style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                height: 0.82,
+                letterSpacing: -2.8,
+                fontWeight: FontWeight.w900,
+                color: Colors.white,
+                fontSize: 58,
+              ),
+            ),
+          ),
+          Positioned(
+            top: 36,
+            right: 24,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _PosterPill(label: recap.period.label.toUpperCase()),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: 150,
+                  child: Text(
+                    _formatRecapRange(recap),
+                    textAlign: TextAlign.right,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      height: 1.15,
+                      color: Colors.white.withValues(alpha: 0.78),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            top: 164,
+            left: 28,
+            child: _PosterTotalPlaysText(recap: recap),
+          ),
+          Positioned(
+            top: 186,
+            right: -22,
+            child: Transform.rotate(
+              angle: -0.08,
+              child: _PosterAlbumArtFeature(imagePath: albumArtPath),
+            ),
+          ),
+          Positioned(
+            top: 356,
+            left: 26,
+            right: 30,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'TOP SONG',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    letterSpacing: 2.2,
+                    fontWeight: FontWeight.w900,
+                    color: const Color(0xFF1ED760),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  topSong?.song.title ?? 'No plays yet',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    height: 0.96,
+                    letterSpacing: -1.2,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    fontSize: 36,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        topSong?.song.artist ?? recap.period.emptyMessage,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              height: 1.12,
+                              color: Colors.white.withValues(alpha: 0.76),
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.spacingMd),
+                    Text(
+                      topSong == null
+                          ? '0 plays'
+                          : _formatPlayCount(topSong.plays),
+                      textAlign: TextAlign.right,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 26,
+            right: 26,
+            bottom: 92,
+            child: _PosterMetricStrip(recap: recap),
+          ),
+          Positioned(
+            left: 26,
+            right: 26,
+            bottom: 28,
+            child: Text(
+              _heroClosingLine(recap),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                height: 1.25,
+                color: Colors.white.withValues(alpha: 0.78),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
       ),
     );
 
@@ -882,10 +1203,55 @@ class _RecapRankingPosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasItems = switch (type) {
-      _RecapRankingPosterType.topSongs => recap.topSongs.isNotEmpty,
-      _RecapRankingPosterType.topArtists => recap.topArtists.isNotEmpty,
-    };
+    final Widget? leadWidget;
+    final List<Widget> remainingRows;
+
+    switch (type) {
+      case _RecapRankingPosterType.topSongs:
+        final songs = recap.topSongs.take(5).toList();
+        if (songs.isEmpty) {
+          leadWidget = null;
+          remainingRows = const [];
+        } else {
+          leadWidget = _RankingHeroTile.song(
+            item: songs.first,
+            accent: type.accent,
+          );
+          final maxPlays = songs.first.plays;
+          remainingRows = [
+            for (var i = 1; i < songs.length; i++)
+              _RankingTile.song(
+                rank: i + 1,
+                item: songs[i],
+                maxPlays: maxPlays,
+                accent: type.accent,
+              ),
+          ];
+        }
+        break;
+      case _RecapRankingPosterType.topArtists:
+        final artists = recap.topArtists.take(5).toList();
+        if (artists.isEmpty) {
+          leadWidget = null;
+          remainingRows = const [];
+        } else {
+          leadWidget = _RankingHeroTile.artist(
+            item: artists.first,
+            accent: type.accent,
+          );
+          final maxPlays = artists.first.plays;
+          remainingRows = [
+            for (var i = 1; i < artists.length; i++)
+              _RankingTile.artist(
+                rank: i + 1,
+                item: artists[i],
+                maxPlays: maxPlays,
+                accent: type.accent,
+              ),
+          ];
+        }
+        break;
+    }
 
     return SizedBox(
       width: frameSize?.width ?? _RecapPosterDimensions.referenceWidth,
@@ -903,246 +1269,130 @@ class _RecapRankingPosterCard extends StatelessWidget {
           child: Stack(
             children: [
               Positioned(
-                top: -80,
-                left: -20,
-                child: _GlowOrb(size: 220, colors: type.leadingOrbColors),
+                top: -96,
+                left: -42,
+                child: _GlowOrb(size: 270, colors: type.leadingOrbColors),
               ),
               Positioned(
-                bottom: -110,
-                right: -10,
-                child: _GlowOrb(size: 260, colors: type.trailingOrbColors),
+                top: 154,
+                right: -124,
+                child: _GlowOrb(size: 300, colors: type.trailingOrbColors),
               ),
               Positioned(
-                top: 24,
-                right: 24,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppConstants.spacingSm,
-                    vertical: AppConstants.spacingXs,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(
-                      AppConstants.radiusRound,
-                    ),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.16),
-                    ),
-                  ),
-                  child: Text(
-                    recap.period.label.toUpperCase(),
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      letterSpacing: 1.4,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white.withValues(alpha: 0.9),
+                bottom: -128,
+                left: 22,
+                child: _GlowOrb(
+                  size: 300,
+                  colors: const [Color(0xFF1ED760), Color(0x001ED760)],
+                ),
+              ),
+              Positioned(
+                top: 102,
+                left: -116,
+                child: Transform.rotate(
+                  angle: -0.3,
+                  child: Container(
+                    width: 630,
+                    height: 70,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.white.withValues(alpha: 0.1),
+                          Colors.white.withValues(alpha: 0.02),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(
+                        AppConstants.radiusRound,
+                      ),
                     ),
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(AppConstants.spacingLg),
+              Positioned(
+                top: 30,
+                left: 26,
+                child: Text(
+                  'Flick\nReplay',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    height: 0.86,
+                    letterSpacing: -1.6,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    fontSize: 34,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 36,
+                right: 24,
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppConstants.spacingSm,
-                        vertical: AppConstants.spacingXs,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(
-                          AppConstants.radiusRound,
-                        ),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.14),
-                        ),
-                      ),
+                    _PosterPill(label: recap.period.label.toUpperCase()),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: 150,
                       child: Text(
-                        'Flick Replay',
-                        style: Theme.of(context).textTheme.labelMedium
-                            ?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingLg),
-                    Text(
-                      type.title,
-                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        height: 0.92,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        fontSize: 34,
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingSm),
-                    Text(
-                      _formatRecapRange(recap),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.72),
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingLg),
-                    if (hasItems)
-                      _buildLeadCard(context)
-                    else
-                      _buildEmptyState(context),
-                    const SizedBox(height: AppConstants.spacingMd),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Leaderboard',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                          ),
-                          const SizedBox(height: AppConstants.spacingSm),
-                          ..._buildRankingRows(context),
-                          const Spacer(),
-                        ],
+                        _formatRecapRange(recap),
+                        textAlign: TextAlign.right,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          height: 1.15,
+                          color: Colors.white.withValues(alpha: 0.76),
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
                 ),
               ),
+              Positioned(
+                top: 126,
+                left: 26,
+                child: Text(
+                  type.title.replaceFirst(' ', '\n'),
+                  style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                    height: 0.78,
+                    letterSpacing: -4.8,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    fontSize: 86,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 152,
+                right: 22,
+                child: Text(
+                  '05',
+                  style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                    height: 0.8,
+                    letterSpacing: -6,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white.withValues(alpha: 0.12),
+                    fontSize: 132,
+                  ),
+                ),
+              ),
+              if (leadWidget != null) ...[
+                Positioned(top: 294, left: 26, right: 26, child: leadWidget),
+                Positioned(
+                  left: 26,
+                  right: 26,
+                  bottom: 34,
+                  child: Column(children: remainingRows),
+                ),
+              ] else
+                Positioned(
+                  left: 26,
+                  right: 26,
+                  bottom: 220,
+                  child: _buildEmptyState(context),
+                ),
             ],
           ),
         ),
       ),
     );
-  }
-
-  Widget _buildLeadCard(BuildContext context) {
-    switch (type) {
-      case _RecapRankingPosterType.topSongs:
-        final item = recap.topSong ?? recap.topSongs.first;
-        return Container(
-          padding: const EdgeInsets.all(AppConstants.spacingMd),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _PosterArtThumb(imagePath: item.song.albumArt, size: 86),
-              const SizedBox(width: AppConstants.spacingMd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '#1 SONG',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        letterSpacing: 1.2,
-                        fontWeight: FontWeight.w700,
-                        color: type.accent,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.song.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.song.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.76),
-                      ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingSm),
-                    Wrap(
-                      spacing: AppConstants.spacingXs,
-                      runSpacing: AppConstants.spacingXs,
-                      children: [
-                        _PosterStatChip(label: _formatPlayCount(item.plays)),
-                        _PosterStatChip(
-                          label: _formatCompactDuration(item.listeningTime),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      case _RecapRankingPosterType.topArtists:
-        final item = recap.topArtist ?? recap.topArtists.first;
-        return Container(
-          padding: const EdgeInsets.all(AppConstants.spacingMd),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _PosterArtistAvatar(
-                name: item.artist,
-                size: 86,
-                accent: type.accent,
-              ),
-              const SizedBox(width: AppConstants.spacingMd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '#1 ARTIST',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        letterSpacing: 1.2,
-                        fontWeight: FontWeight.w700,
-                        color: type.accent,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      item.artist,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(height: AppConstants.spacingSm),
-                    Wrap(
-                      spacing: AppConstants.spacingXs,
-                      runSpacing: AppConstants.spacingXs,
-                      children: [
-                        _PosterStatChip(label: _formatPlayCount(item.plays)),
-                        _PosterStatChip(label: '${item.uniqueSongs} songs'),
-                        _PosterStatChip(
-                          label: _formatCompactDuration(item.listeningTime),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-    }
   }
 
   Widget _buildEmptyState(BuildContext context) {
@@ -1174,69 +1424,6 @@ class _RecapRankingPosterCard extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  List<Widget> _buildRankingRows(BuildContext context) {
-    final rows = <Widget>[];
-
-    switch (type) {
-      case _RecapRankingPosterType.topSongs:
-        final items = recap.topSongs.skip(1).take(4).toList();
-        if (items.isEmpty) {
-          return rows;
-        }
-
-        for (var index = 0; index < items.length; index++) {
-          if (index > 0) {
-            rows.add(const SizedBox(height: AppConstants.spacingSm));
-          }
-
-          final item = items[index];
-          rows.add(
-            _PosterRankingRow(
-              rank: index + 2,
-              title: item.song.title,
-              subtitle: item.song.artist,
-              trailing: _formatPlayCount(item.plays),
-              leading: _PosterArtThumb(
-                imagePath: item.song.albumArt,
-                size: 46,
-                borderRadius: 14,
-              ),
-            ),
-          );
-        }
-      case _RecapRankingPosterType.topArtists:
-        final items = recap.topArtists.skip(1).take(4).toList();
-        if (items.isEmpty) {
-          return rows;
-        }
-
-        for (var index = 0; index < items.length; index++) {
-          if (index > 0) {
-            rows.add(const SizedBox(height: AppConstants.spacingSm));
-          }
-
-          final item = items[index];
-          rows.add(
-            _PosterRankingRow(
-              rank: index + 2,
-              title: item.artist,
-              subtitle:
-                  '${item.uniqueSongs} songs · ${_formatCompactDuration(item.listeningTime)}',
-              trailing: _formatPlayCount(item.plays),
-              leading: _PosterArtistAvatar(
-                name: item.artist,
-                size: 46,
-                accent: type.accent,
-                fontSize: 16,
-              ),
-            ),
-          );
-        }
-    }
-
-    return rows;
   }
 }
 
@@ -1331,6 +1518,230 @@ class _RecapBackdrop extends StatelessWidget {
   }
 }
 
+class _PosterDefaultBackground extends StatelessWidget {
+  const _PosterDefaultBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF06101E), Color(0xFF161B2B), Color(0xFF28131D)],
+        ),
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -96,
+            left: -42,
+            child: _GlowOrb(
+              size: 270,
+              colors: const [Color(0xFF4A96FF), Color(0x004A96FF)],
+            ),
+          ),
+          Positioned(
+            top: 170,
+            right: -110,
+            child: _GlowOrb(
+              size: 280,
+              colors: const [Color(0xFFE16BFF), Color(0x00E16BFF)],
+            ),
+          ),
+          Positioned(
+            bottom: -130,
+            left: 40,
+            child: _GlowOrb(
+              size: 320,
+              colors: const [Color(0xFFFFB35A), Color(0x00FFB35A)],
+            ),
+          ),
+          Positioned(
+            top: 86,
+            left: -120,
+            child: Transform.rotate(
+              angle: -0.34,
+              child: Container(
+                width: 620,
+                height: 76,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.white.withValues(alpha: 0.12),
+                      Colors.white.withValues(alpha: 0.02),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(AppConstants.radiusRound),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PosterImageBackground extends StatelessWidget {
+  final String imagePath;
+  final double blurSigma;
+
+  const _PosterImageBackground({
+    required this.imagePath,
+    required this.blurSigma,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ImageFiltered(
+          imageFilter: ui.ImageFilter.blur(
+            sigmaX: blurSigma,
+            sigmaY: blurSigma,
+          ),
+          child: Transform.scale(
+            scale: 1.12,
+            child: CachedImageWidget(
+              imagePath: imagePath,
+              fit: BoxFit.cover,
+              errorWidget: const _PosterDefaultBackground(),
+            ),
+          ),
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.26),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PosterPill extends StatelessWidget {
+  final String label;
+
+  const _PosterPill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.spacingSm,
+        vertical: AppConstants.spacingXs,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(AppConstants.radiusRound),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          letterSpacing: 1.2,
+          fontWeight: FontWeight.w800,
+          color: Colors.white.withValues(alpha: 0.9),
+        ),
+      ),
+    );
+  }
+}
+
+class _PosterTotalPlaysText extends StatelessWidget {
+  final ListeningRecap recap;
+
+  const _PosterTotalPlaysText({required this.recap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'TOTAL PLAYS',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            letterSpacing: 2,
+            fontWeight: FontWeight.w900,
+            color: Colors.white.withValues(alpha: 0.66),
+          ),
+        ),
+        Text(
+          '${recap.totalPlays}',
+          style: Theme.of(context).textTheme.displayLarge?.copyWith(
+            height: 0.78,
+            letterSpacing: -5,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+            fontSize: 96,
+          ),
+        ),
+        Text(
+          recap.hasData ? 'plays logged' : 'waiting for plays',
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.72),
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PosterAlbumArtFeature extends StatelessWidget {
+  final String? imagePath;
+
+  const _PosterAlbumArtFeature({required this.imagePath});
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 198.0;
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.36),
+              blurRadius: 34,
+              offset: const Offset(0, 24),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: imagePath == null || imagePath!.isEmpty
+              ? ColoredBox(
+                  color: Colors.white.withValues(alpha: 0.1),
+                  child: Icon(
+                    Icons.music_note_rounded,
+                    size: 62,
+                    color: Colors.white.withValues(alpha: 0.78),
+                  ),
+                )
+              : CachedImageWidget(
+                  imagePath: imagePath,
+                  fit: BoxFit.cover,
+                  errorWidget: ColoredBox(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    child: Icon(
+                      Icons.music_note_rounded,
+                      size: 62,
+                      color: Colors.white.withValues(alpha: 0.78),
+                    ),
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+}
+
 class _GlowOrb extends StatelessWidget {
   final double size;
   final List<Color> colors;
@@ -1350,72 +1761,14 @@ class _GlowOrb extends StatelessWidget {
   }
 }
 
-class _HeroAlbumArt extends StatelessWidget {
-  final String? imagePath;
-
-  const _HeroAlbumArt({required this.imagePath});
-
-  @override
-  Widget build(BuildContext context) {
-    const size = 144.0;
-
-    return Container(
-      width: size,
-      height: size,
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0x40FFFFFF), Color(0x08FFFFFF)],
-        ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.22),
-            blurRadius: 28,
-            offset: const Offset(0, 18),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: imagePath == null || imagePath!.isEmpty
-            ? Container(
-                color: Colors.white.withValues(alpha: 0.08),
-                child: Icon(
-                  Icons.music_note_rounded,
-                  size: 48,
-                  color: Colors.white.withValues(alpha: 0.76),
-                ),
-              )
-            : CachedImageWidget(
-                imagePath: imagePath,
-                fit: BoxFit.cover,
-                errorWidget: Container(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  child: Icon(
-                    Icons.music_note_rounded,
-                    size: 48,
-                    color: Colors.white.withValues(alpha: 0.76),
-                  ),
-                ),
-              ),
-      ),
-    );
-  }
-}
-
-class _RecapMetricGrid extends StatelessWidget {
+class _PosterMetricStrip extends StatelessWidget {
   final ListeningRecap recap;
 
-  const _RecapMetricGrid({required this.recap});
+  const _PosterMetricStrip({required this.recap});
 
   @override
   Widget build(BuildContext context) {
     final metrics = [
-      _MetricData(label: 'Total Plays', value: '${recap.totalPlays}'),
       _MetricData(
         label: 'Listen Time',
         value: _formatCompactDuration(recap.totalListeningTime),
@@ -1424,17 +1777,60 @@ class _RecapMetricGrid extends StatelessWidget {
       _MetricData(label: 'Peak Hour', value: _formatPeakHour(recap.peakHour)),
     ];
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: AppConstants.spacingSm,
-        mainAxisSpacing: AppConstants.spacingSm,
-        childAspectRatio: 1.6,
-      ),
-      itemCount: metrics.length,
-      itemBuilder: (context, index) => _RecapMetricTile(data: metrics[index]),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (var index = 0; index < metrics.length; index++) ...[
+          if (index > 0) const SizedBox(width: AppConstants.spacingMd),
+          Expanded(child: _PosterTextMetric(data: metrics[index])),
+        ],
+      ],
+    );
+  }
+}
+
+class _PosterTextMetric extends StatelessWidget {
+  final _MetricData data;
+
+  const _PosterTextMetric({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          data.value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            height: 0.95,
+            fontWeight: FontWeight.w900,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          height: 2,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1ED760),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          data.label.toUpperCase(),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            height: 1.05,
+            letterSpacing: 1,
+            fontWeight: FontWeight.w800,
+            color: Colors.white.withValues(alpha: 0.66),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1444,46 +1840,6 @@ class _MetricData {
   final String value;
 
   const _MetricData({required this.label, required this.value});
-}
-
-class _RecapMetricTile extends StatelessWidget {
-  final _MetricData data;
-
-  const _RecapMetricTile({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppConstants.spacingSm),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            data.value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            data.label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.66),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _InsightCard extends StatelessWidget {
@@ -1576,24 +1932,165 @@ class _InsightCard extends StatelessWidget {
   }
 }
 
+/// Hero tile for the #1 ranked item, styled as a prominent featured card.
+class _RankingHeroTile extends StatelessWidget {
+  final String label;
+  final String title;
+  final String artist;
+  final String plays;
+  final String duration;
+  final String? imagePath;
+  final bool isArtist;
+  final Color accent;
+
+  const _RankingHeroTile({
+    required this.label,
+    required this.title,
+    required this.artist,
+    required this.plays,
+    required this.duration,
+    required this.accent,
+    this.imagePath,
+    this.isArtist = false,
+  });
+
+  factory _RankingHeroTile.song({
+    required RankedRecapSong item,
+    required Color accent,
+  }) {
+    return _RankingHeroTile(
+      label: '#1 SONG',
+      title: item.song.title,
+      artist: item.song.artist,
+      plays: _formatPlayCount(item.plays),
+      duration: _formatCompactDuration(item.listeningTime),
+      imagePath: item.song.albumArt,
+      accent: accent,
+    );
+  }
+
+  factory _RankingHeroTile.artist({
+    required RankedRecapArtist item,
+    required Color accent,
+  }) {
+    return _RankingHeroTile(
+      label: '#1 ARTIST',
+      title: item.artist,
+      artist: '${item.uniqueSongs} songs',
+      plays: _formatPlayCount(item.plays),
+      duration: _formatCompactDuration(item.listeningTime),
+      accent: accent,
+      isArtist: true,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.spacingSm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Transform.rotate(
+            angle: isArtist ? 0 : -0.06,
+            child: isArtist
+                ? _PosterArtistAvatar(name: title, size: 96, accent: accent)
+                : _PosterArtThumb(imagePath: imagePath, size: 96),
+          ),
+          const SizedBox(width: AppConstants.spacingMd),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    letterSpacing: 2,
+                    fontWeight: FontWeight.w900,
+                    color: accent,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    height: 0.98,
+                    letterSpacing: -0.9,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  artist,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.72),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: AppConstants.spacingSm),
+                Row(
+                  children: [
+                    Text(
+                      plays,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        height: 0.9,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.spacingSm),
+                    Text(
+                      duration,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.64),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tile for ranked items #2-#5 with a progress bar showing relative plays.
 class _RankingTile extends StatelessWidget {
   final int rank;
   final String title;
   final String subtitle;
   final String trailing;
   final String? imagePath;
+  final bool isArtist;
+  final int plays;
+  final int maxPlays;
+  final Color accent;
 
   const _RankingTile({
     required this.rank,
     required this.title,
     required this.subtitle,
     required this.trailing,
+    required this.plays,
+    required this.maxPlays,
+    required this.accent,
     this.imagePath,
+    this.isArtist = false,
   });
 
   factory _RankingTile.song({
     required int rank,
     required RankedRecapSong item,
+    required int maxPlays,
+    required Color accent,
   }) {
     return _RankingTile(
       rank: rank,
@@ -1602,12 +2099,17 @@ class _RankingTile extends StatelessWidget {
           '${item.song.artist} · ${_formatCompactDuration(item.listeningTime)}',
       trailing: _formatPlayCount(item.plays),
       imagePath: item.song.albumArt,
+      plays: item.plays,
+      maxPlays: maxPlays,
+      accent: accent,
     );
   }
 
   factory _RankingTile.artist({
     required int rank,
     required RankedRecapArtist item,
+    required int maxPlays,
+    required Color accent,
   }) {
     return _RankingTile(
       rank: rank,
@@ -1615,90 +2117,102 @@ class _RankingTile extends StatelessWidget {
       subtitle:
           '${item.uniqueSongs} songs · ${_formatCompactDuration(item.listeningTime)}',
       trailing: _formatPlayCount(item.plays),
+      plays: item.plays,
+      maxPlays: maxPlays,
+      accent: accent,
+      isArtist: true,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final progress = maxPlays > 0 ? (plays / maxPlays).clamp(0.0, 1.0) : 0.0;
+
     return Padding(
-      padding: EdgeInsets.only(bottom: rank == 5 ? 0 : AppConstants.spacingSm),
-      child: Container(
-        padding: const EdgeInsets.all(AppConstants.spacingSm),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.04),
-          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 34,
-              height: 34,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.08),
+      padding: EdgeInsets.only(bottom: rank == 5 ? 0 : AppConstants.spacingMd),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 38,
+                child: Text(
+                  '$rank',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    height: 0.9,
+                    letterSpacing: -1,
+                    fontWeight: FontWeight.w900,
+                    color: accent,
+                  ),
+                ),
               ),
-              alignment: Alignment.center,
-              child: Text(
-                '$rank',
+              const SizedBox(width: AppConstants.spacingSm),
+              if (isArtist)
+                _PosterArtistAvatar(
+                  name: title,
+                  size: 46,
+                  accent: accent,
+                  fontSize: 17,
+                )
+              else
+                _PosterArtThumb(
+                  imagePath: imagePath,
+                  size: 46,
+                  borderRadius: 13,
+                ),
+              const SizedBox(width: AppConstants.spacingSm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        height: 1.05,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.58),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppConstants.spacingSm),
+              Text(
+                trailing,
                 style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: context.adaptiveTextPrimary,
-                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: SizedBox(
+              height: 3,
+              child: LinearProgressIndicator(
+                value: progress,
+                backgroundColor: Colors.white.withValues(alpha: 0.07),
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  accent.withValues(alpha: 0.82),
                 ),
               ),
             ),
-            const SizedBox(width: AppConstants.spacingSm),
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: imagePath == null || imagePath!.isEmpty
-                  ? Icon(
-                      Icons.music_note_rounded,
-                      color: context.adaptiveTextSecondary,
-                    )
-                  : CachedImageWidget(imagePath: imagePath, fit: BoxFit.cover),
-            ),
-            const SizedBox(width: AppConstants.spacingSm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: context.adaptiveTextPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: context.adaptiveTextTertiary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: AppConstants.spacingSm),
-            Text(
-              trailing,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: context.adaptiveTextSecondary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1767,7 +2281,9 @@ class _SectionPosterButton extends StatelessWidget {
         height: 16,
         child: CircularProgressIndicator(
           strokeWidth: 2,
-          valueColor: AlwaysStoppedAnimation<Color>(Colors.white.withValues(alpha: 0.7)),
+          valueColor: AlwaysStoppedAnimation<Color>(
+            Colors.white.withValues(alpha: 0.7),
+          ),
         ),
       );
     }
@@ -1879,113 +2395,6 @@ class _PosterArtistAvatar extends StatelessWidget {
   }
 }
 
-class _PosterStatChip extends StatelessWidget {
-  final String label;
-
-  const _PosterStatChip({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppConstants.spacingSm,
-        vertical: AppConstants.spacingXs,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(AppConstants.radiusRound),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          color: Colors.white.withValues(alpha: 0.88),
-        ),
-      ),
-    );
-  }
-}
-
-class _PosterRankingRow extends StatelessWidget {
-  final int rank;
-  final String title;
-  final String subtitle;
-  final String trailing;
-  final Widget leading;
-
-  const _PosterRankingRow({
-    required this.rank,
-    required this.title,
-    required this.subtitle,
-    required this.trailing,
-    required this.leading,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppConstants.spacingSm),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 28,
-            child: Text(
-              '$rank',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          const SizedBox(width: AppConstants.spacingSm),
-          leading,
-          const SizedBox(width: AppConstants.spacingSm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.68),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppConstants.spacingSm),
-          Text(
-            trailing,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: Colors.white.withValues(alpha: 0.84),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _RecapActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -2081,22 +2490,6 @@ String _saveErrorMessage(Object error) {
     return error.message;
   }
   return 'Failed to save the recap image.';
-}
-
-String _heroHeadline(ListeningRecap recap) {
-  if (!recap.hasData) {
-    return '${recap.period.label}\nwaiting';
-  }
-
-  return '${recap.totalPlays} total\nplays';
-}
-
-String _heroHeadlineCaption(ListeningRecap recap) {
-  if (!recap.hasData) {
-    return 'Your ${recap.period.label.toLowerCase()} recap will appear here.';
-  }
-
-  return 'Across every song in this ${recap.period.label.toLowerCase()} period.';
 }
 
 String _heroClosingLine(ListeningRecap recap) {

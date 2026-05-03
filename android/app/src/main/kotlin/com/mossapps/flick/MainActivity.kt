@@ -64,7 +64,7 @@ class MainActivity: FlutterActivity() {
     private val EQUALIZER_CHANNEL = "com.mossapps.flick/equalizer"
     private val VISUALIZER_METHOD_CHANNEL = "com.mossapps.flick/visualizer"
     private val VISUALIZER_EVENT_CHANNEL = "com.mossapps.flick/visualizer_events"
-    private val LOCKER_PACKAGE = "com.ultraelectronica.locker"
+    private val LOCKER_PACKAGE = "com.mossapps.locker"
     private val LOCKER_RETURN_URI = "locker://return?source=flick"
     // private val CONVERTER_CHANNEL = "com.mossapps.flick/converter"
     private val REQUEST_OPEN_DOCUMENT_TREE = 1001

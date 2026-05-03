@@ -255,6 +255,8 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 - [X] Add device refresh button
 - [X] Add manual device selection option
 - [X] Show bit-perfect indicator
+- [-] ~~Pipeline info widget~~ — **REMOVED** (commit `d51b784`)
+- [-] ~~Transfer stats widget~~ — **REMOVED** (commit `d51b784`)
 
 ### 8.2 Status Indicators
 
@@ -264,6 +266,7 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 - [X] Show connection status
 - [X] Add error notifications
 - [X] Display device capabilities
+- [-] ~~Pipeline info widget exported API~~ — **REMOVED** from Rust `uac2_api.rs` (commit `f368367`)
 
 ### 8.3 User Preferences
 
@@ -435,4 +438,7 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 
 ---
 
-*Last Updated: 2026-03-22*
+*Last Updated: 2026-05-03*
+
+> **Note:** The UAC2 pipeline info and transfer stats widgets (and their associated Rust API methods) were removed in commits `d51b784`/`f368367`. The remaining UAC2 widgets in `lib/widgets/uac2/` are not currently imported by any active code and may be considered dead/deprecated. The core UAC2 engine (device discovery, descriptor parsing, isochronous transfers, hardware volume control) remains active in the Rust backend.
+

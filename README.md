@@ -5,13 +5,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/app_screenshots/Screenshot_20260503-123043.png" alt="Now Playing" width="30%">
-  <img src="docs/app_screenshots/Screenshot_20260503-123102.png" alt="Library" width="30%">
-  <img src="docs/app_screenshots/Screenshot_20260503-123111.png" alt="Equalizer" width="30%">
+  <img src="docs/app_screenshots/Screenshot_20260503-123043.png" alt="Now Playing" width="20%">
+  <img src="docs/app_screenshots/Screenshot_20260503-123102.png" alt="Library" width="20%">
+  <img src="docs/app_screenshots/Screenshot_20260503-123111.png" alt="Equalizer" width="20%">
   <br>
-  <img src="docs/app_screenshots/Screenshot_20260503-123119.png" alt="Settings" width="30%">
-  <img src="docs/app_screenshots/Screenshot_20260503-123621.png" alt="Recap" width="30%">
-  <img src="docs/app_screenshots/Screenshot_20260503-123639.png" alt="Visualizer" width="30%">
+  <img src="docs/app_screenshots/Screenshot_20260503-123119.png" alt="Settings" width="20%">
+  <img src="docs/app_screenshots/Screenshot_20260503-123621.png" alt="Recap" width="20%">
+  <img src="docs/app_screenshots/Screenshot_20260503-123639.png" alt="Visualizer" width="20%">
 </p>
 
 Flick Player is a high-performance music player application built with Flutter and Rust, designed primarily for audiophiles who demand bit-perfect audio playback through external DACs and amplifiers.

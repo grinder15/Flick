@@ -11,10 +11,10 @@ import 'package:flutter/services.dart';
 /// (Rust backend, non-Android, or no audio session).
 class VisualizerService {
   static const MethodChannel _methodChannel = MethodChannel(
-    'com.ultraelectronica.flick/visualizer',
+    'com.mossapps.flick/visualizer',
   );
   static const EventChannel _eventChannel = EventChannel(
-    'com.ultraelectronica.flick/visualizer_events',
+    'com.mossapps.flick/visualizer_events',
   );
 
   static const int _barCount = 48;

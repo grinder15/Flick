@@ -15,6 +15,7 @@ import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/widgets/navigation/flick_nav_bar.dart';
 import 'package:flick/providers/providers.dart';
+import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/models/song.dart';
 
@@ -38,7 +39,7 @@ class FlickPlayerApp extends StatelessWidget {
       title: 'Flick Player',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
-      home: const MainShell(),
+      home: const _RootRouter(),
     );
   }
 }
@@ -575,5 +576,20 @@ class _EmbeddedMiniPlayer extends ConsumerWidget {
         ),
       ),
     );
+  }
+}
+
+class _RootRouter extends ConsumerWidget {
+  const _RootRouter();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final onboardingComplete = ref.watch(onboardingCompletedProvider);
+
+    if (onboardingComplete) {
+      return const MainShell();
+    }
+
+    return const OnboardingScreen();
   }
 }

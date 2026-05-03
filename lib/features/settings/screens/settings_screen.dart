@@ -28,6 +28,7 @@ import 'package:flick/features/settings/screens/equalizer_screen.dart';
 import 'package:flick/features/settings/screens/uac2_settings_screen.dart';
 import 'package:flick/features/settings/screens/duplicate_cleaner_screen.dart';
 import 'package:flick/features/settings/widgets/lastfm_settings_tile.dart';
+import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/services/android_audio_device_service.dart';
 
 /// Settings screen matching the design language.
@@ -1168,6 +1169,23 @@ SOFTWARE.
                             title: 'Licenses',
                             subtitle: 'Open source licenses',
                             onTap: _showLicensesBottomSheet,
+                          ),
+                          _buildDivider(),
+                          _buildNavigationSetting(
+                            context,
+                            icon: LucideIcons.sparkles,
+                            title: 'View Onboarding',
+                            subtitle: 'Replay the tutorial and feature guide',
+                            onTap: () {
+                              ref
+                                  .read(onboardingCompletedProvider.notifier)
+                                  .reset();
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => const OnboardingScreen(),
+                                ),
+                              );
+                            },
                           ),
                         ],
                       ),

@@ -6,7 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 /// Saves generated images to the device gallery.
 class GallerySaveService {
   static const MethodChannel _channel = MethodChannel(
-    'com.ultraelectronica.flick/storage',
+    'com.mossapps.flick/storage',
   );
 
   Future<String> saveImage({

@@ -87,7 +87,7 @@ class AndroidAudioDeviceService {
       AndroidAudioDeviceService._();
 
   static const MethodChannel _channel = MethodChannel(
-    'com.ultraelectronica.flick/audio_device',
+    'com.mossapps.flick/audio_device',
   );
 
   final ValueNotifier<AndroidPlaybackDeviceInfo> deviceInfoNotifier =

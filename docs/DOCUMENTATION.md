@@ -4,7 +4,7 @@
 
 **Flick Player** is a modern, high-performance music player application designed for audiophiles and casual listeners alike. Primarily running on Android, it bridges the gap between a beautiful, fluid user interface and a robust, low-level audio processing engine with advanced equalizer and effects capabilities.
 
-The application leverages the power of **Flutter** for a responsive, animated frontend and **Rust** for a stable, efficient backend. Key features include a custom "Function Code" (Audio Engine) that handles playback independent of the OS media controls in some aspects, ensuring high-fidelity audio output, along with advanced EQ and FX processing capabilities. The engine supports multiple output paths including USB DAC bit-perfect playback, Android's internal high-resolution audio path (DAP), and standard Android audio output.
+The application leverages the power of **Flutter** for a responsive, animated frontend and **Rust** for a stable, efficient backend. Key features include a custom "Function Code" (Audio Engine) that handles playback independent of the OS media controls in some aspects, ensuring high-fidelity audio output, along with advanced EQ and FX processing capabilities. The engine supports multiple output paths including USB DAC bit-perfect playback, Android's internal high-resolution audio path (DAP), and standard Android audio output. Recent additions include an FFT-based audio visualizer, online album art import (MusicBrainz/iTunes/Deezer), content URI staging for SAF-based file access, delete song functionality, and Flick Replay listening recaps with poster generation.
 
 ### Digital Audio Player (DAP) Support
 
@@ -50,11 +50,11 @@ The core audio engine in `rust/src/audio/engine.rs` features a sophisticated arc
 
 The engine implements five distinct output strategies:
 
-1. **USB Direct (`UsbDirect`)**: Bit-perfect playback through external USB DACs using libusb isochronous transfers (requires UAC 2.0 feature)
+1. **USB Direct (`UsbDirect`)**: Bit-perfect playback through external USB DACs using libusb isochronous transfers (requires UAC 2.0 feature). The UAC2 pipeline info and transfer stats widgets have been removed from the UI, but the core engine remains.
 2. **DAP Native (`DapNative`)**: High-resolution audio through device's internal DAC using Oboe/AAudio in exclusive mode
 3. **Mixer Bit-Perfect (`MixerBitPerfect`)**: Android mixer path with bit-perfect format matching (Android 14+)
 4. **Mixer Matched (`MixerMatched`)**: Android mixer path with sample rate conversion when needed
-5. **Resampled Fallback (`ResampledFallback)**: Fallback path with resampling when exact format matching isn't possible
+5. **Resampled Fallback (`ResampledFallback`)**: Fallback path with resampling when exact format matching isn't possible
 
 Each strategy is selected based on device capabilities and current playback requirements, with runtime verification ensuring the selected path meets quality expectations. The engine supports multiple output paths including USB DAC bit-perfect playback, Android's internal high-resolution audio path (DAP), and standard Android audio output.
 
@@ -62,23 +62,30 @@ Each strategy is selected based on device capabilities and current playback requ
 
 The current roadmap includes:
 
-- DSD/DSF support
+- **DSD/DSF support**: Full engine-level native DSD/DSF decoding and playback (in progress)
 - MQA support
 - Poweramp-style EQ filters, including low-pass
-- Advanced audio controls such as balance, tempo, damp, filter, delays, size, and mix
 - Themes and broader UI customization options
-- Album art improvements
 - Lyric clickability and sync
-- Scrobble settings
 - Crossfade and fade controls
-- Resampler enhancements
 - Advanced audio tweaks
-- Visualizations
 - Android audio settings
 - Bluetooth audio settings
 - Internal Hi-Res audio settings
 - USB audio tweaks
 - Further performance optimizations
+
+### Recently Completed
+
+- **Audio Visualizer**: FFT-based 48-bar visualizer with real-time Android Visualizer API + simulated fallback (spring-physics smoothing, glow effects)
+- **Album Art Import**: Online album art search from MusicBrainz/Cover Art Archive, iTunes, and Deezer with score-based deduplication
+- **Delete Song**: Library removal and file deletion with SAF content URI awareness
+- **Content URI Staging**: Android SAF content URIs staged to local cache for reliable playback, with ALAC/AIFF/M4A to WAV conversion
+- **Flick Replay Recap**: Daily/weekly/monthly/yearly listening recaps with hero cards, ranking posters, custom backgrounds (album art / camera photo), and gallery export
+- **Rip Log Metadata**: EAC-style rip metadata (ripper, read mode, AccurateRip, CRCs) stored per track
+- **CUE Sheet Support**: Track start/end offset support for CUE sheet-based files
+- **In-App Updates**: Shorebird code push replaced with Google Play InAppUpdate API
+- **Hardware Volume Control**: Three-tier volume system with UAC2 Feature Unit SET_CUR, Rust engine f32 multiply, and Android system fallback
 
 ## Code "Functions" (Core Architecture)
 
@@ -103,14 +110,34 @@ Located in `rust/src/audio`, this is the heart of the application. It bypasses s
 - **Source Provider (`source.rs`)**: Manages the queue for **Gapless Playback**, ensuring there are no awkward pauses between tracks by pre-loading the next song before the current one finishes.
 - **Dynamics Processing**: Includes compressor and limiter modules for dynamic range control when needed.
 - **Output Verification**: Continuously verifies that the actual output matches the requested format for bit-perfect playback assurance.
+- **PCM Conversion**: ALAC/AIFF/M4A files are automatically converted to WAV/PCM for compatibility.
 
-### 2. EQ Preset Management
+### 2. Album Art Import Service
+
+- **Album Art Import Service (`album_art_import_service.dart`)**: Searches for album art from online sources in cascade order: MusicBrainz/Cover Art Archive (primary), iTunes (fallback), Deezer (fallback). Uses score-based deduplication (by image URL, max 12 candidates), validates image headers (PNG/JPEG/WebP/GIF/BMP), saves to `album_art_overrides/` directory, and syncs to all songs in the same album. Supports custom artwork removal.
+
+### 3. EQ Preset Management
 
 - **EQ Preset File Service (`eq_preset_file_service.dart`)**: Handles conversion of EQ presets between JSON and TXT formats for import/export functionality.
 - **EQ Preset Service (`eq_preset_service.dart`)**: Manages EQ preset operations including saving, loading, and organizing presets.
 - **Equalizer Service (`equalizer_service.dart`)**: Applies EQ and FX settings to the audio stream, integrating with both Rust engine and Android processing service.
 
-### 3. The Interface (Flutter)
+### 4. Audio Visualizer
+
+- **Visualizer Service (`visualizer_service.dart`)**: Bridges Android's native `Visualizer` API via MethodChannel/EventChannel. Attaches to an Android audio session and delivers FFT data as 48 normalized bar magnitudes with logarithmic frequency distribution.
+- **Audio Visualizer Widget (`audio_visualizer.dart`)**: 48-bar visualizer rendered via `CustomPainter` with spring-physics smoothing, glow effects (`MaskFilter.blur`), and two modes: real data (native FFT) and simulated (animated random bars seeded by song duration). Integrated into the full player screen with a toggle button.
+- **Full Player Screen**: Visualizer mode replaces album art with the AudioVisualizer widget when toggled.
+
+### 5. Flick Replay (Listening Recap)
+
+- **Recap Screen (`listening_recap_screen.dart`)**: Generates daily, weekly, monthly, and yearly listening recaps with hero cards (total plays, top song, listen time, active days, peak hour) and ranking posters (top 5 songs, top 5 artists). Supports three poster background modes: default gradient with glowing orbs, blurred album art, or user's camera photo. Recap images can be saved to the device gallery as PNG at 3x resolution.
+
+### 6. Content URI & Song Management
+
+- **Content URI Staging**: Android SAF content URIs are staged to a local cache directory (`cacheDir/playback_staging/`) via a Kotlin native method channel. Supports ALAC/AIFF/M4A files via WAV conversion for compatibility with the Rust decoder.
+- **Delete Song**: Songs can be removed from the library or deleted from disk. SAF content URIs (`content://`) are excluded from file deletion. Falls back to library-only removal on file deletion failure.
+
+### 7. The Interface (Flutter)
 
 The visual layer that interacts with the user:
 
@@ -120,9 +147,10 @@ The visual layer that interacts with the user:
   - **Theme Selection**: Implemented with adaptive theming based on album artwork colors, featuring glassmorphism design elements.
   - **Equalizer Screen**: Enhanced UI for managing presets with import/export functionality, renaming, and saving capabilities.
   - **Player Screen**: Immersive mode support with conditional rendering of UI elements and improved lyrics display with tooltip guidance and line-seeking capability.
-  - **Full Player Screen**: Optimized layout for various screen sizes with responsive design and high refresh rate support (90Hz/120Hz).
+  - **Full Player Screen**: Optimized layout for various screen sizes with responsive design, high refresh rate support (90Hz/120Hz), and audio visualizer toggle (replaces album art with real-time FFT bars).
+  - **Song Actions**: Bottom sheet with add to favorites/queue/playlist, set album art (via online import), view metadata, show in files, and delete (library only or with file removal).
 
-### 4. The Librarian (Scanner & Metadata)
+### 8. The Librarian (Scanner & Metadata)
 
 Located in `rust/src/api/scanner.rs` and utilizing `lofty`:
 

@@ -65,7 +65,7 @@ pub extern "system" fn JNI_OnLoad(_vm: JavaVM, _reserved: *mut c_void) -> jni::s
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeInitRustAndroidContext<
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeInitRustAndroidContext<
     'local,
 >(
     mut env: JNIEnv<'local>,
@@ -101,7 +101,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeInitRu
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeRegisterRustDirectUsbDevice(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeRegisterRustDirectUsbDevice(
     mut env: JNIEnv<'_>,
     _activity: JObject<'_>,
     fd: jint,
@@ -159,7 +159,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeRegist
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeRegisterRustDirectUsbDevice(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeRegisterRustDirectUsbDevice(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     _fd: jint,
@@ -175,7 +175,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeRegist
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbPlaybackFormat(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbPlaybackFormat(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     sample_rate: jint,
@@ -206,7 +206,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbPlaybackFormat(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbPlaybackFormat(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     _sample_rate: jint,
@@ -218,7 +218,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbLockEnabled(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbLockEnabled(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     enabled: jboolean,
@@ -234,7 +234,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeHasRustDirectUsbHardwareVolume(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeHasRustDirectUsbHardwareVolume(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jboolean {
@@ -247,7 +247,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeHasRus
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeHasRustDirectUsbHardwareVolume(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeHasRustDirectUsbHardwareVolume(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jboolean {
@@ -256,7 +256,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeHasRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareVolume(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeGetRustDirectUsbHardwareVolume(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jdouble {
@@ -265,7 +265,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareVolume(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeGetRustDirectUsbHardwareVolume(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jdouble {
@@ -274,7 +274,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareVolume(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbHardwareVolume(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     volume: jdouble,
@@ -293,7 +293,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareVolume(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbHardwareVolume(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     _volume: jdouble,
@@ -303,7 +303,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareMute(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeGetRustDirectUsbHardwareMute(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jint {
@@ -316,7 +316,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustDirectUsbHardwareMute(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeGetRustDirectUsbHardwareMute(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jint {
@@ -325,7 +325,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareMute(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbHardwareMute(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     muted: jboolean,
@@ -341,7 +341,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbHardwareMute(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbHardwareMute(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     _muted: jboolean,
@@ -351,7 +351,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeVerifyRustDirectUsbHardwareVolumeHealth(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeVerifyRustDirectUsbHardwareVolumeHealth(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jint {
@@ -364,7 +364,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeVerify
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeVerifyRustDirectUsbHardwareVolumeHealth(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeVerifyRustDirectUsbHardwareVolumeHealth(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jint {
@@ -373,7 +373,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeVerify
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRustDirectUsbLockEnabled(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectUsbLockEnabled(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     _enabled: jboolean,
@@ -383,7 +383,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeSetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustAudioDebugStateJson(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeGetRustAudioDebugStateJson(
     env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jstring {
@@ -402,7 +402,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRustAudioDebugStateJson(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeGetRustAudioDebugStateJson(
     env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jstring {
@@ -423,7 +423,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeGetRus
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeClearRustDirectUsbPlayback(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeClearRustDirectUsbPlayback(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jboolean {
@@ -433,7 +433,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeClearR
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeWaitRustDirectUsbSessionStopped(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeWaitRustDirectUsbSessionStopped(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     timeout_ms: jint,
@@ -445,7 +445,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeWaitRu
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeIsRustDirectUsbSessionActive(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeIsRustDirectUsbSessionActive(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jboolean {
@@ -454,7 +454,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeIsRust
 
 #[cfg(all(target_os = "android", feature = "uac2"))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeMarkRustDirectUsbFallback(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeMarkRustDirectUsbFallback(
     mut env: JNIEnv<'_>,
     _activity: JObject<'_>,
     reason: JString<'_>,
@@ -475,7 +475,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeMarkRu
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeMarkRustDirectUsbFallback(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeMarkRustDirectUsbFallback(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     _reason: JString<'_>,
@@ -485,7 +485,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeMarkRu
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeClearRustDirectUsbPlayback(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeClearRustDirectUsbPlayback(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jboolean {
@@ -494,7 +494,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeClearR
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeWaitRustDirectUsbSessionStopped(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeWaitRustDirectUsbSessionStopped(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
     _timeout_ms: jint,
@@ -504,7 +504,7 @@ pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeWaitRu
 
 #[cfg(all(target_os = "android", not(feature = "uac2")))]
 #[no_mangle]
-pub extern "system" fn Java_com_ultraelectronica_flick_MainActivity_nativeIsRustDirectUsbSessionActive(
+pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeIsRustDirectUsbSessionActive(
     _env: JNIEnv<'_>,
     _activity: JObject<'_>,
 ) -> jboolean {

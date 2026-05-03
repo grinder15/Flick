@@ -2,7 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flick/providers/equalizer_provider.dart';
 
 const MethodChannel _androidAudioProcessingChannel = MethodChannel(
-  'com.ultraelectronica.flick/equalizer',
+  'com.mossapps.flick/equalizer',
 );
 
 final AndroidJustAudioProcessingService androidJustAudioProcessingService =

@@ -1,4 +1,4 @@
-package com.ultraelectronica.flick
+package com.mossapps.flick
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -29,14 +29,14 @@ class MusicNotificationService : Service() {
     companion object {
         const val CHANNEL_ID = "flick_music_channel"
         const val NOTIFICATION_ID = 1001
-        const val ACTION_PLAY_PAUSE = "com.ultraelectronica.flick.PLAY_PAUSE"
-        const val ACTION_NEXT = "com.ultraelectronica.flick.NEXT"
-        const val ACTION_PREVIOUS = "com.ultraelectronica.flick.PREVIOUS"
-        const val ACTION_STOP = "com.ultraelectronica.flick.STOP"
-        const val ACTION_SHUFFLE = "com.ultraelectronica.flick.SHUFFLE"
-        const val ACTION_FAVORITE = "com.ultraelectronica.flick.FAVORITE"
+        const val ACTION_PLAY_PAUSE = "com.mossapps.flick.PLAY_PAUSE"
+        const val ACTION_NEXT = "com.mossapps.flick.NEXT"
+        const val ACTION_PREVIOUS = "com.mossapps.flick.PREVIOUS"
+        const val ACTION_STOP = "com.mossapps.flick.STOP"
+        const val ACTION_SHUFFLE = "com.mossapps.flick.SHUFFLE"
+        const val ACTION_FAVORITE = "com.mossapps.flick.FAVORITE"
 
-        private const val PLAYER_CHANNEL = "com.ultraelectronica.flick/player"
+        private const val PLAYER_CHANNEL = "com.mossapps.flick/player"
     }
 
     private lateinit var mediaSession: MediaSessionCompat
@@ -60,7 +60,6 @@ class MusicNotificationService : Service() {
                 ACTION_PLAY_PAUSE -> {
                     android.util.Log.d("MusicNotification", "Play/Pause tapped. Current isPlaying=$isPlaying")
                     sendCommandToFlutter("togglePlayPause")
-                    // Optimistic local update — flip immediately without waiting for Flutter
                     isPlaying = !isPlaying
                     val notification = buildNotification()
                     notificationManager.notify(NOTIFICATION_ID, notification)
@@ -149,7 +148,6 @@ class MusicNotificationService : Service() {
             if (it.hasExtra("albumArtPath")) currentAlbumArtPath = it.getStringExtra("albumArtPath")
             if (it.hasExtra("isPlaying")) isPlaying = it.getBooleanExtra("isPlaying", false)
             if (it.hasExtra("duration")) {
-                // Fix for deprecated Bundle.get() — use typed getters with fallback
                 currentDuration = it.getLongExtra("duration", -1L).takeIf { v -> v != -1L }
                     ?: it.getIntExtra("duration", 0).toLong()
             }
@@ -190,12 +188,10 @@ class MusicNotificationService : Service() {
         try {
             unregisterReceiver(actionReceiver)
         } catch (e: Exception) {
-            // Receiver was not registered
         }
         try {
             unregisterReceiver(noisyReceiver)
         } catch (e: Exception) {
-            // Receiver was not registered
         }
         mediaSession.release()
         isForegroundServiceStarted = false
@@ -236,9 +232,6 @@ class MusicNotificationService : Service() {
 
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "FlickMusicSession").apply {
-            // FLAG_HANDLES_MEDIA_BUTTONS and FLAG_HANDLES_TRANSPORT_CONTROLS are deprecated
-            // in API 31+. Setting them is a no-op on modern Android — the MediaSession
-            // automatically handles these via the registered callback below.
             @Suppress("DEPRECATION")
             setFlags(
                 MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or
@@ -333,7 +326,6 @@ class MusicNotificationService : Service() {
             )
             .setState(state, currentPosition, playbackSpeed, android.os.SystemClock.elapsedRealtime())
 
-        // Android 13+ requires custom actions in PlaybackState for them to appear
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val shuffleIcon = if (isShuffleMode) R.drawable.ic_shuffle_on else R.drawable.ic_shuffle
             val shuffleTitle = if (isShuffleMode) "Shuffle On" else "Shuffle Off"
@@ -397,11 +389,7 @@ class MusicNotificationService : Service() {
             .setShowWhen(false)
             .setOngoing(true)
 
-        // Android 13+ derives buttons from PlaybackState custom actions
-        // Android 12 and below use notification actions
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // For Android 13+: Only add core playback controls
-            // Custom actions (shuffle/favorite) are handled via PlaybackState
             val playPauseIntent = pendingBroadcast(100, ACTION_PLAY_PAUSE)
             val prevIntent = pendingBroadcast(101, ACTION_PREVIOUS)
             val nextIntent = pendingBroadcast(102, ACTION_NEXT)
@@ -420,7 +408,6 @@ class MusicNotificationService : Service() {
                         .setShowCancelButton(true)
                 )
         } else {
-            // For Android 12 and below: Use traditional notification actions
             val playPauseIntent = pendingBroadcast(100, ACTION_PLAY_PAUSE)
             val prevIntent = pendingBroadcast(101, ACTION_PREVIOUS)
             val nextIntent = pendingBroadcast(102, ACTION_NEXT)
@@ -448,8 +435,6 @@ class MusicNotificationService : Service() {
                 )
         }
 
-        // Progress bar only needed for Android 9 and below
-        // Android 10+ MediaStyle renders it automatically from PlaybackState
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && currentDuration > 0) {
             val progress = ((currentPosition.toFloat() / currentDuration.toFloat()) * 100).toInt()
             builder.setProgress(100, progress, false)
@@ -458,7 +443,6 @@ class MusicNotificationService : Service() {
         return builder.build()
     }
 
-    /** Helper to create a broadcast PendingIntent with CANCEL_CURRENT to avoid stale caches. */
     private fun pendingBroadcast(requestCode: Int, action: String): PendingIntent =
         PendingIntent.getBroadcast(
             this,

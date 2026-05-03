@@ -2,13 +2,20 @@ plugins {
     id("com.android.application")
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
+    id("com.google.gms.google-services")
 }
 
 import java.io.File
 import java.util.Properties
 
+val keystoreProperties = Properties()
+val keystoreFile = rootProject.file("key.properties")
+if (keystoreFile.exists()) {
+    keystoreFile.inputStream().use { keystoreProperties.load(it) }
+}
+
 android {
-    namespace = "com.ultraelectronica.flick"
+    namespace = "com.mossapps.flick"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -18,11 +25,20 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = "17"  // fixed deprecation: plain string, not JavaVersion.toString()
+        jvmTarget = "17"
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = keystoreProperties.getProperty("storeFile")?.let { rootProject.file(it) }
+            storePassword = keystoreProperties.getProperty("storePassword")
+            keyAlias = keystoreProperties.getProperty("keyAlias")
+            keyPassword = keystoreProperties.getProperty("keyPassword")
+        }
     }
 
     defaultConfig {
-        applicationId = "com.ultraelectronica.flick"
+        applicationId = "com.mossapps.flick"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -39,10 +55,9 @@ android {
         }
     }
 
-    packaging {  // fixed deprecation: renamed from packagingOptions
+    packaging {
         jniLibs {
             useLegacyPackaging = true
-            // Keep libc++_shared.so for Rust library
             pickFirsts += listOf("**/libc++_shared.so")
         }
     }
@@ -55,7 +70,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
@@ -184,6 +199,7 @@ tasks.named("preBuild") {
 }
 
 dependencies {
+    implementation(platform("com.google.firebase:firebase-bom:34.12.0"))
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.documentfile:documentfile:1.1.0")
     implementation("androidx.media:media:1.7.0")

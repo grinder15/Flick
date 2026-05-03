@@ -12,9 +12,9 @@ class ExternalPlaybackService {
 
   static final ExternalPlaybackService _instance = ExternalPlaybackService._();
   static const _channel = MethodChannel(
-    'com.ultraelectronica.flick/integration',
+    'com.mossapps.flick/integration',
   );
-  static const _lockerPackage = 'com.ultraelectronica.locker';
+  static const _lockerPackage = 'com.mossapps.locker';
 
   factory ExternalPlaybackService() => _instance;
 

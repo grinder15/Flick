@@ -1,4 +1,4 @@
-package com.ultraelectronica.flick
+package com.mossapps.flick
 
 import android.Manifest
 import android.app.PendingIntent
@@ -34,7 +34,7 @@ import android.provider.Settings
 import android.util.Log
 import android.os.PowerManager
 import androidx.documentfile.provider.DocumentFile
-import com.ultraelectronica.flick.audiofx.JustAudioProcessingController
+import com.mossapps.flick.audiofx.JustAudioProcessingController
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
@@ -56,17 +56,17 @@ import java.security.MessageDigest
 import kotlin.math.roundToInt
 
 class MainActivity: FlutterActivity() {
-    private val CHANNEL = "com.ultraelectronica.flick/storage"
-    private val PLAYER_CHANNEL = "com.ultraelectronica.flick/player"
-    private val INTEGRATION_CHANNEL = "com.ultraelectronica.flick/integration"
-    private val UAC2_CHANNEL = "com.ultraelectronica.flick/uac2"
-    private val AUDIO_DEVICE_CHANNEL = "com.ultraelectronica.flick/audio_device"
-    private val EQUALIZER_CHANNEL = "com.ultraelectronica.flick/equalizer"
-    private val VISUALIZER_METHOD_CHANNEL = "com.ultraelectronica.flick/visualizer"
-    private val VISUALIZER_EVENT_CHANNEL = "com.ultraelectronica.flick/visualizer_events"
-    private val LOCKER_PACKAGE = "com.ultraelectronica.locker"
+    private val CHANNEL = "com.mossapps.flick/storage"
+    private val PLAYER_CHANNEL = "com.mossapps.flick/player"
+    private val INTEGRATION_CHANNEL = "com.mossapps.flick/integration"
+    private val UAC2_CHANNEL = "com.mossapps.flick/uac2"
+    private val AUDIO_DEVICE_CHANNEL = "com.mossapps.flick/audio_device"
+    private val EQUALIZER_CHANNEL = "com.mossapps.flick/equalizer"
+    private val VISUALIZER_METHOD_CHANNEL = "com.mossapps.flick/visualizer"
+    private val VISUALIZER_EVENT_CHANNEL = "com.mossapps.flick/visualizer_events"
+    private val LOCKER_PACKAGE = "com.mossapps.locker"
     private val LOCKER_RETURN_URI = "locker://return?source=flick"
-    // private val CONVERTER_CHANNEL = "com.ultraelectronica.flick/converter"
+    // private val CONVERTER_CHANNEL = "com.mossapps.flick/converter"
     private val REQUEST_OPEN_DOCUMENT_TREE = 1001
     private val REQUEST_OPEN_DOCUMENT = 1003
     private val REQUEST_CREATE_DOCUMENT = 1004
@@ -3321,7 +3321,7 @@ class MainActivity: FlutterActivity() {
     }
 
     companion object {
-        private const val ACTION_USB_PERMISSION = "com.ultraelectronica.flick.USB_PERMISSION"
+        private const val ACTION_USB_PERMISSION = "com.mossapps.flick.USB_PERMISSION"
         private val pluginRegistrationLock = Any()
         private var registeredMainEngineIdentity: Int? = null
     }

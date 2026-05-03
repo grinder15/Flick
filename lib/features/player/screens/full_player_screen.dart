@@ -770,15 +770,16 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                 ],
               ),
               const SizedBox(height: 16),
-              _buildSongActionTile(
-                context: sheetContext,
-                icon: LucideIcons.listPlus,
-                label: 'Add to Queue',
-                onTap: () async {
-                  Navigator.pop(sheetContext);
-                  await _queueSong(context, song);
-                },
-              ),
+              if (!song.isFromLocker)
+                _buildSongActionTile(
+                  context: sheetContext,
+                  icon: LucideIcons.listPlus,
+                  label: 'Add to Queue',
+                  onTap: () async {
+                    Navigator.pop(sheetContext);
+                    await _queueSong(context, song);
+                  },
+                ),
               _buildSongActionTile(
                 context: sheetContext,
                 icon: LucideIcons.listMusic,
@@ -1772,13 +1773,15 @@ class _AnimatedSongScene extends StatelessWidget {
           SizedBox(width: context.responsive(8.0, 10.0, 12.0)),
           Expanded(
             child: GestureDetector(
-              onTap: onOpenQueue,
-              onHorizontalDragEnd: (details) async {
-                if (details.primaryVelocity != null &&
-                    details.primaryVelocity! < -400) {
-                  await onQueueSwipe();
-                }
-              },
+              onTap: song.isFromLocker ? null : onOpenQueue,
+              onHorizontalDragEnd: song.isFromLocker
+                  ? null
+                  : (details) async {
+                      if (details.primaryVelocity != null &&
+                          details.primaryVelocity! < -400) {
+                        await onQueueSwipe();
+                      }
+                    },
               child: ValueListenableBuilder<List<Song>>(
                 valueListenable: playerService.queueNotifier,
                 builder: (context, queue, _) {
@@ -1830,12 +1833,14 @@ class _AnimatedSongScene extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         nowPlayingContent,
-                        SizedBox(width: context.responsive(8.0, 10.0, 12.0)),
-                        _buildQueueSummaryBadge(
-                          context,
-                          count: queue.length,
-                          highlighted: hasQueue,
-                        ),
+                        if (!fromLocker) ...[
+                          SizedBox(width: context.responsive(8.0, 10.0, 12.0)),
+                          _buildQueueSummaryBadge(
+                            context,
+                            count: queue.length,
+                            highlighted: hasQueue,
+                          ),
+                        ],
                       ],
                     ),
                   );
@@ -2108,26 +2113,8 @@ class _AnimatedSongScene extends StatelessWidget {
             ],
           ),
         ),
-        _buildQueueButton(context),
-      ],
-    );
-  }
 
-  Widget _buildQueueButton(BuildContext context) {
-    return GestureDetector(
-      onTap: onOpenQueue,
-      child: Container(
-        padding: EdgeInsets.all(context.responsive(8.0, 9.0, 10.0)),
-        decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Icon(
-          LucideIcons.listMusic,
-          color: Colors.white.withValues(alpha: 0.92),
-          size: context.responsive(18.0, 20.0, 22.0),
-        ),
-      ),
+      ],
     );
   }
 

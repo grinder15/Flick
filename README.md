@@ -4,6 +4,7 @@
   <img src="docs/app_screenshots/flick_banner.png" alt="Flick Player Banner" width="100%">
 </p>
 
+---
 ### Flick Player is a high-performance music player application built with Flutter and Rust, designed primarily for audiophiles who demand bit-perfect audio playback through external DACs and amplifiers.
 
 ## Key Features

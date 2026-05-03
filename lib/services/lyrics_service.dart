@@ -29,7 +29,7 @@ class LyricsData {
 
 class LyricsService {
   static const MethodChannel _storageChannel = MethodChannel(
-    'com.ultraelectronica.flick/storage',
+    'com.mossapps.flick/storage',
   );
 
   final Map<String, LyricsData?> _cache = {};

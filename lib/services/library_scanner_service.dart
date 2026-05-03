@@ -43,7 +43,7 @@ class LibraryScannerService {
   final Set<String> _currentlyScanning = {};
 
   static const MethodChannel _storageChannel = MethodChannel(
-    'com.ultraelectronica.flick/storage',
+    'com.mossapps.flick/storage',
   );
 
   LibraryScannerService({

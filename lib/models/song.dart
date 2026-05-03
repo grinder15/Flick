@@ -103,7 +103,7 @@ class Song {
     this.sourcePackage,
   });
 
-  bool get isFromLocker => sourcePackage == 'com.ultraelectronica.locker';
+  bool get isFromLocker => sourcePackage == 'com.mossapps.locker';
 
   /// Format duration as mm:ss or hh:mm:ss
   String get formattedDuration {

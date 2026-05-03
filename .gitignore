@@ -54,3 +54,5 @@ target/rust-analyzer/flycheck0/stdout.txt
 
 target/rust-analyzer/flycheck0/stderr
 target/rust-analyzer/flycheck0/stdout
+android/app/google-services.json
+android/app/src/main/assets/adi-registration.properties

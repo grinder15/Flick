@@ -181,7 +181,7 @@ class FolderAlreadyExistsException implements Exception {
 
 /// Service for managing music folders and their contents.
 class MusicFolderService {
-  static const _channel = MethodChannel('com.ultraelectronica.flick/storage');
+  static const _channel = MethodChannel('com.mossapps.flick/storage');
   static const _prefKey = 'music_folders';
 
   final PermissionService _permissionService;

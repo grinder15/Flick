@@ -1,6 +1,11 @@
 # Flick Player
+---
+<p align="center">
+  <img src="docs/app_screenshots/flick_banner.png" alt="Flick Player Banner" width="100%">
+</p>
 
-Flick Player is a high-performance music player application built with Flutter and Rust, designed primarily for audiophiles who demand bit-perfect audio playback through external DACs and amplifiers.
+---
+### Flick Player is a high-performance music player application built with Flutter and Rust, designed primarily for audiophiles who demand bit-perfect audio playback through external DACs and amplifiers.
 
 ## Key Features
 
@@ -32,12 +37,26 @@ Flick Player is a high-performance music player application built with Flutter a
 - Metadata extraction (ID3 tags, Vorbis comments) using `lofty`
 - Fast library queries via Isar database
 - Browse by songs, albums, artists, folders, playlists, favorites, and recently played
+- **Album Art Import**: Search and import album art from MusicBrainz/Cover Art Archive, iTunes, and Deezer
+- **Delete Songs**: Remove songs from library or delete files entirely
+- **Content URI Support**: Android SAF content URIs are staged to local cache for playback (supports ALAC/AIFF/M4A via WAV conversion)
+- **Rip Log Metadata**: EAC-style rip log metadata (ripper, read mode, AccurateRip, CRCs) stored per track
+- **CUE Sheet Support**: Track offset support for CUE sheet-based files
+- **Duplicate Cleaner**: Built-in duplicate detection and cleanup
 
 ### Playback Features
 - Shuffle and repeat modes (off, one, all)
 - Playback speed control (0.5x - 2.0x)
 - Sleep timer
 - Waveform seek bar for precise navigation
+- **Audio Visualizer**: Real-time FFT-based visualizer with 48 bars, spring-physics smoothing, and glow effects (real mode via Android Visualizer API + simulated fallback)
+
+### Flick Replay (Listening Recap)
+- Daily, weekly, monthly, and yearly listening recaps
+- Hero recap cards with total plays, top song, listen time, active days, peak hour
+- Ranked top songs and top artists posters
+- Custom poster backgrounds: default gradient with glowing orbs, blurred album art, or user's camera photos
+- Save recap images to gallery as PNG
 
 ### Ecosystem Integration
 - **Moss Ecosystem**: Part of the Moss app ecosystem by Ultra Electronica
@@ -49,13 +68,15 @@ Flick Player is a high-performance music player application built with Flutter a
 - Adaptive theme based on album artwork colors
 - Glassmorphism design elements
 - Mini player and full player screens
+- Audio visualizer toggle in full player (replaces album art)
 - Support for high refresh rate displays (90Hz/120Hz)
 - Responsive layout for various screen sizes
 
 ### In-App Updates
-- **Play Store Integration**: In-app updates via Google Play Store
-- **Manual Updates**: Settings UI allows checking for and installing updates
+- **Play Store Integration**: In-app updates via Google Play InAppUpdate API
+- **Manual Updates**: Settings UI allows scanning for and installing updates
 - **Flexible Updates**: Download updates in the background while using the app
+- **Patch Notes**: Release notes fetched from GitHub Releases API
 
 ## Moss Ecosystem
 
@@ -79,7 +100,7 @@ When a song is playing in Locker and you want to switch to Flick's advanced audi
 
 ## Future Features
 
-- ~~DSD/DSF support~~
+- **DSD/DSF support** (engine integration in progress)
 - MQA support
 - Themes and broader UI customization options
 - ~~Album art improvements~~
@@ -87,7 +108,7 @@ When a song is playing in Locker and you want to switch to Flick's advanced audi
 - ~~Scrobble settings~~
 - ~~Resampler enhancements~~
 - Advanced audio tweaks
-- Visualizations
+- ~~Visualizations~~
 - ~~Bluetooth audio settings~~
 - Internal Hi-Res audio settings
 - USB audio tweaks
@@ -106,12 +127,14 @@ When a song is playing in Locker and you want to switch to Flick's advanced audi
 | `fl_chart` | Equalizer visualization |
 | `flutter_cache_manager` | Image caching |
 | `freezed` | Immutable data classes |
-| `in_app_update` | In-app updates |
+| `in_app_update` | Google Play In-App Updates |
+| `image_picker` | Camera/photo selection |
+| `permission_handler` | Runtime permissions |
 
 ### Backend (Rust)
 | Crate | Purpose |
 |-------|---------|
-| `symphonia` | Audio decoding (MP3, FLAC, WAV, OGG) |
+| `symphonia` | Audio decoding (MP3, FLAC, WAV, OGG, M4A/ALAC, AIFF) |
 | `rusb` | USB device access |
 | `lofty` | Audio metadata parsing |
 | `rayon` | Parallel processing |
@@ -133,23 +156,35 @@ flick_player/
 │   │   ├── favorites/            # Favorites management
 │   │   ├── folders/              # Folder browser
 │   │   ├── player/               # Player screens and widgets
+│   │   │   ├── screens/
+│   │   │   │   └── full_player_screen.dart    # Full player with visualizer toggle
+│   │   │   └── widgets/
+│   │   │       ├── audio_visualizer.dart      # FFT-based 48-bar visualizer
+│   │   │       ├── waveform_seek_bar.dart     # Waveform seek bar
+│   │   │       └── ...
 │   │   ├── playlists/            # Playlist management
 │   │   ├── recently_played/      # Recently played tracks
+│   │   ├── recap/                # Flick Replay (listening recaps)
+│   │   │   └── screens/
+│   │   │       └── listening_recap_screen.dart  # Recap with poster generation
 │   │   ├── settings/             # Settings and equalizer
 │   │   │   ├── equalizer_screen.dart     # Equalizer UI with preset management
 │   │   │   └── ...                       # Other settings screens
 │   │   └── songs/                # Song library
+│   │       └── widgets/
+│   │           └── song_actions_bottom_sheet.dart  # Song actions with delete
 │   ├── models/                   # Data models
 │   ├── providers/                # Riverpod providers
 │   ├── services/                 # Business logic services
-│   │   ├── eq_preset_service.dart        # EQ preset management
-│   │   ├── eq_preset_file_service.dart   # EQ preset import/export (JSON/TXT)
-│   │   ├── equalizer_service.dart        # EQ and FX application
+│   │   ├── album_art_import_service.dart     # Online album art (MusicBrainz/iTunes/Deezer)
+│   │   ├── eq_preset_service.dart            # EQ preset management
+│   │   ├── eq_preset_file_service.dart       # EQ preset import/export (JSON/TXT)
+│   │   ├── equalizer_service.dart            # EQ and FX application
 │   │   ├── android_audio_processing_service.dart # Android audio processing
-│   │   ├── player_service.dart           # Playback control
-│   │   ├── uac2_service.dart             # USB audio device management
-│   │   └── ...                           # Other services
-│   └── widgets/                 # Reusable widgets
+│   │   ├── player_service.dart               # Playback control
+│   │   ├── uac2_service.dart                 # USB audio device management
+│   │   └── visualizer_service.dart           # Android Visualizer FFT bridge
+│   └── widgets/                 # Reusable widgets (including deprecated UAC2 widgets)
 ├── rust/                         # Rust backend
 │   └── src/
 │       ├── api/                  # FFI API bindings
@@ -170,10 +205,11 @@ flick_player/
 │       └── eq_preset_file_service_test.dart # EQ preset file service tests
 ├── docs/                         # Architecture documentation
 ├── android/                      # Android platform code
-│   └── app/src/main/kotlin/com/ultraelectronica/flick/
-│       ├── MainActivity.kt               # Android entry point
-│       └── audiofx/
-│           └── JustAudioProcessingController.kt # Android audio effects
+│   ├── app/src/main/kotlin/com/ultraelectronica/flick/
+│   │   ├── MainActivity.kt               # Android entry point + content URI staging
+│   │   └── audiofx/
+│   │       └── JustAudioProcessingController.kt # Android audio effects
+│   └── copy_ndk_libs.sh         # NDK libc++_shared.so copier
 └── pubspec.yaml                  # Flutter dependencies
 ```
 
@@ -224,12 +260,15 @@ flutter build apk --release
 
 ### Android
 
-Flick Player is designed exclusively for Android. The application uses two audio engines:
+Flick Player is designed exclusively for Android. The application uses a multi-strategy audio engine:
 
-- **Primary (UAC 2.0)**: When a USB DAC/AMP is connected via OTG, the custom Rust audio engine provides bit-perfect playback through the UAC 2.0 protocol.
-- **Fallback (just_audio)**: On devices without USB audio support, `just_audio` handles standard audio playback.
+- **USB Direct**: Bit-perfect playback through external USB DACs via the custom Rust UAC 2.0 isochronous engine.
+- **DAP Native**: High-resolution playback through the device's internal DAC via Oboe/AAudio exclusive mode, with device qualification for confirmed bit-perfect DAPs.
+- **Mixer Bit-Perfect**: Android mixer path with bit-perfect format matching (Android 14+).
+- **Mixer Matched / Resampled Fallback**: Standard Android mixer paths when exact format matching isn't possible.
+- **just_audio Fallback**: For standard audio playback on devices without advanced audio support.
 
-UAC 2.0 DAC/AMP detection uses the USB Host API:
+UAC 2.0 DAC/AMP detection uses the USB Host API. The pipeline info and transfer stats widgets have been removed as the UAC2 subsystem has been partially deprecated in favor of Android's native audio routing for USB DACs. The core UAC2 engine (device discovery, descriptor parsing, isochronous transfers) remains in the Rust backend.
 
 - **Requirements**: Device must support USB host (OTG). The app declares `android.hardware.usb.host` as optional, so it installs on devices without USB host capability.
 - **Permissions**: When a USB Audio Class 2.0 device is attached, the app can list it and request access. The user must grant permission when prompted. Use `Uac2Service.instance.requestPermission(deviceName)` (on Android, `deviceName` is in `Uac2DeviceInfo.serial` when the device has no serial string).
@@ -251,11 +290,13 @@ The Rust backend communicates with Flutter via `flutter_rust_bridge`, providing:
 
 ## Documentation
 
-- `docs/SHOREBIRD_SETUP.md`: Shorebird release, preview, and patch workflow for in-app updates.
-
-Additional documentation is available in the `docs/` directory:
+Documentation is available in the `docs/` directory:
 - `DOCUMENTATION.md`: Detailed architecture and design documentation
 - `UAC2_IMPLEMENTATION_CHECKLIST.md`: Implementation checklist for the UAC 2.0 subsystem
+- `DAP_BIT_PERFECT_OFF_ISSUES.md`: Bit-perfect DAP Internal OFF issues and fixes
+- `hardware_volume_control.md`: Three-tier hardware volume control implementation
+- `LIBRARY_SCAN_ARCHITECTURE.md`: Two-phase + event-driven library scanning architecture
+- `ANDROID_NDK_SETUP.md`: Android NDK setup for Rust libraries
 
 ## License
 

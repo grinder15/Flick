@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -120,6 +121,16 @@ class SongActionsBottomSheet extends ConsumerWidget {
                 ),
               );
             },
+          ),
+          const SizedBox(height: AppConstants.spacingSm),
+          Divider(height: 1, color: AppColors.glassBorderStrong),
+          const SizedBox(height: AppConstants.spacingSm),
+          _buildActionTile(
+            context: context,
+            icon: LucideIcons.trash2,
+            label: 'Delete Song',
+            onTap: () => _showDeleteWarning(context, ref),
+            highlighted: true,
           ),
         ],
       ),
@@ -364,7 +375,7 @@ class SongActionsBottomSheet extends ConsumerWidget {
                                   'No playlists yet',
                                   style: Theme.of(context).textTheme.titleMedium
                                       ?.copyWith(
-                                        color: context.adaptiveTextSecondary,
+                color: sheetContext.adaptiveTextSecondary,
                                       ),
                                 ),
                                 const SizedBox(height: AppConstants.spacingLg),
@@ -596,6 +607,112 @@ class SongActionsBottomSheet extends ConsumerWidget {
         );
       },
     );
+  }
+
+  void _showDeleteWarning(BuildContext sheetContext, WidgetRef ref) {
+    final canDeleteFile = song.filePath != null &&
+        song.filePath!.isNotEmpty &&
+        !song.isExternal &&
+        !(song.filePath!.startsWith('content://'));
+
+    showDialog(
+      context: sheetContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete Song?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+              Text(
+              '"${song.title}" by ${song.artist}',
+              style: TextStyle(
+                fontFamily: 'ProductSans',
+                fontSize: 13,
+                color: sheetContext.adaptiveTextSecondary,
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingSm),
+            Text(
+              canDeleteFile
+                  ? 'Remove the database entry or delete the file from your device. This cannot be undone.'
+                  : 'Remove this song from your library. The file on your device will not be affected.',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _deleteSong(ref, sheetContext, deleteFile: false);
+            },
+            child: const Text('Remove from Library'),
+          ),
+          if (canDeleteFile)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                _deleteSong(ref, sheetContext, deleteFile: true);
+              },
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+              ),
+              child: const Text('Delete File'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _deleteSong(
+    WidgetRef ref,
+    BuildContext sheetContext, {
+    required bool deleteFile,
+  }) async {
+    if (sheetContext.mounted) {
+      Navigator.pop(sheetContext);
+    }
+
+    final songId = int.tryParse(song.id);
+    if (songId == null) return;
+
+    if (deleteFile && song.filePath != null) {
+      try {
+        final file = File(song.filePath!);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {
+        if (rootContext.mounted) {
+          ScaffoldMessenger.of(rootContext).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Could not delete the file. Removing from library instead.',
+              ),
+            ),
+          );
+        }
+      }
+    }
+
+    final repository = ref.read(songRepositoryProvider);
+    await repository.deleteSong(songId);
+
+    if (rootContext.mounted) {
+      ScaffoldMessenger.of(rootContext).showSnackBar(
+        SnackBar(
+          content: Text(
+            deleteFile
+                ? 'Deleted "${song.title}"'
+                : 'Removed "${song.title}" from library',
+          ),
+        ),
+      );
+    }
   }
 
   Widget _buildMetadataRow(BuildContext context, String label, String value) {

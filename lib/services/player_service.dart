@@ -2035,6 +2035,17 @@ class PlayerService {
       return uri.toFilePath();
     }
 
+    if (uri.scheme == 'content') {
+      final stagedPath = await _stageContentUriForPlayback(
+        resolvedPath,
+        extensionHint: _preferredExtension(song),
+      );
+      if (stagedPath != null && stagedPath.isNotEmpty) {
+        return stagedPath;
+      }
+      return null;
+    }
+
     if (uri.scheme.isEmpty) {
       return resolvedPath;
     }

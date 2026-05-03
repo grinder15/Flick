@@ -240,3 +240,7 @@ All three primary issues have been addressed:
 3. **Lowered Volume** — Audited and confirmed to **not** be caused by app-level DSP headroom or ReplayGain. The preamp slider already provides manual control.
 
 Remaining open items (future improvements) are user-configurable sample rate selection, Android loudness normalization investigation, and enhanced debug transparency UI.
+
+---
+
+*Document updated: 2026-05-03 — All three primary fixes confirmed. DAP bit-perfect toggle UI added to settings. Runtime switch failure handling improved.*

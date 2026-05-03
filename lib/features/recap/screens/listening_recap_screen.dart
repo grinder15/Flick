@@ -41,6 +41,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   String? _cameraBackgroundPath;
+  String? _galleryBackgroundPath;
   _RecapRankingPosterType? _savingPosterType;
   _RecapRankingPosterType? _savedPosterType;
   StreamSubscription<void>? _historySubscription;
@@ -109,6 +110,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
       _RecapPosterBackgroundMode.defaultArt => null,
       _RecapPosterBackgroundMode.albumArt => _recapAlbumArtPath(recap),
       _RecapPosterBackgroundMode.cameraPhoto => _cameraBackgroundPath,
+      _RecapPosterBackgroundMode.galleryPhoto => _galleryBackgroundPath,
     };
   }
 
@@ -163,6 +165,20 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
     setState(() {
       _cameraBackgroundPath = image.path;
       _posterBackgroundMode = _RecapPosterBackgroundMode.cameraPhoto;
+    });
+  }
+
+  Future<void> _pickPosterBackgroundImage() async {
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 88,
+      maxWidth: 1800,
+    );
+    if (!mounted || image == null) return;
+
+    setState(() {
+      _galleryBackgroundPath = image.path;
+      _posterBackgroundMode = _RecapPosterBackgroundMode.galleryPhoto;
     });
   }
 
@@ -603,9 +619,11 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
           mode: _posterBackgroundMode,
           hasAlbumArt: _recapAlbumArtPath(recap) != null,
           hasCameraPhoto: _cameraBackgroundPath != null,
+          hasGalleryPhoto: _galleryBackgroundPath != null,
           onDefaultTap: _selectDefaultPosterBackground,
           onAlbumArtTap: _selectAlbumArtPosterBackground,
           onCameraTap: _takePosterBackgroundPhoto,
+          onGalleryTap: _pickPosterBackgroundImage,
         ),
         const SizedBox(height: AppConstants.spacingSm),
         _RecapActionButton(
@@ -786,7 +804,7 @@ class _ListeningRecapScreenState extends State<ListeningRecapScreen> {
   }
 }
 
-enum _RecapPosterBackgroundMode { defaultArt, albumArt, cameraPhoto }
+enum _RecapPosterBackgroundMode { defaultArt, albumArt, cameraPhoto, galleryPhoto }
 
 extension _RecapPosterBackgroundModeX on _RecapPosterBackgroundMode {
   String get label {
@@ -794,6 +812,7 @@ extension _RecapPosterBackgroundModeX on _RecapPosterBackgroundMode {
       _RecapPosterBackgroundMode.defaultArt => 'Default',
       _RecapPosterBackgroundMode.albumArt => 'Album Art',
       _RecapPosterBackgroundMode.cameraPhoto => 'Camera',
+      _RecapPosterBackgroundMode.galleryPhoto => 'Gallery',
     };
   }
 
@@ -802,6 +821,7 @@ extension _RecapPosterBackgroundModeX on _RecapPosterBackgroundMode {
       _RecapPosterBackgroundMode.defaultArt => Icons.auto_awesome_rounded,
       _RecapPosterBackgroundMode.albumArt => LucideIcons.disc,
       _RecapPosterBackgroundMode.cameraPhoto => Icons.photo_camera_rounded,
+      _RecapPosterBackgroundMode.galleryPhoto => Icons.photo_library_rounded,
     };
   }
 }
@@ -810,17 +830,21 @@ class _PosterBackgroundSelector extends StatelessWidget {
   final _RecapPosterBackgroundMode mode;
   final bool hasAlbumArt;
   final bool hasCameraPhoto;
+  final bool hasGalleryPhoto;
   final VoidCallback onDefaultTap;
   final VoidCallback onAlbumArtTap;
   final VoidCallback onCameraTap;
+  final VoidCallback onGalleryTap;
 
   const _PosterBackgroundSelector({
     required this.mode,
     required this.hasAlbumArt,
     required this.hasCameraPhoto,
+    required this.hasGalleryPhoto,
     required this.onDefaultTap,
     required this.onAlbumArtTap,
     required this.onCameraTap,
+    required this.onGalleryTap,
   });
 
   @override
@@ -855,6 +879,12 @@ class _PosterBackgroundSelector extends StatelessWidget {
               isSelected: mode == _RecapPosterBackgroundMode.cameraPhoto,
               label: hasCameraPhoto ? 'Retake' : null,
               onTap: onCameraTap,
+            ),
+            _PosterBackgroundChoice(
+              mode: _RecapPosterBackgroundMode.galleryPhoto,
+              isSelected: mode == _RecapPosterBackgroundMode.galleryPhoto,
+              label: hasGalleryPhoto ? 'Pick again' : null,
+              onTap: onGalleryTap,
             ),
           ],
         ),

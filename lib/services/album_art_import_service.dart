@@ -111,6 +111,26 @@ class AlbumArtImportService {
       }
     }
 
+    if (candidates.length < 12) {
+      try {
+        candidates.addAll(
+          await _searchITunes(album: album, artist: artist),
+        );
+      } catch (error) {
+        lastError ??= error;
+      }
+    }
+
+    if (candidates.length < 12) {
+      try {
+        candidates.addAll(
+          await _searchDeezer(album: album, artist: artist),
+        );
+      } catch (error) {
+        lastError ??= error;
+      }
+    }
+
     final deduped = _dedupeCandidates(candidates);
     if (deduped.isEmpty && lastError != null) {
       throw _asImportException(lastError);
@@ -288,6 +308,116 @@ class AlbumArtImportService {
     });
 
     return matches;
+  }
+
+  Future<List<AlbumArtCandidate>> _searchITunes({
+    required String album,
+    required String artist,
+  }) async {
+    final query = '$album $artist';
+    final response = await _getJson(
+      Uri.https('itunes.apple.com', '/search', {
+        'term': query,
+        'entity': 'album',
+        'limit': '10',
+        'country': 'US',
+      }),
+    );
+
+    final results = response['results'];
+    if (results is! List || results.isEmpty) {
+      return const [];
+    }
+
+    final candidates = <AlbumArtCandidate>[];
+    for (final result in results.take(8)) {
+      if (result is! Map<String, dynamic>) {
+        continue;
+      }
+
+      final title = (result['collectionName'] as String?)?.trim();
+      if (title == null || title.isEmpty) {
+        continue;
+      }
+
+      final itunesArtist =
+          (result['artistName'] as String?)?.trim() ?? '';
+      final releaseDate = (result['releaseDate'] as String?)?.trim();
+      final artworkUrl = (result['artworkUrl100'] as String?)?.trim();
+      if (artworkUrl == null || artworkUrl.isEmpty) {
+        continue;
+      }
+
+      final previewUrl = artworkUrl.replaceAll('100x100bb', '600x600bb');
+      final imageUrl = artworkUrl.replaceAll('100x100bb', '3000x3000bb');
+
+      candidates.add(
+        AlbumArtCandidate(
+          previewUrl: previewUrl,
+          imageUrl: imageUrl,
+          title: title,
+          artist: itunesArtist,
+          sourceLabel: 'iTunes',
+          releaseDate: releaseDate,
+        ),
+      );
+    }
+
+    return candidates;
+  }
+
+  Future<List<AlbumArtCandidate>> _searchDeezer({
+    required String album,
+    required String artist,
+  }) async {
+    final query = 'album:"$album" artist:"$artist"';
+    final response = await _getJson(
+      Uri.https('api.deezer.com', '/search/album', {
+        'q': query,
+        'limit': '10',
+      }),
+    );
+
+    final data = response['data'];
+    if (data is! List || data.isEmpty) {
+      return const [];
+    }
+
+    final candidates = <AlbumArtCandidate>[];
+    for (final item in data.take(8)) {
+      if (item is! Map<String, dynamic>) {
+        continue;
+      }
+
+      final title = (item['title'] as String?)?.trim();
+      if (title == null || title.isEmpty) {
+        continue;
+      }
+
+      final deezerArtist = item['artist'] is Map<String, dynamic>
+          ? ((item['artist'] as Map<String, dynamic>)['name'] as String?)
+                  ?.trim() ??
+              ''
+          : '';
+      final releaseDate = (item['release_date'] as String?)?.trim();
+      final coverUrl = (item['cover_big'] as String?)?.trim();
+      if (coverUrl == null || coverUrl.isEmpty) {
+        continue;
+      }
+
+      candidates.add(
+        AlbumArtCandidate(
+          previewUrl: coverUrl,
+          imageUrl: coverUrl,
+          title: title,
+          artist: deezerArtist,
+          sourceLabel: 'Deezer',
+          releaseDate: releaseDate,
+        ),
+      );
+    }
+
+    return candidates;
   }
 
   Future<List<AlbumArtCandidate>> _loadCoverArtCandidatesForMatch(

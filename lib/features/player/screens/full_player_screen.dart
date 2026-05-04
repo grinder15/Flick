@@ -1474,7 +1474,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   );
                 },
                 child: _AnimatedSongScene(
-                  key: ValueKey(song.id),
                   song: song,
                   lyricsMode: _isLyricsMode,
                   visualizationMode: _isVisualizationMode,
@@ -1582,9 +1581,9 @@ class _AnimatedSongScene extends StatelessWidget {
     final sceneKey = ValueKey('${song.id}_${playerScreenMode.storageValue}');
 
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
+      duration: const Duration(milliseconds: 350),
       switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
       layoutBuilder: (currentChild, previousChildren) {
         return Stack(
           fit: StackFit.expand,
@@ -1596,13 +1595,17 @@ class _AnimatedSongScene extends StatelessWidget {
       },
       transitionBuilder: (child, animation) {
         final offsetAnimation = Tween<Offset>(
-          begin: Offset(direction * 0.08, 0),
+          begin: Offset(direction * 0.4, 0),
           end: Offset.zero,
-        ).animate(animation);
+        ).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        );
         final outgoingOffsetAnimation = Tween<Offset>(
           begin: Offset.zero,
-          end: Offset(-direction * 0.05, 0),
-        ).animate(animation);
+          end: Offset(-direction * 0.4, 0),
+        ).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeInCubic),
+        );
         final isIncoming = child.key == sceneKey;
 
         return FadeTransition(

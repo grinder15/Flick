@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/providers/providers.dart';
@@ -90,7 +91,10 @@ class ToggleSetting extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: () => onChanged(!value),
+        onTap: () {
+          AppHaptics.tap();
+          onChanged(!value);
+        },
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.spacingMd),
           child: Row(
@@ -146,7 +150,10 @@ class NavigationSetting extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          AppHaptics.tap();
+          onTap();
+        },
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.spacingMd),
           child: Row(
@@ -208,7 +215,10 @@ class SelectionSetting extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          AppHaptics.tap();
+          onTap();
+        },
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.spacingMd),
           child: Row(
@@ -272,7 +282,12 @@ class ActionButton extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: onTap,
+        onTap: onTap != null
+            ? () {
+                AppHaptics.tap();
+                onTap!();
+              }
+            : null,
         child: Padding(
           padding: const EdgeInsets.all(AppConstants.spacingMd),
           child: Row(
@@ -330,7 +345,10 @@ class CustomSwitch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => onChanged(!value),
+      onTap: () {
+        AppHaptics.selection();
+        onChanged(!value);
+      },
       child: AnimatedContainer(
         duration: AppConstants.animationFast,
         width: 48,
@@ -502,7 +520,10 @@ class _SettingsBackHeader extends StatelessWidget {
       child: Row(
         children: [
           IconButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () {
+              AppHaptics.tap();
+              Navigator.of(context).pop();
+            },
             icon: Icon(
               LucideIcons.chevronLeft,
               color: context.adaptiveTextPrimary,

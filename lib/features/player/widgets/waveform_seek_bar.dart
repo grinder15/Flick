@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/theme/app_colors.dart';
 
 class WaveformSeekBar extends StatefulWidget {
@@ -215,7 +216,7 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
               onTapUp: (details) => _onTapUp(details, constraints),
               behavior: HitTestBehavior.opaque,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+                duration: AppConstants.animationFast,
                 curve: Curves.easeOutCubic,
                 height: _isFineScrubbing ? _expandedHeight : _baseHeight,
                 width: double.infinity,

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/core/theme/app_colors.dart';
+import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/player_service.dart';
@@ -26,9 +28,12 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
     final hasQueue = queueCount > 0;
 
     return GestureDetector(
-      onTap: () => _openQueue(context),
+      onTap: () {
+        AppHaptics.tap();
+        _openQueue(context);
+      },
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
+        duration: AppConstants.animationFast,
         padding: EdgeInsets.symmetric(
           horizontal: hasQueue ? 10 : 8,
           vertical: 8,
@@ -82,6 +87,7 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
 
         return GestureDetector(
           onTap: () {
+            AppHaptics.tap();
             NavigationHelper.navigateToFullPlayer(
               context,
               heroTag: 'song_art_${song.id}',
@@ -239,8 +245,10 @@ class _MiniPlayerState extends ConsumerState<MiniPlayer> {
                         valueListenable: _playerService.isPlayingNotifier,
                         builder: (context, isPlaying, _) {
                           return IconButton(
-                            onPressed: () =>
-                                _playerService.togglePlayPause(),
+                            onPressed: () {
+                              AppHaptics.tap();
+                              _playerService.togglePlayPause();
+                            },
                             icon: Icon(
                               isPlaying
                                   ? LucideIcons.pause

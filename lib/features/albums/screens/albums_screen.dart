@@ -80,6 +80,10 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
               playerService: _playerService,
             ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          if (AppConstants.animationNormal == Duration.zero) {
+            return child;
+          }
+
           // Use SlideTransition for better performance
           const begin = Offset(0.0, 0.05);
           const end = Offset.zero;
@@ -95,7 +99,7 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
             child: child,
           );
         },
-        transitionDuration: const Duration(milliseconds: 200),
+        transitionDuration: AppConstants.animationNormal,
         opaque: true,
       ),
     );
@@ -238,7 +242,7 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
                   _isGlanceMinimized
                       ? CrossFadeState.showSecond
                       : CrossFadeState.showFirst,
-              duration: const Duration(milliseconds: 200),
+              duration: AppConstants.animationNormal,
             ),
           ),
         ],
@@ -494,7 +498,7 @@ class _AlbumCardState extends State<_AlbumCard>
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 150),
+      duration: AppConstants.animationFast,
       vsync: this,
     );
     _scaleAnimation = Tween<double>(

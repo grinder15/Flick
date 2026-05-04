@@ -166,11 +166,15 @@ class _MainShellState extends ConsumerState<MainShell>
             return;
           }
 
-          _pageController.animateToPage(
-            next,
-            duration: AppConstants.animationNormal,
-            curve: Curves.easeOutCubic,
-          );
+          if (AppConstants.animationNormal == Duration.zero) {
+            _pageController.jumpToPage(next);
+          } else {
+            _pageController.animateToPage(
+              next,
+              duration: AppConstants.animationNormal,
+              curve: Curves.easeOutCubic,
+            );
+          }
         }
 
         if (_pageController.hasClients) {

@@ -10,6 +10,22 @@ class AppHaptics {
     _enabled = enabled;
   }
 
+  /// Wraps a callback so it fires [tap] haptic before executing.
+  static VoidCallback wrap(VoidCallback callback) {
+    return () {
+      tap();
+      callback();
+    };
+  }
+
+  /// Wraps an async callback so it fires [tap] haptic before executing.
+  static Future<void> Function() wrapAsync(Future<void> Function() callback) {
+    return () async {
+      tap();
+      await callback();
+    };
+  }
+
   static void tap() {
     if (!_enabled) return;
     HapticFeedback.lightImpact();

@@ -56,6 +56,10 @@ class _FoldersScreenState extends State<FoldersScreen> {
               playerService: _playerService,
             ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          if (AppConstants.animationNormal == Duration.zero) {
+            return child;
+          }
+
           // Use SlideTransition for better performance
           const begin = Offset(0.0, 0.05);
           const end = Offset.zero;
@@ -71,7 +75,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             child: child,
           );
         },
-        transitionDuration: const Duration(milliseconds: 200),
+        transitionDuration: AppConstants.animationNormal,
         opaque: true,
       ),
     );

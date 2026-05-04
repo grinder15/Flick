@@ -422,7 +422,7 @@ class _RecentlyPlayedCardState extends State<_RecentlyPlayedCard>
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 150),
+      duration: AppConstants.animationFast,
       vsync: this,
     );
     _scaleAnimation = Tween<double>(

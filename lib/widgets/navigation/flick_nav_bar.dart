@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/responsive.dart';
 
 /// Navigation destination enum for type-safe navigation.
@@ -225,6 +226,7 @@ class _FlickNavItemState extends State<_FlickNavItem>
 
   void _onTapUp(TapUpDetails details) {
     _scaleController.reverse();
+    AppHaptics.tap();
     widget.onTap();
   }
 

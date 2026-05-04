@@ -9,6 +9,7 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/features/songs/widgets/album_art_picker_bottom_sheet.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
+import 'package:flick/services/music_folder_service.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -612,8 +613,7 @@ class SongActionsBottomSheet extends ConsumerWidget {
   void _showDeleteWarning(BuildContext sheetContext, WidgetRef ref) {
     final canDeleteFile = song.filePath != null &&
         song.filePath!.isNotEmpty &&
-        !song.isExternal &&
-        !(song.filePath!.startsWith('content://'));
+        !song.isExternal;
 
     showDialog(
       context: sheetContext,
@@ -673,34 +673,62 @@ class SongActionsBottomSheet extends ConsumerWidget {
     BuildContext sheetContext, {
     required bool deleteFile,
   }) async {
+    final songId = int.tryParse(song.id);
+    if (songId == null) return;
+
+    // Capture repository before async work so we don't need `ref` later.
+    final repository = ref.read(songRepositoryProvider);
+
     if (sheetContext.mounted) {
       Navigator.pop(sheetContext);
     }
 
-    final songId = int.tryParse(song.id);
-    if (songId == null) return;
+    if (!rootContext.mounted) return;
+
+    showDialog(
+      context: rootContext,
+      barrierDismissible: false,
+      builder: (_) => const PopScope(
+        canPop: false,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+    );
 
     if (deleteFile && song.filePath != null) {
+      var deleted = false;
       try {
-        final file = File(song.filePath!);
-        if (await file.exists()) {
-          await file.delete();
-        }
-      } catch (_) {
-        if (rootContext.mounted) {
-          ScaffoldMessenger.of(rootContext).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Could not delete the file. Removing from library instead.',
-              ),
+        deleted = await MusicFolderService.deleteDocument(
+          folderTreeUri: song.folderUri ?? song.filePath!,
+          filePath: song.filePath!,
+        );
+      } catch (_) {}
+
+      if (!deleted) {
+        try {
+          final file = File(song.filePath!);
+          if (await file.exists()) {
+            await file.delete();
+          }
+          deleted = true;
+        } catch (_) {}
+      }
+
+      if (!deleted && rootContext.mounted) {
+        ScaffoldMessenger.of(rootContext).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not delete the file. Removing from library instead.',
             ),
-          );
-        }
+          ),
+        );
       }
     }
 
-    final repository = ref.read(songRepositoryProvider);
     await repository.deleteSong(songId);
+
+    if (rootContext.mounted) {
+      Navigator.of(rootContext).pop();
+    }
 
     if (rootContext.mounted) {
       ScaffoldMessenger.of(rootContext).showSnackBar(

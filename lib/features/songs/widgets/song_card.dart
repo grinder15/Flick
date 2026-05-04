@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/widgets/common/marquee_widget.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
@@ -61,7 +62,10 @@ class _SongCardState extends State<SongCard> {
 
     return RepaintBoundary(
       child: GestureDetector(
-        onTap: widget.onTap,
+        onTap: () {
+          AppHaptics.tap();
+          widget.onTap?.call();
+        },
         onHorizontalDragUpdate: (details) {
           final nextDx = (_dragDx + details.delta.dx).clamp(-120.0, 120.0);
           if (nextDx != _dragDx) {
@@ -80,6 +84,7 @@ class _SongCardState extends State<SongCard> {
               (details.primaryVelocity != null &&
                   details.primaryVelocity! < -400);
           if (shouldFavorite) {
+            AppHaptics.confirm();
             setState(() {
               _dragDx = 0;
               _favoriteFlash = true;
@@ -93,6 +98,7 @@ class _SongCardState extends State<SongCard> {
             return;
           }
           if (shouldQueue) {
+            AppHaptics.confirm();
             setState(() {
               _dragDx = 0;
               _queuedFlash = true;
@@ -199,14 +205,14 @@ class _SongCardState extends State<SongCard> {
                     ),
                   ),
                   AnimatedSlide(
-                    duration: const Duration(milliseconds: 180),
+                    duration: AppConstants.animationFast,
                     curve: Curves.easeOutCubic,
                     offset: Offset(_dragDx / cardWidth, 0),
                     child: AnimatedScale(
-                      duration: const Duration(milliseconds: 180),
+                      duration: AppConstants.animationFast,
                       scale: (_queuedFlash || _favoriteFlash) ? 0.98 : 1,
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
+                        duration: AppConstants.animationFast,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(
                             AppConstants.radiusLg,

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'permission_service.dart';
@@ -475,5 +476,20 @@ class MusicFolderService {
   Future<void> _removeFolderFromDatabase(String uri) async {
     final repository = FolderRepository();
     await repository.deleteFolder(uri);
+  }
+
+  static Future<bool> deleteDocument({
+    required String folderTreeUri,
+    required String filePath,
+  }) async {
+    try {
+      return await _channel.invokeMethod<bool>('deleteDocument', {
+        'folderTreeUri': folderTreeUri,
+        'filePath': filePath,
+      }) ?? false;
+    } catch (e) {
+      debugPrint('deleteDocument failed: $e');
+      return false;
+    }
   }
 }

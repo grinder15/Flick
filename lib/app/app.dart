@@ -12,6 +12,8 @@ import 'package:flick/features/songs/screens/songs_screen.dart';
 import 'package:flick/features/menu/screens/menu_screen.dart';
 import 'package:flick/features/settings/screens/settings_screen.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
+import 'package:flick/core/utils/app_haptics.dart';
+import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/widgets/navigation/flick_nav_bar.dart';
 import 'package:flick/providers/providers.dart';
@@ -77,7 +79,7 @@ class _MainShellState extends ConsumerState<MainShell>
     _pageController = PageController(initialPage: initialIndex);
     _navBarAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 280),
+      duration: AppConstants.animationNormal,
     );
     _navBarSlideAnimation =
         Tween<Offset>(begin: Offset.zero, end: const Offset(0, 1.15)).animate(
@@ -164,11 +166,15 @@ class _MainShellState extends ConsumerState<MainShell>
             return;
           }
 
-          _pageController.animateToPage(
-            next,
-            duration: const Duration(milliseconds: 360),
-            curve: Curves.easeOutCubic,
-          );
+          if (AppConstants.animationNormal == Duration.zero) {
+            _pageController.jumpToPage(next);
+          } else {
+            _pageController.animateToPage(
+              next,
+              duration: AppConstants.animationNormal,
+              curve: Curves.easeOutCubic,
+            );
+          }
         }
 
         if (_pageController.hasClients) {
@@ -585,11 +591,19 @@ class _RootRouter extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final onboardingComplete = ref.watch(onboardingCompletedProvider);
+    final appPreferences = ref.watch(appPreferencesProvider);
 
-    if (onboardingComplete) {
-      return const MainShell();
-    }
+    // Apply animation and haptic preferences globally.
+    AppConstants.setAnimationsEnabled(appPreferences.animationsEnabled);
+    AppHaptics.setEnabled(appPreferences.hapticsEnabled);
 
-    return const OnboardingScreen();
+    final child = onboardingComplete ? const MainShell() : const OnboardingScreen();
+
+    return MediaQuery(
+      data: MediaQuery.of(context).copyWith(
+        disableAnimations: !appPreferences.animationsEnabled,
+      ),
+      child: child,
+    );
   }
 }

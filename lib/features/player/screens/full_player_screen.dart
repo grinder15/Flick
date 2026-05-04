@@ -4,6 +4,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
+import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/data/repositories/song_repository.dart';
@@ -74,7 +76,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     // Initialize drag animation controller for smooth return animation
     _dragController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 200),
+      duration: AppConstants.animationFast,
       lowerBound: 0.0,
       upperBound: 1000.0, // Max drag distance
     );
@@ -240,7 +242,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         Navigator.pop(context);
                       },
                       child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
+                        duration: AppConstants.animationFast,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 20,
                           vertical: 12,
@@ -1474,7 +1476,6 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   );
                 },
                 child: _AnimatedSongScene(
-                  key: ValueKey(song.id),
                   song: song,
                   lyricsMode: _isLyricsMode,
                   visualizationMode: _isVisualizationMode,
@@ -1581,10 +1582,37 @@ class _AnimatedSongScene extends StatelessWidget {
     final direction = transitionDirection >= 0 ? 1.0 : -1.0;
     final sceneKey = ValueKey('${song.id}_${playerScreenMode.storageValue}');
 
+    final scene = RepaintBoundary(
+      key: sceneKey,
+      child: Stack(
+        children: [
+          Positioned.fill(child: _buildBackground(context)),
+          SafeArea(
+            child: Column(
+              children: [
+                const Uac2ErrorNotification(),
+                _buildTopChrome(context),
+                SizedBox(height: context.responsive(8.0, 10.0, 12.0)),
+                Expanded(
+                  child: playerScreenMode == PlayerScreenMode.artworkCard
+                      ? _buildArtworkCardLayout(context)
+                      : _buildImmersiveLayout(context),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (AppConstants.animationNormal == Duration.zero) {
+      return scene;
+    }
+
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
+      duration: AppConstants.animationNormal,
       switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
       layoutBuilder: (currentChild, previousChildren) {
         return Stack(
           fit: StackFit.expand,
@@ -1596,13 +1624,17 @@ class _AnimatedSongScene extends StatelessWidget {
       },
       transitionBuilder: (child, animation) {
         final offsetAnimation = Tween<Offset>(
-          begin: Offset(direction * 0.08, 0),
+          begin: Offset(direction * 0.4, 0),
           end: Offset.zero,
-        ).animate(animation);
+        ).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        );
         final outgoingOffsetAnimation = Tween<Offset>(
           begin: Offset.zero,
-          end: Offset(-direction * 0.05, 0),
-        ).animate(animation);
+          end: Offset(-direction * 0.4, 0),
+        ).animate(
+          CurvedAnimation(parent: animation, curve: Curves.easeInCubic),
+        );
         final isIncoming = child.key == sceneKey;
 
         return FadeTransition(
@@ -1613,28 +1645,7 @@ class _AnimatedSongScene extends StatelessWidget {
           ),
         );
       },
-      child: RepaintBoundary(
-        key: sceneKey,
-        child: Stack(
-          children: [
-            Positioned.fill(child: _buildBackground(context)),
-            SafeArea(
-              child: Column(
-                children: [
-                  const Uac2ErrorNotification(),
-                  _buildTopChrome(context),
-                  SizedBox(height: context.responsive(8.0, 10.0, 12.0)),
-                  Expanded(
-                    child: playerScreenMode == PlayerScreenMode.artworkCard
-                        ? _buildArtworkCardLayout(context)
-                        : _buildImmersiveLayout(context),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      child: scene,
     );
   }
 
@@ -1815,7 +1826,7 @@ class _AnimatedSongScene extends StatelessWidget {
                   );
 
                   final chip = AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
+                    duration: AppConstants.animationFast,
                     padding: EdgeInsets.symmetric(
                       horizontal: context.responsive(12.0, 14.0, 16.0),
                       vertical: context.responsive(6.0, 7.0, 8.0),
@@ -1919,7 +1930,7 @@ class _AnimatedSongScene extends StatelessWidget {
     required bool highlighted,
   }) {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
+      duration: AppConstants.animationFast,
       padding: EdgeInsets.symmetric(
         horizontal: context.responsive(8.0, 9.0, 10.0),
         vertical: context.responsive(3.0, 4.0, 5.0),
@@ -1969,7 +1980,7 @@ class _AnimatedSongScene extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       child: IconButton(
-        onPressed: onTap,
+        onPressed: AppHaptics.wrap(onTap),
         padding: EdgeInsets.all(context.responsive(8.0, 10.0, 12.0)),
         constraints: const BoxConstraints(),
         icon: Icon(
@@ -1982,8 +1993,74 @@ class _AnimatedSongScene extends StatelessWidget {
   }
 
   Widget _buildImmersiveLayout(BuildContext context) {
+    final layout = lyricsMode
+        ? KeyedSubtree(
+            key: const ValueKey('immersive-lyrics-layout'),
+            child: Column(
+              children: [
+                SizedBox(height: context.responsive(8.0, 10.0, 12.0)),
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: context.responsive(20.0, 28.0, 36.0),
+                    ),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: _InlineLyricsPanel(
+                            song: song,
+                            playerService: playerService,
+                            lyricsService: lyricsService,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
+                _LyricsModeWaveformStrip(
+                  playerService: playerService,
+                  positionNotifier: throttledPositionNotifier,
+                  currentSong: song,
+                  formatDuration: formatDuration,
+                  horizontalPadding: context.responsive(18.0, 24.0, 30.0),
+                  onSwipeUp: onToggleLyrics,
+                ),
+              ],
+            ),
+          )
+        : KeyedSubtree(
+            key: const ValueKey('immersive-default-layout'),
+            child: Column(
+              children: [
+                const Spacer(flex: 2),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: context.responsive(12.0, 16.0, 20.0),
+                  ),
+                  child: _buildImmersiveSongHeader(context),
+                ),
+                SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: context.responsive(12.0, 16.0, 20.0),
+                  ),
+                  child: buildFileInfoRow(song, lyricsMode, playerScreenMode),
+                ),
+                SizedBox(height: context.responsive(12.0, 14.0, 16.0)),
+                _buildPlaybackStack(context),
+                SizedBox(height: context.responsive(16.0, 20.0, 24.0)),
+                buildDirectoryInfo(song),
+              ],
+            ),
+          );
+
+    if (AppConstants.animationNormal == Duration.zero) {
+      return layout;
+    }
+
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
+      duration: AppConstants.animationNormal,
       switchInCurve: Curves.easeOutCubic,
       switchOutCurve: Curves.easeInOutCubic,
       layoutBuilder: (currentChild, previousChildren) {
@@ -2008,67 +2085,7 @@ class _AnimatedSongScene extends StatelessWidget {
           child: SlideTransition(position: offsetAnimation, child: child),
         );
       },
-      child: lyricsMode
-          ? KeyedSubtree(
-              key: const ValueKey('immersive-lyrics-layout'),
-              child: Column(
-                children: [
-                  SizedBox(height: context.responsive(8.0, 10.0, 12.0)),
-                  Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: context.responsive(20.0, 28.0, 36.0),
-                      ),
-                      child: Stack(
-                        children: [
-                          Positioned.fill(
-                            child: _InlineLyricsPanel(
-                              song: song,
-                              playerService: playerService,
-                              lyricsService: lyricsService,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
-                  _LyricsModeWaveformStrip(
-                    playerService: playerService,
-                    positionNotifier: throttledPositionNotifier,
-                    currentSong: song,
-                    formatDuration: formatDuration,
-                    horizontalPadding: context.responsive(18.0, 24.0, 30.0),
-                    onSwipeUp: onToggleLyrics,
-                  ),
-                ],
-              ),
-            )
-          : KeyedSubtree(
-              key: const ValueKey('immersive-default-layout'),
-              child: Column(
-                children: [
-                  const Spacer(flex: 2),
-                  Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: context.responsive(12.0, 16.0, 20.0),
-                    ),
-                    child: _buildImmersiveSongHeader(context),
-                  ),
-                  SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
-                  Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: context.responsive(12.0, 16.0, 20.0),
-                    ),
-                    child: buildFileInfoRow(song, lyricsMode, playerScreenMode),
-                  ),
-                  SizedBox(height: context.responsive(12.0, 14.0, 16.0)),
-                  _buildPlaybackStack(context),
-                  SizedBox(height: context.responsive(16.0, 20.0, 24.0)),
-                  buildDirectoryInfo(song),
-                ],
-              ),
-            ),
+      child: layout,
     );
   }
 
@@ -2678,11 +2695,15 @@ class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
       return;
     }
 
-    _scrollController.animateTo(
-      clampedTarget,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOutCubic,
-    );
+    if (AppConstants.animationNormal == Duration.zero) {
+      _scrollController.jumpTo(clampedTarget);
+    } else {
+      _scrollController.animateTo(
+        clampedTarget,
+        duration: AppConstants.animationNormal,
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   Future<void> _seekToLyricLine(int index) async {
@@ -2841,7 +2862,7 @@ class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
                       child: Center(
                         child: isActive
                             ? AnimatedContainer(
-                                duration: const Duration(milliseconds: 180),
+                                duration: AppConstants.animationFast,
                                 curve: Curves.easeOutCubic,
                                 alignment: Alignment.center,
                                 padding: const EdgeInsets.symmetric(
@@ -3060,7 +3081,10 @@ class _PlayerControls extends StatelessWidget {
                                   : null,
                             ),
                             child: IconButton(
-                              onPressed: () => playerService.toggleShuffle(),
+                              onPressed: () {
+                                AppHaptics.tap();
+                                playerService.toggleShuffle();
+                              },
                               iconSize: context.responsive(18.0, 20.0, 22.0),
                               padding: EdgeInsets.zero,
                               icon: Icon(
@@ -3083,7 +3107,10 @@ class _PlayerControls extends StatelessWidget {
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
-                          onPressed: onPrevious,
+                          onPressed: () {
+                            AppHaptics.tap();
+                            onPrevious();
+                          },
                           iconSize: context.responsive(18.0, 20.0, 22.0),
                           padding: EdgeInsets.zero,
                           icon: Icon(LucideIcons.skipBack, color: Colors.white),
@@ -3102,7 +3129,10 @@ class _PlayerControls extends StatelessWidget {
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
-                          onPressed: onNext,
+                          onPressed: () {
+                            AppHaptics.tap();
+                            onNext();
+                          },
                           iconSize: context.responsive(18.0, 20.0, 22.0),
                           padding: EdgeInsets.zero,
                           icon: Icon(
@@ -3138,8 +3168,10 @@ class _PlayerControls extends StatelessWidget {
                               alignment: Alignment.center,
                               children: [
                                 IconButton(
-                                  onPressed: () =>
-                                      playerService.toggleLoopMode(),
+                                  onPressed: () {
+                                    AppHaptics.tap();
+                                    playerService.toggleLoopMode();
+                                  },
                                   iconSize: context.responsive(
                                     18.0,
                                     20.0,
@@ -3378,7 +3410,10 @@ class _PlayPauseButton extends StatelessWidget {
               ],
             ),
             child: IconButton(
-              onPressed: () => playerService.togglePlayPause(),
+              onPressed: () {
+                AppHaptics.tap();
+                playerService.togglePlayPause();
+              },
               iconSize: iconSize,
               padding: EdgeInsets.zero,
               icon: Icon(

@@ -191,7 +191,7 @@ class _SongFastIndexOverlayState extends State<SongFastIndexOverlay> {
                       SizedBox(
                         height: spacing,
                         child: AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 120),
+                          duration: AppConstants.animationFast,
                           style:
                               Theme.of(context).textTheme.labelSmall?.copyWith(
                                 color: _colorForToken(context, token),

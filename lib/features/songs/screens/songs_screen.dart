@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/models/song.dart';
@@ -608,10 +609,10 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       _listScrollController.position.maxScrollExtent,
     );
 
-    if (animate) {
+    if (animate && AppConstants.animationNormal != Duration.zero) {
       _listScrollController.animateTo(
         clampedOffset,
-        duration: const Duration(milliseconds: 220),
+        duration: AppConstants.animationNormal,
         curve: Curves.easeOutCubic,
       );
     } else {
@@ -1295,7 +1296,10 @@ class _SongListTile extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        onTap: onTap,
+        onTap: () async {
+          AppHaptics.tap();
+          await onTap();
+        },
         onLongPress: onLongPress,
         child: Container(
           padding: const EdgeInsets.symmetric(
@@ -1529,14 +1533,14 @@ class _QueueSwipeListItemState extends State<_QueueSwipeListItem> {
           },
           behavior: HitTestBehavior.translucent,
           child: AnimatedSlide(
-            duration: const Duration(milliseconds: 180),
+            duration: AppConstants.animationFast,
             curve: Curves.easeOutCubic,
             offset: Offset(_dragDx / 360, 0),
             child: AnimatedScale(
-              duration: const Duration(milliseconds: 180),
+              duration: AppConstants.animationFast,
               scale: (_queuedFlash || _favoriteFlash) ? 0.985 : 1,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+                duration: AppConstants.animationFast,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(AppConstants.radiusLg),
                   boxShadow: (_queuedFlash || _favoriteFlash)

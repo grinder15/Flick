@@ -5,6 +5,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/features/songs/widgets/song_card.dart';
 
@@ -72,6 +73,7 @@ class _OrbitScrollState extends State<OrbitScroll>
   // Track if we're actively scrolling to reduce visible range when idle
   bool _isScrolling = false;
   DateTime _lastScrollTime = DateTime.now();
+  int _lastReportedIndex = 0;
 
   // Cache for transform calculations
   final Map<int, _Position> _positionCache = {};
@@ -81,6 +83,7 @@ class _OrbitScrollState extends State<OrbitScroll>
   void initState() {
     super.initState();
     _scrollOffset = widget.selectedIndex.toDouble();
+    _lastReportedIndex = widget.selectedIndex;
     _controller = AnimationController.unbounded(
       vsync: this,
       duration: const Duration(milliseconds: 500),
@@ -97,6 +100,7 @@ class _OrbitScrollState extends State<OrbitScroll>
       widget.controller?._attach(_jumpToIndex);
     }
     if (widget.selectedIndex != oldWidget.selectedIndex) {
+      _lastReportedIndex = widget.selectedIndex;
       // If the index changed externally, snap/spring to it
       if ((widget.selectedIndex.toDouble() - _scrollOffset).abs() > 0.05) {
         _animateTo(widget.selectedIndex.toDouble());
@@ -126,7 +130,10 @@ class _OrbitScrollState extends State<OrbitScroll>
       _isScrolling = false;
       _lastScrollTime = DateTime.now();
     });
-    widget.onSelectedIndexChanged?.call(clampedIndex);
+    if (_lastReportedIndex != clampedIndex) {
+      _lastReportedIndex = clampedIndex;
+      widget.onSelectedIndexChanged?.call(clampedIndex);
+    }
   }
 
   void _onPhysicsTick() {
@@ -262,6 +269,10 @@ class _OrbitScrollState extends State<OrbitScroll>
       });
       final finalIndex = target.round();
       if (finalIndex >= 0 && finalIndex < widget.songs.length) {
+        if (_lastReportedIndex != finalIndex) {
+          _lastReportedIndex = finalIndex;
+          AppHaptics.selection();
+        }
         widget.onSelectedIndexChanged?.call(finalIndex);
       }
     });
@@ -422,6 +433,7 @@ class _OrbitScrollState extends State<OrbitScroll>
                 opacity: transform.opacity,
                 isSelected: transform.isSelected,
                 onTap: () {
+                  AppHaptics.tap();
                   _animateTo(actualIndex.toDouble());
                   widget.onSongSelected?.call(actualIndex);
                 },

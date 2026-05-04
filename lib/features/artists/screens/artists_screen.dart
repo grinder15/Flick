@@ -84,9 +84,12 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
               playerService: _playerService,
             ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          if (AppConstants.animationNormal == Duration.zero) {
+            return child;
+          }
           return FadeTransition(opacity: animation, child: child);
         },
-        transitionDuration: const Duration(milliseconds: 300),
+        transitionDuration: AppConstants.animationNormal,
       ),
     );
   }

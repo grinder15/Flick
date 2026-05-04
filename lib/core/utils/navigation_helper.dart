@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/features/player/screens/full_player_screen.dart';
 import 'package:flick/features/queue/screens/queue_screen.dart';
 
@@ -72,6 +73,10 @@ class NavigationHelper {
           pageBuilder: (context, animation, secondaryAnimation) =>
               FullPlayerScreen(heroTag: heroTag),
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            if (AppConstants.animationNormal == Duration.zero) {
+              return child;
+            }
+
             const begin = Offset(0.0, 1.0);
             const end = Offset.zero;
             const curve = Curves.easeOutCubic;
@@ -86,7 +91,7 @@ class NavigationHelper {
               child: child,
             );
           },
-          transitionDuration: const Duration(milliseconds: 300),
+          transitionDuration: AppConstants.animationNormal,
           opaque: false,
           barrierColor: Colors.black,
           settings: const RouteSettings(name: '/full_player'),
@@ -116,6 +121,10 @@ class NavigationHelper {
         pageBuilder: (context, animation, secondaryAnimation) =>
             const QueueScreen(),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          if (AppConstants.animationNormal == Duration.zero) {
+            return child;
+          }
+
           final curvedAnimation = CurvedAnimation(
             parent: animation,
             curve: Curves.easeOutCubic,
@@ -129,7 +138,7 @@ class NavigationHelper {
             child: FadeTransition(opacity: curvedAnimation, child: child),
           );
         },
-        transitionDuration: const Duration(milliseconds: 260),
+        transitionDuration: AppConstants.animationNormal,
       ),
     );
   }

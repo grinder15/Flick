@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/album_art_service.dart';
 
@@ -176,7 +177,7 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
 
     return RepaintBoundary(
       child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 600),
+        duration: AppConstants.animationSlow,
         child: _blurredImage != null
             ? SizedBox.expand(
                 key: ValueKey(_currentPath),

@@ -2,11 +2,27 @@
 class AppConstants {
   AppConstants._();
 
-  // Animation durations
-  static const Duration animationFast = Duration(milliseconds: 150);
-  static const Duration animationNormal = Duration(milliseconds: 300);
-  static const Duration animationSlow = Duration(milliseconds: 500);
-  static const Duration animationVerySlow = Duration(milliseconds: 800);
+  // Animation durations – mutable so they can be zeroed out when animations
+  // are disabled.
+  static Duration animationFast = const Duration(milliseconds: 150);
+  static Duration animationNormal = const Duration(milliseconds: 300);
+  static Duration animationSlow = const Duration(milliseconds: 500);
+  static Duration animationVerySlow = const Duration(milliseconds: 800);
+
+  /// Enables or disables all app-wide animation durations.
+  static void setAnimationsEnabled(bool enabled) {
+    if (enabled) {
+      animationFast = const Duration(milliseconds: 150);
+      animationNormal = const Duration(milliseconds: 300);
+      animationSlow = const Duration(milliseconds: 500);
+      animationVerySlow = const Duration(milliseconds: 800);
+    } else {
+      animationFast = Duration.zero;
+      animationNormal = Duration.zero;
+      animationSlow = Duration.zero;
+      animationVerySlow = Duration.zero;
+    }
+  }
 
   // Spacing values
   static const double spacingXxs = 4.0;

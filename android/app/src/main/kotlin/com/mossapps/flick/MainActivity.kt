@@ -433,6 +433,25 @@ class MainActivity: FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "URI and content are required", null)
                     }
                 }
+                "deleteDocument" -> {
+                    val folderTreeUri = call.argument<String>("folderTreeUri")
+                    val filePath = call.argument<String>("filePath")
+                    if (folderTreeUri != null && filePath != null) {
+                        mainScope.launch {
+                            try {
+                                val success = withContext(Dispatchers.IO) {
+                                    deleteDocumentViaSaf(folderTreeUri, filePath)
+                                }
+                                result.success(success)
+                            } catch (e: Exception) {
+                                Log.w("MainActivity", "[MethodChannel] deleteDocument error: ${e.message}", e)
+                                result.success(false)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "folderTreeUri and filePath are required", null)
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
@@ -1097,6 +1116,57 @@ class MainActivity: FlutterActivity() {
         } catch (e: Exception) {
             Log.w("MainActivity", "Failed to resolve tree URI to path: $uriString", e)
             null
+        }
+    }
+
+    private fun deleteDocumentViaSaf(folderTreeUri: String, filePath: String): Boolean {
+        return try {
+            val fileUri = Uri.parse(filePath)
+            if (fileUri.scheme == "content") {
+                DocumentsContract.deleteDocument(contentResolver, fileUri)
+            } else {
+                val treeUri = Uri.parse(folderTreeUri)
+                val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)
+                val decodedId = Uri.decode(treeDocId)
+                val parts = decodedId.split(":", limit = 2)
+                if (parts.isEmpty()) return false
+
+                val volumeId = parts[0]
+                val relativeFolderPath = parts.getOrNull(1)?.trim('/') ?: ""
+                val basePath = when (volumeId.lowercase()) {
+                    "primary" -> Environment.getExternalStorageDirectory().absolutePath
+                    "home" -> Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOCUMENTS
+                    ).absolutePath
+                    else -> "/storage/$volumeId"
+                }
+
+                val folderBase = if (relativeFolderPath.isEmpty()) {
+                    File(basePath)
+                } else {
+                    File("$basePath/$relativeFolderPath")
+                }
+                val canonicalBase = folderBase.canonicalPath.trimEnd('/')
+                val canonicalFile = File(filePath).canonicalPath.trimEnd('/')
+
+                if (!canonicalFile.startsWith("$canonicalBase/") && canonicalFile != canonicalBase) {
+                    Log.w("MainActivity", "deleteDocumentViaSaf: file $filePath is not under tree $folderTreeUri")
+                    return false
+                }
+
+                val relativePath = if (canonicalFile == canonicalBase) {
+                    ""
+                } else {
+                    canonicalFile.removePrefix("$canonicalBase/")
+                }
+
+                val childDocId = if (relativePath.isEmpty()) treeDocId else "$treeDocId/$relativePath"
+                val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocId)
+                DocumentsContract.deleteDocument(contentResolver, childUri)
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "deleteDocumentViaSaf failed: ${e.message}", e)
+            false
         }
     }
 

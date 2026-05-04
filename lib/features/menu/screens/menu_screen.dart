@@ -116,6 +116,10 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) => screen,
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          if (AppConstants.animationNormal == Duration.zero) {
+            return child;
+          }
+
           final curvedAnimation = CurvedAnimation(
             parent: animation,
             curve: Curves.easeOutCubic,

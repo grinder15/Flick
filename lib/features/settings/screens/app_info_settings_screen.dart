@@ -14,6 +14,7 @@ import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
+import 'package:flick/features/settings/screens/privacy_policy_screen.dart';
 import 'package:flick/features/settings/widgets/settings_widgets.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
@@ -663,6 +664,19 @@ SOFTWARE.
                 title: 'Licenses',
                 subtitle: 'Open source licenses',
                 onTap: _showLicensesBottomSheet,
+              ),
+              const SettingsDivider(),
+              NavigationSetting(
+                icon: LucideIcons.shieldCheck,
+                title: 'Privacy Policy',
+                subtitle: 'How we handle your data',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const PrivacyPolicyScreen(),
+                    ),
+                  );
+                },
               ),
               const SettingsDivider(),
               NavigationSetting(

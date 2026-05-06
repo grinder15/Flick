@@ -10,6 +10,7 @@ import 'package:flick/features/settings/screens/audio_settings_screen.dart';
 import 'package:flick/features/settings/screens/interface_settings_screen.dart';
 import 'package:flick/features/settings/screens/library_settings_screen.dart';
 import 'package:flick/features/settings/screens/playback_display_settings_screen.dart';
+import 'package:flick/features/settings/screens/ui_customization_settings_screen.dart';
 import 'package:flick/features/settings/screens/integrations_settings_screen.dart';
 import 'package:flick/features/settings/widgets/settings_widgets.dart';
 import 'package:flick/providers/providers.dart';
@@ -107,6 +108,18 @@ class SettingsScreen extends ConsumerWidget {
                               onTap: () => _navigate(
                                 context,
                                 const InterfaceSettingsScreen(),
+                              ),
+                            ),
+                            const SettingsDivider(),
+                            _CategoryTile(
+                              icon: LucideIcons.palette,
+                              iconBg: const Color(0xFF2D4A6F),
+                              iconFg: const Color(0xFF8BB8FF),
+                              title: 'UI Customization',
+                              subtitle: 'Show or hide home screen sections',
+                              onTap: () => _navigate(
+                                context,
+                                const UiCustomizationSettingsScreen(),
                               ),
                             ),
                             const SettingsDivider(),

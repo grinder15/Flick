@@ -32,7 +32,7 @@ class PlayerState {
     this.duration = Duration.zero,
     this.bufferedPosition = Duration.zero,
     this.isShuffle = false,
-    this.loopMode = LoopMode.off,
+    this.loopMode = LoopMode.all,
     this.playbackSpeed = 1.0,
     this.sleepTimerRemaining,
     this.queue = const [],

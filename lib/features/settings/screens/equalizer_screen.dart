@@ -22,14 +22,81 @@ import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:flick/widgets/equalizer/parametric_eq_graph.dart';
 import 'package:flick/widgets/equalizer/graphic_eq_graph.dart';
 import 'package:flick/widgets/equalizer/interactive_eq_graph.dart';
+import 'package:flick/widgets/equalizer/eq_graph_utils.dart' as equtils;
 
 enum _PresetFileFormat { json, txt }
 
-class EqualizerScreen extends ConsumerWidget {
+class EqualizerScreen extends ConsumerStatefulWidget {
   const EqualizerScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<EqualizerScreen> createState() => _EqualizerScreenState();
+}
+
+class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
+  final _scrollController = ScrollController();
+  final _graphKey = GlobalKey();
+  bool _showMiniGraph = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkVisibility());
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() => _checkVisibility();
+
+  void _checkVisibility() {
+    if (!mounted) return;
+    final ctx = _graphKey.currentContext;
+    if (ctx == null) return;
+
+    final renderBox = ctx.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.hasSize) return;
+
+    final position = renderBox.localToGlobal(Offset.zero);
+    final graphTop = position.dy;
+    final graphBottom = graphTop + renderBox.size.height;
+
+    final screenHeight = MediaQuery.sizeOf(context).height;
+
+    final isVisible = graphBottom > 0 && graphTop < screenHeight;
+    final shouldShow = !isVisible;
+
+    if (_showMiniGraph != shouldShow) {
+      setState(() => _showMiniGraph = shouldShow);
+    }
+  }
+
+  void _scrollToGraph() {
+    final ctx = _graphKey.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      alignment: 0.25,
+    );
+  }
+
+  void _showPresetsBottomSheet() {
+    GlassBottomSheet.show<void>(
+      context: context,
+      title: 'Presets',
+      maxHeightRatio: 0.6,
+      content: _PresetsSheet(),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final enabled = ref.watch(eqEnabledProvider);
     final mode = ref.watch(eqModeProvider);
     final activePresetName = ref.watch(eqActivePresetNameProvider);
@@ -38,53 +105,123 @@ class EqualizerScreen extends ConsumerWidget {
       backgroundColor: AppColors.background,
       body: SafeArea(
         bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Stack(
           children: [
-            _Header(
-              title: 'EQ & Dynamics',
-              subtitle: activePresetName != null
-                  ? 'Preset: $activePresetName'
-                  : null,
-              onBack: () => Navigator.of(context).pop(),
-              onPresets: () => _showPresetsBottomSheet(context),
-            ),
-            const SizedBox(height: AppConstants.spacingMd),
-            Expanded(
-              child: RepaintBoundary(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppConstants.spacingMd,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Header(
+                  title: 'EQ & Dynamics',
+                  subtitle: activePresetName != null
+                      ? 'Preset: $activePresetName'
+                      : null,
+                  onBack: () => Navigator.of(context).pop(),
+                  onPresets: _showPresetsBottomSheet,
+                ),
+                const SizedBox(height: AppConstants.spacingMd),
+                Expanded(
+                  child: RepaintBoundary(
+                    child: SingleChildScrollView(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppConstants.spacingMd,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _GlassCard(
+                            child: Column(
+                              children: [
+                                _TopControlsRow(enabled: enabled),
+                                _Divider(),
+                                _PreampRow(enabled: enabled),
+                                _Divider(),
+                                _ModeAndActionsRow(mode: mode),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppConstants.spacingLg),
+                          AnimatedSwitcher(
+                            duration: AppConstants.animationNormal,
+                            switchInCurve: Curves.easeOutCubic,
+                            switchOutCurve: Curves.easeInCubic,
+                            child: mode == EqMode.graphic
+                                ? _GraphicEqView(
+                                    key: const ValueKey('graphic'),
+                                    graphKey: _graphKey,
+                                  )
+                                : _ParametricEqView(
+                                    key: const ValueKey('param'),
+                                    graphKey: _graphKey,
+                                  ),
+                          ),
+                          const SizedBox(height: AppConstants.spacingLg),
+                          const _DynamicsSection(),
+                          const SizedBox(height: AppConstants.spacingLg),
+                          const _CreativeFxSection(),
+                          const SizedBox(height: AppConstants.navBarHeight + 120),
+                        ],
+                      ),
+                    ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _GlassCard(
-                        child: Column(
-                          children: [
-                            _TopControlsRow(enabled: enabled),
-                            _Divider(),
-                            _PreampRow(enabled: enabled),
-                            _Divider(),
-                            _ModeAndActionsRow(mode: mode),
-                          ],
+                ),
+              ],
+            ),
+            Positioned(
+              right: AppConstants.spacingMd,
+              bottom: MediaQuery.of(context).padding.bottom +
+                  AppConstants.spacingMd,
+              child: AnimatedOpacity(
+                opacity: _showMiniGraph ? 1.0 : 0.0,
+                duration: AppConstants.animationNormal,
+                curve: Curves.easeOutCubic,
+                child: IgnorePointer(
+                  ignoring: !_showMiniGraph,
+                  child: GestureDetector(
+                    onTap: _scrollToGraph,
+                    child: Container(
+                      width: 140,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        color: AppColors.glassBackground.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(
+                          AppConstants.radiusMd,
+                        ),
+                        border: Border.all(color: AppColors.glassBorder),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                          AppConstants.radiusMd,
+                        ),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(
+                            sigmaX: AppConstants.glassBlurSigmaLight,
+                            sigmaY: AppConstants.glassBlurSigmaLight,
+                          ),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.glassBackground.withValues(
+                                alpha: 0.6,
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                AppConstants.radiusMd,
+                              ),
+                            ),
+                            padding: const EdgeInsets.all(
+                              AppConstants.spacingSm,
+                            ),
+                            child: const _MiniEqGraphPreview(),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: AppConstants.spacingLg),
-                      AnimatedSwitcher(
-                        duration: AppConstants.animationNormal,
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        child: mode == EqMode.graphic
-                            ? const _GraphicEqView(key: ValueKey('graphic'))
-                            : const _ParametricEqView(key: ValueKey('param')),
-                      ),
-                      const SizedBox(height: AppConstants.spacingLg),
-                      const _DynamicsSection(),
-                      const SizedBox(height: AppConstants.spacingLg),
-                      const _CreativeFxSection(),
-                      const SizedBox(height: AppConstants.navBarHeight + 120),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -92,15 +229,6 @@ class EqualizerScreen extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
-
-  void _showPresetsBottomSheet(BuildContext context) {
-    GlassBottomSheet.show<void>(
-      context: context,
-      title: 'Presets',
-      maxHeightRatio: 0.6,
-      content: _PresetsSheet(),
     );
   }
 }
@@ -1368,7 +1496,8 @@ class _ModeAndActionsRow extends ConsumerWidget {
 }
 
 class _GraphicEqView extends ConsumerWidget {
-  const _GraphicEqView({super.key});
+  final GlobalKey? graphKey;
+  const _GraphicEqView({super.key, this.graphKey});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1408,6 +1537,7 @@ class _GraphicEqView extends ConsumerWidget {
         ),
         const SizedBox(height: AppConstants.spacingMd),
         _GlassCard(
+          key: graphKey,
           child: InkWell(
             onTap: () {
               Navigator.of(context).push(
@@ -1658,7 +1788,8 @@ class _GraphicBandSlider extends ConsumerWidget {
 }
 
 class _ParametricEqView extends ConsumerWidget {
-  const _ParametricEqView({super.key});
+  final GlobalKey? graphKey;
+  const _ParametricEqView({super.key, this.graphKey});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -1697,6 +1828,7 @@ class _ParametricEqView extends ConsumerWidget {
         ),
         const SizedBox(height: AppConstants.spacingMd),
         _GlassCard(
+          key: graphKey,
           child: InkWell(
             onTap: () {
               Navigator.of(context).push(
@@ -3218,7 +3350,7 @@ class _SectionHeader extends StatelessWidget {
 
 class _GlassCard extends StatelessWidget {
   final Widget child;
-  const _GlassCard({required this.child});
+  const _GlassCard({super.key, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -3254,5 +3386,117 @@ class _Divider extends StatelessWidget {
         color: AppColors.glassBorder,
       ),
     );
+  }
+}
+
+class _MiniEqGraphPreview extends ConsumerWidget {
+  const _MiniEqGraphPreview();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(eqEnabledProvider);
+    final mode = ref.watch(eqModeProvider);
+
+    final lineColor = enabled
+        ? AdaptiveColorProvider.textPrimary(context).withValues(alpha: 0.90)
+        : AdaptiveColorProvider.textTertiary(context).withValues(alpha: 0.70);
+
+    final List<({double x, double db})> points;
+    if (mode == EqMode.graphic) {
+      final freqs = EqualizerState.defaultGraphicFrequenciesHz;
+      final gains = List<double>.generate(
+        freqs.length,
+        (i) => ref.watch(eqGraphicGainDbProvider(i)),
+        growable: false,
+      );
+      points = equtils.buildGraphicCurvePoints(
+        enabled: enabled,
+        freqs: freqs,
+        gains: gains,
+        sampleCount: 64,
+      );
+    } else {
+      final bandCount = ref.watch(equalizerProvider).parametricBands.length;
+      final bands = List<ParametricBand>.generate(
+        bandCount,
+        (i) => ref.watch(eqParamBandProvider(i)),
+        growable: false,
+      );
+      points = equtils.buildParametricCurvePoints(
+        enabled: enabled,
+        bands: bands,
+        sampleCount: 64,
+      );
+    }
+
+    return CustomPaint(
+      size: const Size(120, 48),
+      painter: _MiniEqGraphPainter(
+        points: points,
+        lineColor: lineColor,
+        fillColor: lineColor.withValues(alpha: 0.08),
+      ),
+    );
+  }
+}
+
+class _MiniEqGraphPainter extends CustomPainter {
+  final List<({double x, double db})> points;
+  final Color lineColor;
+  final Color fillColor;
+
+  _MiniEqGraphPainter({
+    required this.points,
+    required this.lineColor,
+    required this.fillColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
+
+    final width = size.width;
+    final height = size.height;
+
+    double mapX(double x) {
+      return ((x - equtils.eqLogMin) /
+              (equtils.eqLogMax - equtils.eqLogMin)) *
+          width;
+    }
+
+    double mapY(double db) {
+      final t = ((db - equtils.eqMinDb) /
+              (equtils.eqMaxDb - equtils.eqMinDb))
+          .clamp(0.0, 1.0);
+      return height - t * height;
+    }
+
+    final path = Path();
+    path.moveTo(mapX(points.first.x), mapY(points.first.db));
+    for (var i = 1; i < points.length; i++) {
+      path.lineTo(mapX(points[i].x), mapY(points[i].db));
+    }
+
+    final fillPath = Path.from(path);
+    fillPath.lineTo(width, height);
+    fillPath.lineTo(0, height);
+    fillPath.close();
+
+    canvas.drawPath(fillPath, Paint()..color = fillColor);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = lineColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..isAntiAlias = true,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _MiniEqGraphPainter old) {
+    return old.points != points ||
+        old.lineColor != lineColor ||
+        old.fillColor != fillColor;
   }
 }

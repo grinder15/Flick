@@ -12,6 +12,7 @@ import 'package:flick/services/player_service.dart';
 import 'package:flick/data/repositories/recently_played_repository.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
+import 'package:flick/widgets/common/glass_dialog.dart';
 
 /// Recently Played screen with timeline-style layout.
 class RecentlyPlayedScreen extends StatefulWidget {
@@ -78,30 +79,18 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
   Future<void> _clearHistory() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.glassBackgroundStrong,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-          side: BorderSide(color: AppColors.glassBorder),
-        ),
-        title: Text(
-          'Clear History',
-          style: TextStyle(color: context.adaptiveTextPrimary),
-        ),
-        content: Text(
+      builder: (ctx) => GlassDialog(
+        title: 'Clear History',
+        content: const Text(
           'Are you sure you want to clear your entire listening history? This cannot be undone.',
-          style: TextStyle(color: context.adaptiveTextSecondary),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              'Cancel',
-              style: TextStyle(color: context.adaptiveTextSecondary),
-            ),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
+            onPressed: () => Navigator.pop(ctx, true),
             style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
             child: const Text('Clear'),
           ),

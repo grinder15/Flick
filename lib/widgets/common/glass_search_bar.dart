@@ -81,6 +81,7 @@ class _GlassSearchBarState extends State<GlassSearchBar> {
             child: TextField(
               controller: widget.controller,
               onChanged: widget.onChanged,
+              onTapOutside: (_) => FocusScope.of(context).unfocus(),
               style: TextStyle(
                 color: context.adaptiveTextPrimary,
                 fontSize: 16,

@@ -32,7 +32,7 @@ class PlayerState {
     this.duration = Duration.zero,
     this.bufferedPosition = Duration.zero,
     this.isShuffle = false,
-    this.loopMode = LoopMode.off,
+    this.loopMode = LoopMode.all,
     this.playbackSpeed = 1.0,
     this.sleepTimerRemaining,
     this.queue = const [],
@@ -337,8 +337,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _service.toggleShuffle();
   }
 
-  Future<void> addToQueue(Song song) async {
-    await _service.addToQueue(song);
+  Future<int> addToQueue(Song song) async {
+    return _service.addToQueue(song);
   }
 
   Future<void> playFromQueueIndex(int index) async {

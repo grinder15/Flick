@@ -429,6 +429,7 @@ class _EmbeddedMiniPlayer extends ConsumerWidget {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () async {
+        FocusScope.of(context).unfocus();
         final result = await NavigationHelper.navigateToFullPlayer(
           context,
           heroTag: 'mini_player_art',

@@ -1,24 +1,21 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect width="1024" height="1024" rx="100" fill="#F5F5F5"/>
-<circle cx="591.41" cy="428.067" r="24.0672" transform="rotate(-90 591.41 428.067)" fill="#121212"/>
-<circle cx="671.634" cy="428.067" r="24.0672" transform="rotate(-90 671.634 428.067)" fill="#121212"/>
-<circle cx="751.858" cy="428.067" r="24.0672" transform="rotate(-90 751.858 428.067)" fill="#121212"/>
-<circle cx="430.963" cy="511.5" r="24.0672" transform="rotate(-90 430.963 511.5)" fill="#121212"/>
-<circle cx="511.187" cy="511.5" r="24.0672" transform="rotate(-90 511.187 511.5)" fill="#121212"/>
-<circle cx="591.41" cy="511.5" r="24.0672" transform="rotate(-90 591.41 511.5)" fill="#121212"/>
-<circle cx="270.515" cy="428.067" r="24.0672" transform="rotate(-90 270.515 428.067)" fill="#121212"/>
-<circle cx="350.739" cy="428.067" r="24.0672" transform="rotate(-90 350.739 428.067)" fill="#121212"/>
-<circle cx="430.963" cy="428.067" r="24.0672" transform="rotate(-90 430.963 428.067)" fill="#121212"/>
-<circle cx="110.067" cy="511.5" r="24.0672" transform="rotate(-90 110.067 511.5)" fill="#121212"/>
-<circle cx="190.291" cy="511.5" r="24.0672" transform="rotate(-90 190.291 511.5)" fill="#121212"/>
-<circle cx="270.515" cy="511.5" r="24.0672" transform="rotate(-90 270.515 511.5)" fill="#121212"/>
-<circle cx="270.515" cy="594.933" r="24.0672" transform="rotate(-90 270.515 594.933)" fill="#121212"/>
-<circle cx="350.739" cy="594.933" r="24.0672" transform="rotate(-90 350.739 594.933)" fill="#121212"/>
-<circle cx="430.963" cy="594.933" r="24.0672" transform="rotate(-90 430.963 594.933)" fill="#121212"/>
-<circle cx="591.41" cy="594.933" r="24.0672" transform="rotate(-90 591.41 594.933)" fill="#121212"/>
-<circle cx="671.634" cy="594.933" r="24.0672" transform="rotate(-90 671.634 594.933)" fill="#121212"/>
-<circle cx="751.858" cy="594.933" r="24.0672" transform="rotate(-90 751.858 594.933)" fill="#121212"/>
-<circle cx="753.463" cy="511.5" r="24.0672" transform="rotate(-90 753.463 511.5)" fill="#121212"/>
-<circle cx="833.687" cy="511.5" r="24.0672" transform="rotate(-90 833.687 511.5)" fill="#121212"/>
-<circle cx="913.91" cy="511.5" r="24.0672" transform="rotate(-90 913.91 511.5)" fill="#121212"/>
+<circle cx="246.29" cy="748.463" r="29.4994" transform="rotate(-108.36 246.29 748.463)" fill="#121212"/>
+<circle cx="339.615" cy="717.49" r="29.4994" transform="rotate(-108.36 339.615 717.49)" fill="#121212"/>
+<circle cx="432.941" cy="686.516" r="29.4994" transform="rotate(-108.36 432.941 686.516)" fill="#121212"/>
+<circle cx="432.496" cy="398.805" r="29.4994" fill="#121212"/>
+<circle cx="432.496" cy="497.136" r="29.4994" fill="#121212"/>
+<circle cx="432.496" cy="595.467" r="29.4994" fill="#121212"/>
+<circle cx="615.762" cy="234.705" r="29.4994" transform="rotate(68.6126 615.762 234.705)" fill="#121212"/>
+<circle cx="524.202" cy="270.564" r="29.4994" transform="rotate(68.6126 524.202 270.564)" fill="#121212"/>
+<circle cx="432.642" cy="306.423" r="29.4994" transform="rotate(68.6126 432.642 306.423)" fill="#121212"/>
+<circle cx="707.69" cy="289.862" r="29.4994" transform="rotate(68.6126 707.69 289.862)" fill="#121212"/>
+<circle cx="616.13" cy="325.721" r="29.4994" transform="rotate(68.6126 616.13 325.721)" fill="#121212"/>
+<circle cx="524.57" cy="361.58" r="29.4994" transform="rotate(68.6126 524.57 361.58)" fill="#121212"/>
+<circle cx="524.424" cy="460.09" r="29.4994" transform="rotate(-180 524.424 460.09)" fill="#121212"/>
+<circle cx="701.073" cy="203.463" r="29.4994" transform="rotate(68.6126 701.073 203.463)" fill="#121212"/>
+<circle cx="785.501" cy="174.5" r="29.4994" transform="rotate(-180 785.501 174.5)" fill="#121212"/>
+<circle cx="246.623" cy="841.158" r="29.4994" transform="rotate(-108.36 246.623 841.158)" fill="#121212"/>
+<circle cx="339.949" cy="810.185" r="29.4994" transform="rotate(-108.36 339.949 810.185)" fill="#121212"/>
+<circle cx="433.275" cy="779.212" r="29.4994" transform="rotate(-108.36 433.275 779.212)" fill="#121212"/>
 </svg>

@@ -250,6 +250,8 @@ class PlayerService {
   static const Duration _playbackDiagnosticsDebounce = Duration(
     milliseconds: 300,
   );
+  Timer? _queueDebounceTimer;
+  static const Duration _queueDebounce = Duration(milliseconds: 150);
   final RecentlyPlayedRepository _recentlyPlayedRepository =
       RecentlyPlayedRepository();
   final ReplayPlayTracker _replayPlayTracker = ReplayPlayTracker();
@@ -311,7 +313,7 @@ class PlayerService {
 
   // Playback Mode State
   final ValueNotifier<bool> isShuffleNotifier = ValueNotifier(false);
-  final ValueNotifier<LoopMode> loopModeNotifier = ValueNotifier(LoopMode.off);
+  final ValueNotifier<LoopMode> loopModeNotifier = ValueNotifier(LoopMode.all);
 
   // Playback Speed
   final ValueNotifier<double> playbackSpeedNotifier = ValueNotifier(1.0);
@@ -493,6 +495,16 @@ class PlayerService {
     );
   }
 
+  void _debounceQueueChanged() {
+    _queueDebounceTimer?.cancel();
+    _queueDebounceTimer = Timer(_queueDebounce, () {
+      _notifyQueueChanged();
+      if (_playlist.isNotEmpty && !_usingRustBackend) {
+        unawaited(_rebuildPlaylist());
+      }
+    });
+  }
+
   void _setCurrentIndex(int newIndex) {
     if (_currentIndex == newIndex) return;
     _currentIndex = newIndex;
@@ -632,10 +644,7 @@ class PlayerService {
         _setCurrentIndex(_currentIndex - 1);
       }
     }
-    _notifyQueueChanged();
-    if (!_usingRustBackend) {
-      await _rebuildPlaylist();
-    }
+    _debounceQueueChanged();
   }
 
   /// Android: current audio session ID from just_audio (for Equalizer attachment).
@@ -3323,9 +3332,10 @@ class PlayerService {
     }
   }
 
-  Future<void> addToQueue(Song song) async {
+  Future<int> addToQueue(Song song) async {
     final entry = _QueueEntry(id: _nextQueueEntryId++, song: song);
     _queuedEntries.add(entry);
+    final index = _queuedEntries.length - 1;
     if (_playlist.isNotEmpty) {
       final insertIndex = (_currentIndex + 1 + _queuedEntries.length - 1).clamp(
         0,
@@ -3334,11 +3344,8 @@ class PlayerService {
       _playlist.insert(insertIndex, song);
       _playlistQueueEntryIds.insert(insertIndex, entry.id);
     }
-    _notifyQueueChanged();
-
-    if (_playlist.isNotEmpty && !_usingRustBackend) {
-      await _rebuildPlaylist();
-    }
+    _debounceQueueChanged();
+    return index;
   }
 
   Future<void> playFromQueueIndex(int index) {
@@ -3375,10 +3382,7 @@ class PlayerService {
       }
     }
     _queuedEntries.clear();
-    _notifyQueueChanged();
-    if (!_usingRustBackend) {
-      await _rebuildPlaylist();
-    }
+    _debounceQueueChanged();
   }
 
   Future<void> removeFromQueue(int index) async {
@@ -3406,10 +3410,7 @@ class PlayerService {
       }
     }
     _insertQueuedEntriesAfterCurrent();
-    _notifyQueueChanged();
-    if (!_usingRustBackend) {
-      await _rebuildPlaylist();
-    }
+    _debounceQueueChanged();
   }
 
   Future<void> moveQueueItemToNext(int index) async {
@@ -3569,6 +3570,7 @@ class PlayerService {
   void dispose() {
     _playbackDiagnosticsDebounceTimer?.cancel();
     _playbackDiagnosticsDebounceTimer = null;
+    _queueDebounceTimer?.cancel();
     _positionSaveTimer?.cancel();
     _stopHwVolumeHealthTimer();
     unawaited(_audioFocusSubscription?.cancel());

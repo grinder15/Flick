@@ -3,19 +3,43 @@ import 'package:shared_preferences/shared_preferences.dart';
 class AppPreferences {
   final bool animationsEnabled;
   final bool hapticsEnabled;
+  final bool showSmartMixes;
+  final bool showRecentArtists;
+  final bool showRecentTracks;
+  final bool showPlaylistPreviews;
+  final bool showBrowseMore;
+  final bool showQuickAccess;
 
   const AppPreferences({
     this.animationsEnabled = true,
     this.hapticsEnabled = true,
+    this.showSmartMixes = true,
+    this.showRecentArtists = true,
+    this.showRecentTracks = true,
+    this.showPlaylistPreviews = true,
+    this.showBrowseMore = true,
+    this.showQuickAccess = true,
   });
 
   AppPreferences copyWith({
     bool? animationsEnabled,
     bool? hapticsEnabled,
+    bool? showSmartMixes,
+    bool? showRecentArtists,
+    bool? showRecentTracks,
+    bool? showPlaylistPreviews,
+    bool? showBrowseMore,
+    bool? showQuickAccess,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
       hapticsEnabled: hapticsEnabled ?? this.hapticsEnabled,
+      showSmartMixes: showSmartMixes ?? this.showSmartMixes,
+      showRecentArtists: showRecentArtists ?? this.showRecentArtists,
+      showRecentTracks: showRecentTracks ?? this.showRecentTracks,
+      showPlaylistPreviews: showPlaylistPreviews ?? this.showPlaylistPreviews,
+      showBrowseMore: showBrowseMore ?? this.showBrowseMore,
+      showQuickAccess: showQuickAccess ?? this.showQuickAccess,
     );
   }
 }
@@ -23,12 +47,24 @@ class AppPreferences {
 class AppPreferencesService {
   static const _animationsKey = 'app_animations_enabled';
   static const _hapticsKey = 'app_haptics_enabled';
+  static const _showSmartMixesKey = 'menu_show_smart_mixes';
+  static const _showRecentArtistsKey = 'menu_show_recent_artists';
+  static const _showRecentTracksKey = 'menu_show_recent_tracks';
+  static const _showPlaylistPreviewsKey = 'menu_show_playlist_previews';
+  static const _showBrowseMoreKey = 'menu_show_browse_more';
+  static const _showQuickAccessKey = 'menu_show_quick_access';
 
   Future<AppPreferences> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
     return AppPreferences(
       animationsEnabled: prefs.getBool(_animationsKey) ?? true,
       hapticsEnabled: prefs.getBool(_hapticsKey) ?? true,
+      showSmartMixes: prefs.getBool(_showSmartMixesKey) ?? true,
+      showRecentArtists: prefs.getBool(_showRecentArtistsKey) ?? true,
+      showRecentTracks: prefs.getBool(_showRecentTracksKey) ?? true,
+      showPlaylistPreviews: prefs.getBool(_showPlaylistPreviewsKey) ?? true,
+      showBrowseMore: prefs.getBool(_showBrowseMoreKey) ?? true,
+      showQuickAccess: prefs.getBool(_showQuickAccessKey) ?? true,
     );
   }
 
@@ -50,5 +86,65 @@ class AppPreferencesService {
   Future<void> setHapticsEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_hapticsKey, value);
+  }
+
+  Future<bool> getShowSmartMixes() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showSmartMixesKey) ?? true;
+  }
+
+  Future<void> setShowSmartMixes(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showSmartMixesKey, value);
+  }
+
+  Future<bool> getShowRecentArtists() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showRecentArtistsKey) ?? true;
+  }
+
+  Future<void> setShowRecentArtists(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showRecentArtistsKey, value);
+  }
+
+  Future<bool> getShowRecentTracks() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showRecentTracksKey) ?? true;
+  }
+
+  Future<void> setShowRecentTracks(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showRecentTracksKey, value);
+  }
+
+  Future<bool> getShowPlaylistPreviews() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showPlaylistPreviewsKey) ?? true;
+  }
+
+  Future<void> setShowPlaylistPreviews(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showPlaylistPreviewsKey, value);
+  }
+
+  Future<bool> getShowBrowseMore() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showBrowseMoreKey) ?? true;
+  }
+
+  Future<void> setShowBrowseMore(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showBrowseMoreKey, value);
+  }
+
+  Future<bool> getShowQuickAccess() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_showQuickAccessKey) ?? true;
+  }
+
+  Future<void> setShowQuickAccess(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_showQuickAccessKey, value);
   }
 }

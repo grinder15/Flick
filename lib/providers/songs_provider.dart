@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/song.dart';
 import '../data/repositories/song_repository.dart';
@@ -300,6 +301,8 @@ class SongsState {
 /// AsyncNotifier for managing the songs list.
 /// Uses autoDispose to clean up when not being watched.
 class SongsNotifier extends AsyncNotifier<SongsState> {
+  static const _sortOptionKey = 'songs_sort_option';
+  static const _fileTypeFilterKey = 'songs_file_type_filter';
   StreamSubscription<void>? _watchSubscription;
   SongSortOption _sortOption = SongSortOption.albumArtist;
   SongFileTypeFilter _fileTypeFilter = SongFileTypeFilter.all;
@@ -308,14 +311,14 @@ class SongsNotifier extends AsyncNotifier<SongsState> {
   Future<SongsState> build() async {
     final repository = ref.watch(songRepositoryProvider);
 
-    // Watch for database changes and refresh
+    _sortOption = await _loadSortOption();
+    _fileTypeFilter = await _loadFileTypeFilter();
+
     _watchSubscription?.cancel();
     _watchSubscription = repository.watchSongs().listen((_) {
-      // Invalidate self to trigger rebuild
       ref.invalidateSelf();
     });
 
-    // Cleanup subscription on dispose
     ref.onDispose(() {
       _watchSubscription?.cancel();
     });
@@ -328,22 +331,52 @@ class SongsNotifier extends AsyncNotifier<SongsState> {
     );
   }
 
-  /// Change the sort option.
   void setSortOption(SongSortOption option) {
     _sortOption = option;
+    _saveSortOption(option);
     final currentState = state.value;
     if (currentState != null) {
       state = AsyncData(currentState.copyWith(sortOption: option));
     }
   }
 
-  /// Change the file type filter.
   void setFileTypeFilter(SongFileTypeFilter filter) {
     _fileTypeFilter = filter;
+    _saveFileTypeFilter(filter);
     final currentState = state.value;
     if (currentState != null) {
       state = AsyncData(currentState.copyWith(fileTypeFilter: filter));
     }
+  }
+
+  Future<SongSortOption> _loadSortOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_sortOptionKey);
+    if (value == null) return SongSortOption.albumArtist;
+    return SongSortOption.values.firstWhere(
+      (opt) => opt.name == value,
+      orElse: () => SongSortOption.albumArtist,
+    );
+  }
+
+  Future<SongFileTypeFilter> _loadFileTypeFilter() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString(_fileTypeFilterKey);
+    if (value == null) return SongFileTypeFilter.all;
+    return SongFileTypeFilter.values.firstWhere(
+      (f) => f.name == value,
+      orElse: () => SongFileTypeFilter.all,
+    );
+  }
+
+  Future<void> _saveSortOption(SongSortOption option) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_sortOptionKey, option.name);
+  }
+
+  Future<void> _saveFileTypeFilter(SongFileTypeFilter filter) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_fileTypeFilterKey, filter.name);
   }
 
   /// Force refresh the songs list.

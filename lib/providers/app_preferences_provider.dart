@@ -42,6 +42,54 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
         .read(appPreferencesServiceProvider)
         .setHapticsEnabled(value);
   }
+
+  Future<void> setShowSmartMixes(bool value) async {
+    if (state.showSmartMixes == value) return;
+    state = state.copyWith(showSmartMixes: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setShowSmartMixes(value);
+  }
+
+  Future<void> setShowRecentArtists(bool value) async {
+    if (state.showRecentArtists == value) return;
+    state = state.copyWith(showRecentArtists: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setShowRecentArtists(value);
+  }
+
+  Future<void> setShowRecentTracks(bool value) async {
+    if (state.showRecentTracks == value) return;
+    state = state.copyWith(showRecentTracks: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setShowRecentTracks(value);
+  }
+
+  Future<void> setShowPlaylistPreviews(bool value) async {
+    if (state.showPlaylistPreviews == value) return;
+    state = state.copyWith(showPlaylistPreviews: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setShowPlaylistPreviews(value);
+  }
+
+  Future<void> setShowBrowseMore(bool value) async {
+    if (state.showBrowseMore == value) return;
+    state = state.copyWith(showBrowseMore: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setShowBrowseMore(value);
+  }
+
+  Future<void> setShowQuickAccess(bool value) async {
+    if (state.showQuickAccess == value) return;
+    state = state.copyWith(showQuickAccess: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setShowQuickAccess(value);
+  }
 }
 
 final appPreferencesProvider =

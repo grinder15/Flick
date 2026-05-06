@@ -1,23 +1,20 @@
-<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-<circle cx="591.41" cy="428.067" r="24.0672" transform="rotate(-90 591.41 428.067)" fill="#F5F5F5"/>
-<circle cx="671.634" cy="428.067" r="24.0672" transform="rotate(-90 671.634 428.067)" fill="#F5F5F5"/>
-<circle cx="751.858" cy="428.067" r="24.0672" transform="rotate(-90 751.858 428.067)" fill="#F5F5F5"/>
-<circle cx="430.963" cy="511.5" r="24.0672" transform="rotate(-90 430.963 511.5)" fill="#F5F5F5"/>
-<circle cx="511.187" cy="511.5" r="24.0672" transform="rotate(-90 511.187 511.5)" fill="#F5F5F5"/>
-<circle cx="591.41" cy="511.5" r="24.0672" transform="rotate(-90 591.41 511.5)" fill="#F5F5F5"/>
-<circle cx="270.515" cy="428.067" r="24.0672" transform="rotate(-90 270.515 428.067)" fill="#F5F5F5"/>
-<circle cx="350.739" cy="428.067" r="24.0672" transform="rotate(-90 350.739 428.067)" fill="#F5F5F5"/>
-<circle cx="430.963" cy="428.067" r="24.0672" transform="rotate(-90 430.963 428.067)" fill="#F5F5F5"/>
-<circle cx="110.067" cy="511.5" r="24.0672" transform="rotate(-90 110.067 511.5)" fill="#F5F5F5"/>
-<circle cx="190.291" cy="511.5" r="24.0672" transform="rotate(-90 190.291 511.5)" fill="#F5F5F5"/>
-<circle cx="270.515" cy="511.5" r="24.0672" transform="rotate(-90 270.515 511.5)" fill="#F5F5F5"/>
-<circle cx="270.515" cy="594.933" r="24.0672" transform="rotate(-90 270.515 594.933)" fill="#F5F5F5"/>
-<circle cx="350.739" cy="594.933" r="24.0672" transform="rotate(-90 350.739 594.933)" fill="#F5F5F5"/>
-<circle cx="430.963" cy="594.933" r="24.0672" transform="rotate(-90 430.963 594.933)" fill="#F5F5F5"/>
-<circle cx="591.41" cy="594.933" r="24.0672" transform="rotate(-90 591.41 594.933)" fill="#F5F5F5"/>
-<circle cx="671.634" cy="594.933" r="24.0672" transform="rotate(-90 671.634 594.933)" fill="#F5F5F5"/>
-<circle cx="751.858" cy="594.933" r="24.0672" transform="rotate(-90 751.858 594.933)" fill="#F5F5F5"/>
-<circle cx="753.463" cy="511.5" r="24.0672" transform="rotate(-90 753.463 511.5)" fill="#F5F5F5"/>
-<circle cx="833.687" cy="511.5" r="24.0672" transform="rotate(-90 833.687 511.5)" fill="#F5F5F5"/>
-<circle cx="913.91" cy="511.5" r="24.0672" transform="rotate(-90 913.91 511.5)" fill="#F5F5F5"/>
+<svg width="606" height="734" viewBox="0 0 606 734" fill="none" xmlns="http://www.w3.org/2000/svg">
+<circle cx="37.2898" cy="603.463" r="29.4994" transform="rotate(-108.36 37.2898 603.463)" fill="#F5F5F5"/>
+<circle cx="130.616" cy="572.49" r="29.4994" transform="rotate(-108.36 130.616 572.49)" fill="#F5F5F5"/>
+<circle cx="223.941" cy="541.516" r="29.4994" transform="rotate(-108.36 223.941 541.516)" fill="#F5F5F5"/>
+<circle cx="223.496" cy="253.805" r="29.4994" fill="#F5F5F5"/>
+<circle cx="223.496" cy="352.136" r="29.4994" fill="#F5F5F5"/>
+<circle cx="223.496" cy="450.467" r="29.4994" fill="#F5F5F5"/>
+<circle cx="406.761" cy="89.7051" r="29.4994" transform="rotate(68.6126 406.761 89.7051)" fill="#F5F5F5"/>
+<circle cx="315.202" cy="125.564" r="29.4994" transform="rotate(68.6126 315.202 125.564)" fill="#F5F5F5"/>
+<circle cx="223.642" cy="161.423" r="29.4994" transform="rotate(68.6126 223.642 161.423)" fill="#F5F5F5"/>
+<circle cx="498.69" cy="144.862" r="29.4994" transform="rotate(68.6126 498.69 144.862)" fill="#F5F5F5"/>
+<circle cx="407.13" cy="180.721" r="29.4994" transform="rotate(68.6126 407.13 180.721)" fill="#F5F5F5"/>
+<circle cx="315.57" cy="216.58" r="29.4994" transform="rotate(68.6126 315.57 216.58)" fill="#F5F5F5"/>
+<circle cx="315.424" cy="315.09" r="29.4994" transform="rotate(-180 315.424 315.09)" fill="#F5F5F5"/>
+<circle cx="492.073" cy="58.4629" r="29.4994" transform="rotate(68.6126 492.073 58.4629)" fill="#F5F5F5"/>
+<circle cx="576.501" cy="29.4996" r="29.4994" transform="rotate(-180 576.501 29.4996)" fill="#F5F5F5"/>
+<circle cx="37.6231" cy="696.158" r="29.4994" transform="rotate(-108.36 37.6231 696.158)" fill="#F5F5F5"/>
+<circle cx="130.949" cy="665.185" r="29.4994" transform="rotate(-108.36 130.949 665.185)" fill="#F5F5F5"/>
+<circle cx="224.275" cy="634.212" r="29.4994" transform="rotate(-108.36 224.275 634.212)" fill="#F5F5F5"/>
 </svg>

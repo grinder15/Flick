@@ -226,6 +226,7 @@ class _FlickNavItemState extends State<_FlickNavItem>
 
   void _onTapUp(TapUpDetails details) {
     _scaleController.reverse();
+    FocusScope.of(context).unfocus();
     AppHaptics.tap();
     widget.onTap();
   }

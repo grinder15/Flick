@@ -96,7 +96,7 @@ class ToggleSetting extends StatelessWidget {
           onChanged(!value);
         },
         child: Padding(
-          padding: const EdgeInsets.all(AppConstants.spacingMd),
+          padding: const EdgeInsets.all(AppConstants.spacingLg),
           child: Row(
             children: [
               _SettingsIcon(icon: icon),
@@ -107,14 +107,14 @@ class ToggleSetting extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: context.adaptiveTextPrimary,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: context.adaptiveTextTertiary,
                       ),
                     ),
@@ -155,7 +155,7 @@ class NavigationSetting extends StatelessWidget {
           onTap();
         },
         child: Padding(
-          padding: const EdgeInsets.all(AppConstants.spacingMd),
+          padding: const EdgeInsets.all(AppConstants.spacingLg),
           child: Row(
             children: [
               _SettingsIcon(icon: icon),
@@ -166,14 +166,14 @@ class NavigationSetting extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: context.adaptiveTextPrimary,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: context.adaptiveTextTertiary,
                       ),
                     ),
@@ -220,7 +220,7 @@ class SelectionSetting extends StatelessWidget {
           onTap();
         },
         child: Padding(
-          padding: const EdgeInsets.all(AppConstants.spacingMd),
+          padding: const EdgeInsets.all(AppConstants.spacingLg),
           child: Row(
             children: [
               _SettingsIcon(icon: icon),
@@ -231,14 +231,14 @@ class SelectionSetting extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: context.adaptiveTextPrimary,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: context.adaptiveTextTertiary,
                       ),
                     ),
@@ -289,7 +289,7 @@ class ActionButton extends StatelessWidget {
               }
             : null,
         child: Padding(
-          padding: const EdgeInsets.all(AppConstants.spacingMd),
+          padding: const EdgeInsets.all(AppConstants.spacingLg),
           child: Row(
             children: [
               _SettingsIcon(
@@ -306,7 +306,7 @@ class ActionButton extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color:
                             onTap != null
                                 ? context.adaptiveTextPrimary
@@ -316,7 +316,7 @@ class ActionButton extends StatelessWidget {
                     const SizedBox(height: 2),
                     Text(
                       subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: context.adaptiveTextTertiary,
                       ),
                     ),
@@ -399,8 +399,8 @@ class _SettingsIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: context.scaleSize(AppConstants.containerSizeSm),
-      height: context.scaleSize(AppConstants.containerSizeSm),
+      width: context.scaleSize(AppConstants.containerSizeMd),
+      height: context.scaleSize(AppConstants.containerSizeMd),
       decoration: BoxDecoration(
         color: AppColors.glassBackgroundStrong,
         borderRadius: BorderRadius.circular(AppConstants.radiusSm),
@@ -408,7 +408,7 @@ class _SettingsIcon extends StatelessWidget {
       child: Icon(
         icon,
         color: color ?? context.adaptiveTextSecondary,
-        size: context.responsiveIcon(AppConstants.iconSizeMd),
+        size: context.responsiveIcon(AppConstants.iconSizeLg),
       ),
     );
   }
@@ -430,8 +430,8 @@ class ColoredSettingsIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: context.scaleSize(AppConstants.containerSizeSm),
-      height: context.scaleSize(AppConstants.containerSizeSm),
+      width: context.scaleSize(AppConstants.containerSizeMd),
+      height: context.scaleSize(AppConstants.containerSizeMd),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(AppConstants.radiusMd),
@@ -439,7 +439,7 @@ class ColoredSettingsIcon extends StatelessWidget {
       child: Icon(
         icon,
         color: iconColor,
-        size: context.responsiveIcon(AppConstants.iconSizeMd),
+        size: context.responsiveIcon(AppConstants.iconSizeLg),
       ),
     );
   }

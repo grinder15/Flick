@@ -716,13 +716,15 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   }
 
   Future<void> _queueSong(Song song) async {
-    await ref.read(playerProvider.notifier).addToQueue(song);
+    final index = await ref.read(playerProvider.notifier).addToQueue(song);
     if (!mounted) return;
-    _showSongActionSnackBar('Queued "${song.title}"');
+    _showSongActionSnackBar(
+      'Queued "${song.title}"',
+      onUndo: () => ref.read(playerProvider.notifier).removeFromQueue(index),
+    );
   }
 
   Future<void> _favoriteSong(Song song) async {
-    _showSongActionSnackBar('Added "${song.title}" to favorites');
     unawaited(() async {
       try {
         await ref.read(favoritesServiceProvider).addFavorite(song.id);
@@ -736,18 +738,37 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
 
       ref.invalidate(favoritesProvider);
     }());
+    _showSongActionSnackBar(
+      'Added "${song.title}" to favorites',
+      onUndo: () => ref.read(favoritesServiceProvider).removeFavorite(song.id).then((_) => ref.invalidate(favoritesProvider)),
+    );
   }
 
-  void _showSongActionSnackBar(String message) {
+  void _showSongActionSnackBar(String message, {VoidCallback? onUndo}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
       messenger.removeCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
-          content: Text(message),
+          content: Row(
+            children: [
+              Expanded(child: Text(message)),
+              if (onUndo != null)
+                TextButton(
+                  onPressed: onUndo,
+                  child: Text(
+                    'Undo',
+                    style: TextStyle(
+                      color: AppColors.accentDim,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           behavior: SnackBarBehavior.floating,
-          duration: const Duration(milliseconds: 1600),
+          duration: const Duration(seconds: 2),
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppConstants.radiusMd),

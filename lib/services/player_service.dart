@@ -311,7 +311,7 @@ class PlayerService {
 
   // Playback Mode State
   final ValueNotifier<bool> isShuffleNotifier = ValueNotifier(false);
-  final ValueNotifier<LoopMode> loopModeNotifier = ValueNotifier(LoopMode.off);
+  final ValueNotifier<LoopMode> loopModeNotifier = ValueNotifier(LoopMode.all);
 
   // Playback Speed
   final ValueNotifier<double> playbackSpeedNotifier = ValueNotifier(1.0);

@@ -72,7 +72,10 @@ class SongActionsBottomSheet extends ConsumerWidget {
               if (context.mounted) {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Queued "${song.title}"')),
+                  SnackBar(
+                    content: Text('Queued "${song.title}"'),
+                    duration: const Duration(seconds: 2),
+                  ),
                 );
               }
             },

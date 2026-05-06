@@ -751,20 +751,28 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       messenger.removeCurrentSnackBar();
       messenger.showSnackBar(
         SnackBar(
-          content: Text(message),
+          content: Row(
+            children: [
+              Expanded(child: Text(message)),
+              if (onUndo != null)
+                TextButton(
+                  onPressed: onUndo,
+                  child: Text(
+                    'Undo',
+                    style: TextStyle(
+                      color: AppColors.accentDim,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
           behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 2),
           margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppConstants.radiusMd),
           ),
-          action: onUndo != null
-              ? SnackBarAction(
-                  label: 'Undo',
-                  textColor: AppColors.accent,
-                  onPressed: onUndo,
-                )
-              : null,
         ),
       );
     });

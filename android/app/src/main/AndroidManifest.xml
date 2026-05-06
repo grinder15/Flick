@@ -26,7 +26,7 @@
     <application
         android:label="Flick"
         android:name="${applicationName}"
-        android:icon="@drawable/reverse_flick_logo">
+        android:icon="@mipmap/launcher_icon">
         <activity
             android:name=".MainActivity"
             android:exported="true"

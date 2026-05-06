@@ -180,6 +180,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     final favoritesAsync = ref.watch(favoritesProvider);
     final playlistsAsync = ref.watch(playlistsProvider);
     final currentSong = ref.watch(currentSongProvider);
+    final appPreferences = ref.watch(appPreferencesProvider);
 
     final allSongs = songsAsync.value?.songs ?? const <Song>[];
     final favoriteSongs = favoritesAsync.value?.favoriteSongs ?? const <Song>[];
@@ -250,23 +251,25 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           ),
                         ),
                       ),
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(
-                            AppConstants.spacingLg,
-                            0,
-                            AppConstants.spacingLg,
-                            AppConstants.spacingLg,
-                          ),
-                          child: _buildQuickAccessGrid(
-                            context,
-                            homeData: homeData,
-                            favoritesCount: favoriteSongs.length,
-                            playlistCount: playlists.length,
+                      if (appPreferences.showQuickAccess)
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppConstants.spacingLg,
+                              0,
+                              AppConstants.spacingLg,
+                              AppConstants.spacingLg,
+                            ),
+                            child: _buildQuickAccessGrid(
+                              context,
+                              homeData: homeData,
+                              favoritesCount: favoriteSongs.length,
+                              playlistCount: playlists.length,
+                            ),
                           ),
                         ),
-                      ),
-                      if (homeData.smartMixes.isNotEmpty)
+                      if (appPreferences.showSmartMixes &&
+                          homeData.smartMixes.isNotEmpty)
                         SliverToBoxAdapter(
                           child: _buildSection(
                             context,
@@ -302,7 +305,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             ),
                           ),
                         ),
-                      if (homeData.recentArtists.isNotEmpty)
+                      if (appPreferences.showRecentArtists &&
+                          homeData.recentArtists.isNotEmpty)
                         SliverToBoxAdapter(
                           child: _buildSection(
                             context,
@@ -345,7 +349,8 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             ),
                           ),
                         ),
-                      if (homeData.recentTracks.isNotEmpty)
+                      if (appPreferences.showRecentTracks &&
+                          homeData.recentTracks.isNotEmpty)
                         SliverToBoxAdapter(
                           child: _buildSection(
                             context,
@@ -386,10 +391,11 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                             ),
                           ),
                         ),
-                      SliverToBoxAdapter(
-                        child: _buildSection(
-                          context,
-                          title: 'Your Playlists',
+                      if (appPreferences.showPlaylistPreviews)
+                        SliverToBoxAdapter(
+                          child: _buildSection(
+                            context,
+                            title: 'Your Playlists',
                           subtitle: playlists.isEmpty
                               ? 'Create your first playlist or jump into your saved collections.'
                               : 'Saved playlists and quick jumps into your library organization.',
@@ -443,10 +449,11 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                           ),
                         ),
                       ),
-                      SliverToBoxAdapter(
-                        child: _buildSection(
-                          context,
-                          title: 'Browse More',
+                      if (appPreferences.showBrowseMore)
+                        SliverToBoxAdapter(
+                          child: _buildSection(
+                            context,
+                            title: 'Browse More',
                           subtitle:
                               'Library views and utilities that still belong close to the music.',
                           child: Padding(

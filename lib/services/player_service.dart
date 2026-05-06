@@ -3323,9 +3323,10 @@ class PlayerService {
     }
   }
 
-  Future<void> addToQueue(Song song) async {
+  Future<int> addToQueue(Song song) async {
     final entry = _QueueEntry(id: _nextQueueEntryId++, song: song);
     _queuedEntries.add(entry);
+    final index = _queuedEntries.length - 1;
     if (_playlist.isNotEmpty) {
       final insertIndex = (_currentIndex + 1 + _queuedEntries.length - 1).clamp(
         0,
@@ -3339,6 +3340,7 @@ class PlayerService {
     if (_playlist.isNotEmpty && !_usingRustBackend) {
       await _rebuildPlaylist();
     }
+    return index;
   }
 
   Future<void> playFromQueueIndex(int index) {

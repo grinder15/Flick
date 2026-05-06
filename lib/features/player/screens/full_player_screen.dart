@@ -643,6 +643,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Queued "${song.title}"'),
+        duration: const Duration(seconds: 2),
         action: SnackBarAction(
           label: 'View queue',
           onPressed: () {
@@ -1251,24 +1252,30 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             ),
           ),
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _buildPlayerBadge(context, song.fileType.toUpperCase()),
-            if (song.resolution != null) ...[
-              SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
-              Text(
-                song.resolution!,
-                style: TextStyle(
-                  fontFamily: 'ProductSans',
-                  fontSize: context.responsive(9.0, 10.0, 11.0),
-                  color: Colors.white.withValues(alpha: 0.7),
+        Flexible(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildPlayerBadge(context, song.fileType.toUpperCase()),
+              if (song.resolution != null) ...[
+                SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
+                Flexible(
+                  child: Text(
+                    song.resolution!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'ProductSans',
+                      fontSize: context.responsive(9.0, 10.0, 11.0),
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                  ),
                 ),
-              ),
+              ],
+              SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
+              _buildQualityBadge(context, song),
             ],
-            SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
-            _buildQualityBadge(context, song),
-          ],
+          ),
         ),
         if (song.isExternal)
           SizedBox(
@@ -2608,7 +2615,8 @@ class _InlineLyricsPanel extends StatefulWidget {
 }
 
 class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
-  static const double _lineHeight = 92;
+  static const double _lineHeight = 116;
+  static const double _centerFactor = 0.35;
 
   final ScrollController _scrollController = ScrollController();
   LyricsData? _lyricsData;
@@ -2646,10 +2654,9 @@ class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
     final newIndex = widget.lyricsService.findCurrentLineIndex(data, position);
     if (newIndex == _activeLineIndex) return;
 
-    setState(() {
-      _activeLineIndex = newIndex;
-    });
+    _activeLineIndex = newIndex;
     _scrollToActiveLine(newIndex);
+    setState(() {});
   }
 
   Future<void> _loadLyricsForSong(Song song) async {
@@ -2682,7 +2689,8 @@ class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
 
     final viewportHeight = _scrollController.position.viewportDimension;
     final maxScroll = _scrollController.position.maxScrollExtent;
-    final target = (index * _lineHeight) - (viewportHeight * 0.35);
+    final target =
+        (index * _lineHeight) + (_lineHeight / 2) - (viewportHeight * (0.5 - _centerFactor));
     final clampedTarget = target.clamp(0.0, maxScroll);
 
     _lastScrolledIndex = index;
@@ -2839,7 +2847,7 @@ class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
     return Expanded(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final centerPadding = constraints.maxHeight * 0.35;
+          final centerPadding = constraints.maxHeight * _centerFactor;
           return ListView.builder(
             controller: _scrollController,
             padding: EdgeInsets.fromLTRB(10, centerPadding, 10, centerPadding),
@@ -2878,7 +2886,7 @@ class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
                                 ),
                                 child: Text(
                                   line.text,
-                                  maxLines: 2,
+                                  maxLines: 3,
                                   overflow: TextOverflow.fade,
                                   textAlign: TextAlign.center,
                                   style: _lyricTextStyle(true, lineOpacity),

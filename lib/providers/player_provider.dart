@@ -337,8 +337,8 @@ class PlayerNotifier extends Notifier<PlayerState> {
     await _service.toggleShuffle();
   }
 
-  Future<void> addToQueue(Song song) async {
-    await _service.addToQueue(song);
+  Future<int> addToQueue(Song song) async {
+    return _service.addToQueue(song);
   }
 
   Future<void> playFromQueueIndex(int index) async {

@@ -568,16 +568,22 @@ class PlayerService {
       }
     }
 
+    var currentSongUpdated = false;
     final currentSong = currentSongNotifier.value;
     if (currentSong != null) {
       final updatedCurrentSong = syncSong(currentSong);
       if (!identical(updatedCurrentSong, currentSong)) {
         currentSongNotifier.value = updatedCurrentSong;
+        currentSongUpdated = true;
       }
     }
 
     if (queueChanged) {
       _notifyQueueChanged();
+    }
+
+    if (currentSongUpdated) {
+      _updateNotificationState();
     }
   }
 

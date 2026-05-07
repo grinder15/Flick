@@ -1637,8 +1637,8 @@ class _AnimatedSongScene extends StatelessWidget {
           CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
         );
         final outgoingOffsetAnimation = Tween<Offset>(
-          begin: Offset.zero,
-          end: Offset(-direction * 0.4, 0),
+          begin: Offset(-direction * 0.4, 0),
+          end: Offset.zero,
         ).animate(
           CurvedAnimation(parent: animation, curve: Curves.easeInCubic),
         );

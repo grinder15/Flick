@@ -715,6 +715,138 @@ class LibraryScannerService {
     }
   }
 
+  /// Efficiently check for externally deleted files across all folders.
+  /// Only removes songs whose file paths no longer exist on disk.
+  Future<void> refreshDeletions() async {
+    final folders = await _folderRepository.getAllFolders();
+    if (folders.isEmpty) return;
+
+    final scanPreferences = await _scanPreferencesService.getPreferences();
+
+    for (final folder in folders) {
+      try {
+        await _refreshDeletionsForFolder(
+          folder.uri,
+          folder.displayName,
+          scanPreferences,
+        );
+      } catch (e) {
+        debugPrint('Deletion refresh failed for ${folder.displayName}: $e');
+      }
+    }
+  }
+
+  Future<int> _refreshDeletionsForFolder(
+    String folderUri,
+    String displayName,
+    LibraryScanPreferences scanPreferences,
+  ) async {
+    final existingSongs =
+        await _songRepository.getSongEntitiesByFolder(folderUri);
+    if (existingSongs.isEmpty) return 0;
+
+    final hasContentUris = existingSongs.any(
+      (s) => s.filePath.startsWith('content://'),
+    );
+
+    List<String> deletedPaths;
+
+    if (hasContentUris) {
+      deletedPaths = await _checkDeletedPathsSaf(
+        folderUri,
+        existingSongs,
+        scanPreferences,
+      );
+    } else if (Platform.isAndroid) {
+      final resolvedScanRoot =
+          await _musicFolderService.resolveFilesystemPath(folderUri);
+      if (resolvedScanRoot != null && resolvedScanRoot.isNotEmpty) {
+        deletedPaths = await _checkDeletedPathsRust(
+          resolvedScanRoot,
+          existingSongs,
+          scanPreferences,
+        );
+      } else {
+        debugPrint(
+          'Skipping deletion check for $displayName: '
+          'cannot resolve filesystem path',
+        );
+        return 0;
+      }
+    } else {
+      deletedPaths = await _checkDeletedPathsRust(
+        folderUri,
+        existingSongs,
+        scanPreferences,
+      );
+    }
+
+    if (deletedPaths.isNotEmpty) {
+      final existingMap = {
+        for (final s in existingSongs) s.filePath: s,
+      };
+      final idsToDelete = deletedPaths
+          .map((path) => existingMap[path]?.id)
+          .whereType<int>()
+          .toList();
+
+      if (idsToDelete.isNotEmpty) {
+        await _songRepository.deleteSongsByIds(idsToDelete);
+      } else {
+        await _songRepository.deleteSongsByPath(deletedPaths);
+      }
+
+      debugPrint(
+        'Deleted ${deletedPaths.length} missing songs from $displayName',
+      );
+    }
+
+    // Update folder stats
+    final finalCount = await _songRepository.countSongsInFolder(folderUri);
+    await _folderRepository.updateFolderScanInfo(folderUri, finalCount);
+
+    return deletedPaths.length;
+  }
+
+  Future<List<String>> _checkDeletedPathsSaf(
+    String folderUri,
+    List<SongEntity> existingSongs,
+    LibraryScanPreferences scanPreferences,
+  ) async {
+    final fastScanFiles = await _musicFolderService.scanFolder(
+      folderUri,
+      filterNonMusicFilesAndFolders:
+          scanPreferences.filterNonMusicFilesAndFolders,
+    );
+    final scannedUris = fastScanFiles.map((f) => f.uri).toSet();
+    return existingSongs
+        .where((s) => !scannedUris.contains(s.filePath))
+        .map((s) => s.filePath)
+        .toList();
+  }
+
+  Future<List<String>> _checkDeletedPathsRust(
+    String rootPath,
+    List<SongEntity> existingSongs,
+    LibraryScanPreferences scanPreferences,
+  ) async {
+    final knownFiles = <String, int>{};
+    for (final song in existingSongs) {
+      if (song.lastModified != null) {
+        knownFiles[song.filePath] = song.lastModified!.millisecondsSinceEpoch;
+      }
+    }
+
+    return await checkDeletedPaths(
+      rootPath: rootPath,
+      knownFiles: knownFiles,
+      scanOptions: ScanOptions(
+        filterNonMusicFilesAndFolders:
+            scanPreferences.filterNonMusicFilesAndFolders,
+      ),
+    );
+  }
+
   List<FolderEntity> _deduplicateFoldersForScan(List<FolderEntity> folders) {
     final sortedFolders = List<FolderEntity>.from(folders)
       ..sort((a, b) {

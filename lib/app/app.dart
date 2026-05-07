@@ -20,6 +20,7 @@ import 'package:flick/providers/providers.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/models/song.dart';
+import 'package:flick/services/library_scanner_service.dart';
 
 /// Main application widget for Flick Player.
 class FlickPlayerApp extends StatelessWidget {
@@ -194,7 +195,25 @@ class _MainShellState extends ConsumerState<MainShell>
         return;
       }
       _maybeOpenExternalPlayer(ref.read(currentSongProvider));
+      _refreshLibraryDeletions();
     });
+  }
+
+  void _refreshLibraryDeletions() {
+    unawaited(_refreshLibraryDeletionsAsync());
+  }
+
+  Future<void> _refreshLibraryDeletionsAsync() async {
+    try {
+      final scannerService = LibraryScannerService();
+      await scannerService.refreshDeletions();
+      if (mounted) {
+        ref.invalidate(songsProvider);
+        ref.invalidate(musicFoldersProvider);
+      }
+    } catch (e) {
+      debugPrint('Library deletion refresh failed: $e');
+    }
   }
 
   @override

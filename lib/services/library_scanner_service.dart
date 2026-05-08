@@ -12,6 +12,7 @@ import '../services/library_scan_preferences_service.dart';
 import '../services/playlist_service.dart';
 import '../services/cue_file_service.dart';
 import '../services/rip_log_service.dart';
+import '../services/fingerprint_cache_service.dart';
 import '../src/rust/api/scanner.dart'; // Rust bridge
 
 /// Progress update during library scanning.
@@ -38,6 +39,7 @@ class LibraryScannerService {
   final MusicFolderService _musicFolderService;
   final LibraryScanPreferencesService _scanPreferencesService;
   final PlaylistService _playlistService;
+  final FileFingerprintCache _fingerprintCache = FileFingerprintCache();
 
   bool _isCancelled = false;
   final Set<String> _currentlyScanning = {};
@@ -156,9 +158,20 @@ class LibraryScannerService {
       existingSongs,
       scanPreferences,
     );
-    final existingMap = {for (var s in existingSongs) s.filePath: s};
+    // Build two maps: one for raw entities (no startOffsetMs), one for
+    // file-existence checks. The old collapsible map lost raw entities
+    // when CUE tracks shared the same filePath, keeping stale raw rows.
+    final rawExistingMap = <String, SongEntity>{};
+    final existingMap = <String, SongEntity>{};
+    for (var s in existingSongs) {
+      if (s.startOffsetMs == null) {
+        rawExistingMap[s.filePath] = s;
+      }
+      existingMap[s.filePath] = s;
+    }
     for (final song in filteredExistingSongs) {
       existingMap.remove(song.filePath);
+      rawExistingMap.remove(song.filePath);
     }
     final fastScanMap = {for (var f in fastScanFiles) f.uri: f};
 
@@ -309,8 +322,19 @@ class LibraryScannerService {
 
         if (cueSheet != null) {
           // Delete raw entity for this audio file if present
-          if (existing != null && existing.startOffsetMs == null) {
-            idsToDelete.add(existing.id);
+          final rawExisting = rawExistingMap[basic.uri];
+          if (rawExisting != null) {
+            idsToDelete.add(rawExisting.id);
+          }
+
+          // Build composite-key map so _buildCueTrackEntities can
+          // preserve IDs of existing CUE tracks across rescans.
+          final cueExistingMap = <String, SongEntity>{};
+          final cueTracksInDb = existingSongs.where(
+            (s) => s.filePath == basic.uri && s.startOffsetMs != null,
+          );
+          for (final s in cueTracksInDb) {
+            cueExistingMap['${s.filePath}#${s.startOffsetMs}'] = s;
           }
 
           final cueEntities = _buildCueTrackEntities(
@@ -318,7 +342,7 @@ class LibraryScannerService {
             cueSheet: cueSheet,
             meta: meta ?? basic,
             folderUri: folderUri,
-            existingMap: existingMap,
+            existingMap: cueExistingMap,
             ripLog: ripLog,
             lastModified: DateTime.fromMillisecondsSinceEpoch(
               basic.lastModified,
@@ -457,6 +481,11 @@ class LibraryScannerService {
     );
     final knownFiles = <String, int>{};
     final existingMap = <String, SongEntity>{};
+    final newOrModifiedFingerprints = <String, int>{};
+    final deletedPaths = <String>[];
+
+    // Load fingerprint cache — supplements DB with faster lookup
+    final cachedFingerprints = await _fingerprintCache.load(folderUri);
 
     for (var song in existingSongs) {
       if (filteredExistingSongs.contains(song)) {
@@ -466,6 +495,12 @@ class LibraryScannerService {
       if (song.lastModified != null) {
         knownFiles[song.filePath] = song.lastModified!.millisecondsSinceEpoch;
       }
+    }
+
+    // Merge fingerprint cache: cached timestamps take priority since they
+    // were recorded right after the last scan completed.
+    if (cachedFingerprints != null) {
+      knownFiles.addAll(cachedFingerprints);
     }
 
     // 2. Stream scan batches from Rust
@@ -489,6 +524,7 @@ class LibraryScannerService {
       totalFiles = chunk.totalFiles;
 
       if (!initialProgressSent) {
+        deletedPaths.addAll(chunk.deletedPaths);
         if (chunk.deletedPaths.isNotEmpty) {
           final idsToDelete = chunk.deletedPaths
               .map((path) => existingMap[path]?.id)
@@ -566,6 +602,7 @@ class LibraryScannerService {
           }
 
           batch.add(song);
+          newOrModifiedFingerprints[metadata.path] = metadata.lastModified;
         }
 
         if (idsToDelete.isNotEmpty) {
@@ -587,17 +624,24 @@ class LibraryScannerService {
       }
     }
 
-    // Post-process CUE and log files
+    // Post-process CUE and log files (single walk, both collected in one pass)
     if (!_isCancelled) {
-      final cueMap = await _parseCueFilesRust(scanRootPath);
-      final logMap = await _parseLogFilesRust(scanRootPath);
+      final (:cueMap, :logMap) = await _parseCueAndLogFilesRust(scanRootPath);
 
       if (cueMap.isNotEmpty || logMap.isNotEmpty) {
         final existingSongsAfterScan =
             await _songRepository.getSongEntitiesByFolder(folderUri);
-        final existingMapAfterScan = <String, SongEntity>{
-          for (var s in existingSongsAfterScan) s.filePath: s,
-        };
+        // Separate raw entities from CUE tracks — the old collapsible map
+        // (keyed only by filePath) lost raw entities when CUE tracks shared
+        // the same path, causing raw entities to survive alongside CUE tracks.
+        final rawEntitiesByPath = <String, SongEntity>{};
+        final logExistingByPath = <String, SongEntity>{};
+        for (var s in existingSongsAfterScan) {
+          if (s.startOffsetMs == null) {
+            rawEntitiesByPath[s.filePath] = s;
+          }
+          logExistingByPath[s.filePath] = s;
+        }
 
         // Delete orphaned CUE tracks
         final existingCuePaths = existingSongsAfterScan
@@ -615,12 +659,27 @@ class LibraryScannerService {
         for (final entry in cueMap.entries) {
           final audioPath = entry.key;
           final cueSheet = entry.value;
-          final existing = existingMapAfterScan[audioPath];
 
-          // Delete raw entity if present
-          if (existing != null && existing.startOffsetMs == null) {
-            await _songRepository.deleteSongsByIds([existing.id]);
+          // Skip if audio file unchanged since last scan and CUE tracks
+          // already exist in DB — avoids redundant re-parsing.
+          final cachedTs = cachedFingerprints?[audioPath];
+          if (cachedTs != null) {
+            final existingCueCount = existingSongsAfterScan
+                .where((s) =>
+                    s.filePath == audioPath && s.startOffsetMs != null)
+                .length;
+            if (existingCueCount > 0) {
+              try {
+                final stat = FileStat.statSync(audioPath);
+                if (stat.type != FileSystemEntityType.notFound &&
+                    stat.modified.millisecondsSinceEpoch == cachedTs) {
+                  continue;
+                }
+              } catch (_) {}
+            }
           }
+
+          final rawEntity = rawEntitiesByPath[audioPath];
 
           // Re-fetch existing CUE tracks for this path to preserve IDs
           final cueExistingMap = <String, SongEntity>{};
@@ -630,8 +689,42 @@ class LibraryScannerService {
             cueExistingMap['${s.filePath}#${s.startOffsetMs}'] = s;
           }
 
+          // Build fallback metadata — prefer raw entity (fresh audio tags),
+          // then fall back to existing CUE tracks (preserve across rescans
+          // when the raw entity was already deleted).
+          SongEntity? fallbackSource = rawEntity;
+          fallbackSource ??= cueTracksInDb.isNotEmpty
+              ? cueTracksInDb.first
+              : null;
+          final AudioFileInfo? fallbackMeta = fallbackSource != null
+              ? AudioFileInfo(
+                  uri: audioPath,
+                  name: audioPath.split('/').last,
+                  size: fallbackSource.fileSize ?? 0,
+                  lastModified:
+                      fallbackSource.lastModified?.millisecondsSinceEpoch ?? 0,
+                  extension: audioPath.split('.').last,
+                  title: fallbackSource.title,
+                  artist: fallbackSource.artist,
+                  album: fallbackSource.album,
+                  albumArtist: fallbackSource.albumArtist,
+                  trackNumber: fallbackSource.trackNumber,
+                  discNumber: fallbackSource.discNumber,
+                  duration: fallbackSource.durationMs,
+                  albumArtPath: fallbackSource.albumArtPath,
+                  bitrate: fallbackSource.bitrate?.toString(),
+                  bitDepth: fallbackSource.bitDepth,
+                  sampleRate: fallbackSource.sampleRate,
+                )
+              : null;
+
+          // Delete raw entity if present
+          if (rawEntity != null) {
+            await _songRepository.deleteSongsByIds([rawEntity.id]);
+          }
+
           final ripLog = logMap[audioPath];
-          final lastModified = existing?.lastModified ??
+          final lastModified = rawEntity?.lastModified ??
               DateTime.fromMillisecondsSinceEpoch(
                 DateTime.now().millisecondsSinceEpoch,
               );
@@ -639,7 +732,7 @@ class LibraryScannerService {
           final entities = _buildCueTrackEntities(
             audioUri: audioPath,
             cueSheet: cueSheet,
-            meta: null,
+            meta: fallbackMeta,
             folderUri: folderUri,
             existingMap: cueExistingMap,
             ripLog: ripLog,
@@ -655,7 +748,22 @@ class LibraryScannerService {
         for (final entry in logMap.entries) {
           final audioPath = entry.key;
           if (cueMap.containsKey(audioPath)) continue;
-          final existing = existingMapAfterScan[audioPath];
+
+          // Skip if audio file unchanged since last scan and already
+          // has log metadata — avoids redundant re-parsing.
+          final cachedTs = cachedFingerprints?[audioPath];
+          final existing = logExistingByPath[audioPath];
+          if (cachedTs != null && existing != null &&
+              existing.ripper != null) {
+            try {
+              final stat = FileStat.statSync(audioPath);
+              if (stat.type != FileSystemEntityType.notFound &&
+                  stat.modified.millisecondsSinceEpoch == cachedTs) {
+                continue;
+              }
+            } catch (_) {}
+          }
+
           if (existing == null) continue;
           existing.ripper = entry.value.ripper;
           existing.readMode = entry.value.readMode;
@@ -673,6 +781,7 @@ class LibraryScannerService {
       scanPreferences,
       scanRootPath: scanRootPath,
     );
+    await _fingerprintCache.sync(folderUri, newOrModifiedFingerprints, deletedPaths);
 
     yield ScanProgress(
       songsFound: finalCount,
@@ -686,32 +795,54 @@ class LibraryScannerService {
     _isCancelled = false;
     final folders = await _folderRepository.getAllFolders();
     final scanPlan = _deduplicateFoldersForScan(folders);
-    var runningLibrarySongCount = await _songRepository.getSongCount();
+    if (scanPlan.isEmpty) return;
+
+    // Scan all deduplicated folders concurrently
+    final controller = StreamController<ScanProgress>();
+    var running = 0;
+    var completed = 0;
 
     for (final folder in scanPlan) {
       if (_isCancelled) break;
-      final existingFolderSongCount = await _songRepository.countSongsInFolder(
-        folder.uri,
+      running++;
+
+      // Capture in closures, no await here — fire and collect
+      scanFolder(folder.uri, folder.displayName).listen(
+        (progress) {
+          if (!controller.isClosed) {
+            controller.add(
+              ScanProgress(
+                songsFound: progress.songsFound,
+                totalFiles: progress.totalFiles,
+                currentFile: progress.currentFile,
+                currentFolder: folder.displayName,
+                isComplete: false, // only final event is complete
+              ),
+            );
+          }
+          if (progress.isComplete) {
+            completed++;
+            if (completed >= running) {
+              controller.close();
+            }
+          }
+        },
+        onError: (e) {
+          if (!controller.isClosed) controller.addError(e);
+        },
+        cancelOnError: false,
       );
+    }
 
-      await for (final progress in scanFolder(folder.uri, folder.displayName)) {
-        final adjustedSongsFound =
-            (runningLibrarySongCount - existingFolderSongCount) +
-            progress.songsFound;
-        final aggregatedProgress = ScanProgress(
-          songsFound: adjustedSongsFound < 0 ? 0 : adjustedSongsFound,
-          totalFiles: progress.totalFiles,
-          currentFile: progress.currentFile,
-          currentFolder: progress.currentFolder,
-          isComplete: progress.isComplete,
-        );
+    yield* controller.stream;
 
-        if (progress.isComplete) {
-          runningLibrarySongCount = aggregatedProgress.songsFound;
-        }
-
-        yield aggregatedProgress;
-      }
+    if (!_isCancelled) {
+      final finalCount = await _songRepository.getSongCount();
+      yield ScanProgress(
+        songsFound: finalCount,
+        totalFiles: 0,
+        isComplete: true,
+      );
     }
   }
 
@@ -1128,72 +1259,69 @@ class LibraryScannerService {
     return result;
   }
 
-  Future<Map<String, CueSheet>> _parseCueFilesRust(
+  Future<({Map<String, CueSheet> cueMap, Map<String, RipLog> logMap})>
+      _parseCueAndLogFilesRust(
     String scanRootPath,
   ) async {
     final cueService = CueFileService();
-    final result = <String, CueSheet>{};
-    try {
-      final dir = Directory(scanRootPath);
-      if (!dir.existsSync()) return result;
-      await for (final entity in dir.list(recursive: true, followLinks: false)) {
-        if (_isCancelled) break;
-        if (entity is! File) continue;
-        final path = entity.path;
-        if (!path.toLowerCase().endsWith('.cue')) continue;
-        final content = await entity.readAsString().catchError((_) => '');
-        if (content.isEmpty) continue;
-        final sheet = cueService.parseCueSheet(content, cueFilePath: path);
-        if (sheet == null) continue;
-        final audioPath = cueService.resolveAudioFilePath(path, sheet.audioFile);
-        result[audioPath] = sheet;
-      }
-    } catch (e) {
-      debugPrint('[LibraryScanner] Error scanning for CUE files: $e');
-    }
-    return result;
-  }
-
-  Future<Map<String, RipLog>> _parseLogFilesRust(
-    String scanRootPath,
-  ) async {
     final logService = RipLogService();
+    final cueMap = <String, CueSheet>{};
     final result = <String, RipLog>{};
     try {
       final dir = Directory(scanRootPath);
-      if (!dir.existsSync()) return result;
-      final audioPaths = <String, String>{};
-      await for (final entity in dir.list(recursive: true, followLinks: false)) {
-        if (entity is File &&
-            _looksLikeSupportedAudioExtension(
-              entity.path.split('.').last.toLowerCase(),
-            )) {
-          final name = entity.path.split('/').last;
-          final stem = _fileStem(name).toLowerCase();
-          audioPaths[stem] = entity.path;
-        }
-      }
+      if (!dir.existsSync()) return (cueMap: cueMap, logMap: result);
+
+      // Single walk — collect audio stems, cue files, log files simultaneously
+      final cueFiles = <String>[];
+      final logFiles = <String>[];
+      final audioStems = <String, String>{};
+
       await for (final entity in dir.list(recursive: true, followLinks: false)) {
         if (_isCancelled) break;
         if (entity is! File) continue;
         final path = entity.path;
         final ext = path.split('.').last.toLowerCase();
-        if (ext != 'log' && ext != 'txt') continue;
-        final content = await entity.readAsString().catchError((_) => '');
+        final name = path.split('/').last;
+
+        if (_looksLikeSupportedAudioExtension(ext)) {
+          audioStems[_fileStem(name).toLowerCase()] = path;
+        } else if (ext == 'cue') {
+          cueFiles.add(path);
+        } else if (ext == 'log' || ext == 'txt') {
+          logFiles.add(path);
+        }
+      }
+
+      // Parse CUE files
+      for (final path in cueFiles) {
+        if (_isCancelled) break;
+        final content =
+            await File(path).readAsString().catchError((_) => '');
+        if (content.isEmpty) continue;
+        final sheet = cueService.parseCueSheet(content, cueFilePath: path);
+        if (sheet == null) continue;
+        final audioPath = cueService.resolveAudioFilePath(path, sheet.audioFile);
+        cueMap[audioPath] = sheet;
+      }
+
+      // Parse log files
+      for (final path in logFiles) {
+        if (_isCancelled) break;
+        final content =
+            await File(path).readAsString().catchError((_) => '');
         if (content.isEmpty) continue;
         final ripLog = logService.parseLog(content);
         if (ripLog == null) continue;
-        final name = path.split('/').last;
-        final stem = _fileStem(name).toLowerCase();
-        final audioPath = audioPaths[stem];
+        final stem = _fileStem(path.split('/').last).toLowerCase();
+        final audioPath = audioStems[stem];
         if (audioPath != null) {
           result[audioPath] = ripLog;
         }
       }
     } catch (e) {
-      debugPrint('[LibraryScanner] Error scanning for log files: $e');
+      debugPrint('[LibraryScanner] Error scanning for CUE/log files: $e');
     }
-    return result;
+    return (cueMap: cueMap, logMap: result);
   }
 
   String _fileStem(String fileName) {

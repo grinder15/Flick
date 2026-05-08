@@ -1,13 +1,10 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'library_scanner_service.dart';
-import 'music_folder_service.dart';
-import '../data/repositories/folder_repository.dart';
 
 /// Service for automatically syncing library changes in the background.
 class AutoLibrarySyncService {
   final LibraryScannerService _scannerService;
-  final FolderRepository _folderRepository;
 
   Timer? _syncTimer;
   bool _isRunning = false;
@@ -18,9 +15,7 @@ class AutoLibrarySyncService {
 
   AutoLibrarySyncService({
     LibraryScannerService? scannerService,
-    FolderRepository? folderRepository,
-  }) : _scannerService = scannerService ?? LibraryScannerService(),
-       _folderRepository = folderRepository ?? FolderRepository();
+  }) : _scannerService = scannerService ?? LibraryScannerService();
 
   /// Start automatic library syncing.
   void start() {
@@ -57,64 +52,8 @@ class AutoLibrarySyncService {
     debugPrint('Starting automatic library sync...');
 
     try {
-      final folders = await _folderRepository.getAllFolders();
-      final scheduledRoots = <String>{};
-      final scanPlan = folders.where((folder) {
-        final normalized = normalizeFolderIdentifier(folder.uri);
-        final overlapsExisting = scheduledRoots.any(
-          (root) =>
-              isSameOrDescendantFolder(normalized, root) ||
-              isSameOrDescendantFolder(root, normalized),
-        );
-        if (overlapsExisting) {
-          debugPrint(
-            'Skipping overlapping auto-sync root ${folder.displayName} (${folder.uri})',
-          );
-          return false;
-        }
-        scheduledRoots.add(normalized);
-        return true;
-      }).toList();
-
-      if (scanPlan.isEmpty) {
-        debugPrint('No folders to sync');
-        return;
-      }
-
-      int totalNewSongs = 0;
-      int totalDeletedSongs = 0;
-
-      for (final folder in scanPlan) {
-        final initialCount = folder.songCount;
-
-        await for (final progress in _scannerService.scanFolder(
-          folder.uri,
-          folder.displayName,
-        )) {
-          if (progress.isComplete) {
-            final newCount = progress.songsFound;
-            final diff = newCount - initialCount;
-
-            if (diff > 0) {
-              totalNewSongs += diff;
-              debugPrint('Found $diff new songs in ${folder.displayName}');
-            } else if (diff < 0) {
-              totalDeletedSongs += diff.abs();
-              debugPrint(
-                'Removed ${diff.abs()} songs from ${folder.displayName}',
-              );
-            }
-          }
-        }
-      }
-
-      if (totalNewSongs > 0 || totalDeletedSongs > 0) {
-        debugPrint(
-          'Sync complete: +$totalNewSongs new, -$totalDeletedSongs removed',
-        );
-      } else {
-        debugPrint('Sync complete: No changes detected');
-      }
+      await _scannerService.refreshDeletions();
+      debugPrint('Sync complete: checked for deleted files');
     } catch (e) {
       debugPrint('Error during automatic sync: $e');
     } finally {

@@ -11,6 +11,12 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/features/songs/screens/songs_screen.dart';
 import 'package:flick/features/menu/screens/menu_screen.dart';
 import 'package:flick/features/settings/screens/settings_screen.dart';
+import 'package:flick/features/albums/screens/albums_screen.dart';
+import 'package:flick/features/artists/screens/artists_screen.dart';
+import 'package:flick/features/folders/screens/folders_screen.dart';
+import 'package:flick/features/playlists/screens/playlists_screen.dart';
+import 'package:flick/features/favorites/screens/favorites_screen.dart';
+import 'package:flick/features/search/screens/search_screen.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/constants/app_constants.dart';
@@ -418,6 +424,36 @@ class _MainShellState extends ConsumerState<MainShell>
                     currentIndex: currentIndex,
                     child: const SettingsScreen(key: ValueKey('settings')),
                   ),
+                  _buildTab(
+                    tabIndex: 3,
+                    currentIndex: currentIndex,
+                    child: const AlbumsScreen(key: ValueKey('albums')),
+                  ),
+                  _buildTab(
+                    tabIndex: 4,
+                    currentIndex: currentIndex,
+                    child: const ArtistsScreen(key: ValueKey('artists')),
+                  ),
+                  _buildTab(
+                    tabIndex: 5,
+                    currentIndex: currentIndex,
+                    child: const FoldersScreen(key: ValueKey('folders')),
+                  ),
+                  _buildTab(
+                    tabIndex: 6,
+                    currentIndex: currentIndex,
+                    child: const PlaylistsScreen(key: ValueKey('playlists')),
+                  ),
+                  _buildTab(
+                    tabIndex: 7,
+                    currentIndex: currentIndex,
+                    child: const FavoritesScreen(key: ValueKey('favorites')),
+                  ),
+                  _buildTab(
+                    tabIndex: 8,
+                    currentIndex: currentIndex,
+                    child: const SearchScreen(key: ValueKey('search')),
+                  ),
                 ],
               ),
 
@@ -452,9 +488,11 @@ class _MainShellState extends ConsumerState<MainShell>
 
   Widget _buildUnifiedBottomBar() {
     final currentIndex = ref.watch(navigationIndexProvider);
+    final navBarConfig = ref.watch(navBarConfigProvider);
 
     return FlickNavBar(
       currentIndex: currentIndex,
+      config: navBarConfig,
       onTap: (index) {
         if (ref.read(navigationIndexProvider) != index) {
           ref.read(navigationIndexProvider.notifier).setIndex(index);

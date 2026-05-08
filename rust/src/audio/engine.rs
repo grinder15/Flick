@@ -234,6 +234,9 @@ pub struct AudioEngineHandle {
     decoders: Arc<Mutex<Vec<DecoderThread>>>,
     /// Shutdown flag
     shutdown: Arc<AtomicBool>,
+    /// Audio thread handle, joined on shutdown to ensure the
+    /// output stream is released before a new engine opens one.
+    _audio_thread: parking_lot::Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 // AudioEngineHandle is Send + Sync because it only contains Arc, channels, and atomics
@@ -462,6 +465,14 @@ impl AudioEngineHandle {
     pub fn shutdown(&self) -> Result<(), String> {
         self.shutdown.store(true, Ordering::Release);
         self.send_command(AudioCommand::Shutdown)
+            .inspect_err(|e| {
+                log::warn!("Failed to send Shutdown command: {}", e);
+            })
+            .ok();
+        if let Some(handle) = self._audio_thread.lock().take() {
+            let _ = handle.join();
+        }
+        Ok(())
     }
 }
 
@@ -560,7 +571,7 @@ pub fn create_audio_engine(
     let callback_data_for_thread = Arc::clone(&callback_data);
 
     // Spawn the audio thread (which owns the cpal stream)
-    thread::Builder::new()
+    let audio_thread = thread::Builder::new()
         .name("audio-engine".to_string())
         .spawn(move || {
             // Build the stream in this thread
@@ -600,7 +611,9 @@ pub fn create_audio_engine(
             );
 
             // Stream will be dropped here when the loop exits
-        })
+        });
+
+    let audio_thread = audio_thread
         .map_err(|e| format!("Failed to spawn audio thread: {}", e))?;
 
     Ok(AudioEngineHandle {
@@ -623,6 +636,7 @@ pub fn create_audio_engine(
         },
         decoders,
         shutdown,
+        _audio_thread: parking_lot::Mutex::new(Some(audio_thread)),
     })
 }
 
@@ -1036,7 +1050,7 @@ pub fn create_audio_engine(
     );
 
     // Spawn the audio thread (which owns the Oboe stream)
-    thread::Builder::new()
+    let audio_thread = thread::Builder::new()
         .name("audio-engine".to_string())
         .spawn(move || {
             #[cfg(feature = "uac2")]
@@ -1094,7 +1108,9 @@ pub fn create_audio_engine(
             if let Err(error) = stream.stop() {
                 eprintln!("Failed to stop Android direct output stream: {}", error);
             }
-        })
+        });
+
+    let audio_thread = audio_thread
         .map_err(|e| format!("Failed to spawn audio thread: {}", e))?;
 
     Ok(AudioEngineHandle {
@@ -1108,6 +1124,7 @@ pub fn create_audio_engine(
         output_runtime,
         decoders,
         shutdown,
+        _audio_thread: parking_lot::Mutex::new(Some(audio_thread)),
     })
 }
 

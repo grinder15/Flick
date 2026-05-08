@@ -535,7 +535,13 @@ pub fn audio_set_fx(
 }
 
 /// Configure crossfade settings.
+/// Only available when not in bit-perfect (passthrough) mode.
 pub fn audio_set_crossfade(enabled: bool, duration_secs: f32) -> Result<(), String> {
+    if let Some(true) = read_audio_engine(|handle| handle.is_passthrough()) {
+        return Err(
+            "Crossfade is not available in bit-perfect playback mode".to_string(),
+        );
+    }
     with_audio_engine(|handle| handle.set_crossfade(enabled, duration_secs))
 }
 
@@ -613,8 +619,20 @@ pub fn audio_poll_event() -> Option<AudioEventType> {
 }
 
 /// Set the crossfade curve type.
-pub fn audio_set_crossfade_curve(_curve: CrossfadeCurveType) -> Result<(), String> {
-    Ok(())
+/// Only available when not in bit-perfect (passthrough) mode.
+pub fn audio_set_crossfade_curve(curve: CrossfadeCurveType) -> Result<(), String> {
+    if let Some(true) = read_audio_engine(|handle| handle.is_passthrough()) {
+        return Err(
+            "Crossfade is not available in bit-perfect playback mode".to_string(),
+        );
+    }
+    let curve = match curve {
+        CrossfadeCurveType::EqualPower => crate::audio::crossfader::CrossfadeCurve::EqualPower,
+        CrossfadeCurveType::Linear => crate::audio::crossfader::CrossfadeCurve::Linear,
+        CrossfadeCurveType::SquareRoot => crate::audio::crossfader::CrossfadeCurve::SquareRoot,
+        CrossfadeCurveType::SCurve => crate::audio::crossfader::CrossfadeCurve::SCurve,
+    };
+    with_audio_engine(|handle| handle.set_crossfade_curve(curve))
 }
 
 /// Get the audio engine's sample rate.

@@ -127,6 +127,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
       ),
       child: Row(
         children: [
+          if (Navigator.of(context).canPop()) ...[
           Container(
             decoration: BoxDecoration(
               color: AppColors.glassBackground,
@@ -143,6 +144,7 @@ class _ArtistsScreenState extends State<ArtistsScreen> {
             ),
           ),
           const SizedBox(width: AppConstants.spacingMd),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

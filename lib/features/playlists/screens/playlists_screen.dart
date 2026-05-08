@@ -54,6 +54,7 @@ class PlaylistsScreen extends ConsumerWidget {
       ),
       child: Row(
         children: [
+          if (Navigator.of(context).canPop()) ...[
           Container(
             decoration: BoxDecoration(
               color: AppColors.glassBackground,
@@ -70,6 +71,7 @@ class PlaylistsScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(width: AppConstants.spacingMd),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

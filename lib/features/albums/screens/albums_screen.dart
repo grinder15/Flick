@@ -189,6 +189,7 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
         children: [
           Row(
             children: [
+              if (Navigator.of(context).canPop()) ...[
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.glassBackground,
@@ -205,6 +206,7 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
                 ),
               ),
               const SizedBox(width: AppConstants.spacingMd),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

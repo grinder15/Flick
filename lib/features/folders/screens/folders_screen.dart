@@ -114,6 +114,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
       ),
       child: Row(
         children: [
+          if (Navigator.of(context).canPop()) ...[
           Container(
             decoration: BoxDecoration(
               color: AppColors.glassBackground,
@@ -130,6 +131,7 @@ class _FoldersScreenState extends State<FoldersScreen> {
             ),
           ),
           const SizedBox(width: AppConstants.spacingMd),
+          ],
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

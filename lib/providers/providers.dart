@@ -18,3 +18,4 @@ export 'duplicate_cleaner_provider.dart';
 export 'onboarding_provider.dart';
 export 'app_preferences_provider.dart';
 export 'progress_bar_style_provider.dart';
+export 'album_color_provider.dart';

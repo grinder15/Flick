@@ -22,6 +22,7 @@ import 'package:flick/services/replay_play_tracker.dart';
 import 'package:flick/services/android_audio_engine.dart';
 import 'package:flick/services/rust_audio_engine.dart';
 import 'package:flick/services/rust_audio_service.dart';
+import 'package:flick/services/app_preferences_service.dart';
 import 'package:flick/services/uac2_preferences_service.dart';
 import 'package:flick/services/uac2_service.dart';
 import 'package:flick/services/alac_converter_service.dart';
@@ -238,6 +239,7 @@ class PlayerService {
   final LastPlayedService _lastPlayedService = LastPlayedService();
   final FavoritesService _favoritesService = FavoritesService();
   final Uac2PreferencesService _preferencesService = Uac2PreferencesService();
+  final AppPreferencesService _appPreferencesService = AppPreferencesService();
   final RustAudioService _rustAudioService = RustAudioService();
   final Uac2Service _uac2Service = Uac2Service.instance;
   bool _priorityAnchorActive = false;
@@ -267,6 +269,7 @@ class PlayerService {
   final ValueNotifier<bool> bitPerfectProcessingLockedNotifier = ValueNotifier(
     false,
   );
+  final ValueNotifier<bool> gaplessPlaybackEnabledNotifier = ValueNotifier(true);
   bool get _usingRustBackend => usingRustBackendNotifier.value;
   set _usingRustBackend(bool value) => usingRustBackendNotifier.value = value;
   bool _rustBackendAvailable = false;
@@ -402,6 +405,15 @@ class PlayerService {
     _updateBitPerfectProcessingLocked();
     _uac2Service.addStatusListener(_mirrorUsbVolumeFromUac2Status);
     _notifyQueueChanged();
+    unawaited(_loadGaplessPlaybackPreference());
+    unawaited(_loadCrossfadePreferences());
+  }
+
+  Future<void> _loadCrossfadePreferences() async {
+    final enabled = await _appPreferencesService.getCrossfadeEnabled();
+    final duration = await _appPreferencesService.getCrossfadeDurationSecs();
+    _rustAudioService.crossfadeEnabledNotifier.value = enabled;
+    _rustAudioService.crossfadeDurationNotifier.value = duration;
   }
 
   /// When the DAC/route reports a new volume level, keep [_currentVolume]
@@ -488,6 +500,32 @@ class PlayerService {
       reason: 'bit-perfect preference changed',
     );
   }
+
+  Future<void> _loadGaplessPlaybackPreference() async {
+    final enabled = await _preferencesService.getGaplessPlaybackEnabled();
+    gaplessPlaybackEnabledNotifier.value = enabled;
+  }
+
+  Future<void> setGaplessPlaybackEnabled(bool enabled) async {
+    gaplessPlaybackEnabledNotifier.value = enabled;
+    await _preferencesService.setGaplessPlaybackEnabled(enabled);
+  }
+
+  bool get _isGaplessActive =>
+      _usingRustBackend &&
+      gaplessPlaybackEnabledNotifier.value &&
+      !isBitPerfectModeEnabled &&
+      loopModeNotifier.value != LoopMode.one;
+
+  bool get _isCrossfadeActive =>
+      _usingRustBackend &&
+      _rustAudioService.crossfadeEnabledNotifier.value &&
+      !isBitPerfectModeEnabled;
+
+  bool get _shouldQueueNextTrack =>
+      _usingRustBackend &&
+      !isBitPerfectModeEnabled &&
+      (_isGaplessActive || _isCrossfadeActive);
 
   void _notifyQueueChanged() {
     queueNotifier.value = List.unmodifiable(
@@ -1796,6 +1834,11 @@ class PlayerService {
       '_onSongFinished: loopMode=${loopModeNotifier.value}, currentIndex=$_currentIndex, playlistLength=${_playlist.length}, usingRustBackend=$_usingRustBackend, endedPath=$endedPath',
     );
 
+    if (_isGaplessActive || _isCrossfadeActive) {
+      await _handleGaplessTrackEnded();
+      return;
+    }
+
     if (!shouldHandleManualCompletion(
       usingRustBackend: _usingRustBackend,
       loopMode: loopModeNotifier.value,
@@ -1813,6 +1856,33 @@ class PlayerService {
     } else {
       debugPrint('_onSongFinished: Calling next()');
       await _nextInternal();
+    }
+  }
+
+  Future<void> _handleGaplessTrackEnded() async {
+    if (_playlist.isEmpty) return;
+
+    if (_currentIndex < _playlist.length - 1) {
+      _setCurrentIndex(_currentIndex + 1);
+    } else if (loopModeNotifier.value == LoopMode.all) {
+      _setCurrentIndex(0);
+    } else {
+      await _pauseInternal();
+      await seek(Duration.zero);
+      return;
+    }
+
+    final currentSong = _songAtCurrentIndex();
+    if (currentSong != null) {
+      currentSongNotifier.value = currentSong;
+    }
+    _consumeQueueEntryAt(_currentIndex);
+    _updatePriorityAnchor();
+
+    unawaited(_queueNextTrackForGapless());
+
+    if (isPlayingNotifier.value && currentSong != null) {
+      _updateNotificationState();
     }
   }
 
@@ -2349,6 +2419,16 @@ class PlayerService {
       );
     }
 
+    final curveIndex = await _appPreferencesService.getCrossfadeCurveIndex();
+    final curves = <rust_audio.CrossfadeCurveType>[
+      rust_audio.CrossfadeCurveType.equalPower,
+      rust_audio.CrossfadeCurveType.linear,
+      rust_audio.CrossfadeCurveType.squareRoot,
+      rust_audio.CrossfadeCurveType.sCurve,
+    ];
+    final curve = curves[curveIndex.clamp(0, curves.length - 1)];
+    await _rustAudioService.setCrossfadeCurve(curve);
+
     await reapplyEqualizer();
     _updatePriorityAnchor();
   }
@@ -2813,6 +2893,9 @@ class PlayerService {
         });
         _ensurePositionSaveTimer();
         _updatePriorityAnchor();
+        if (_shouldQueueNextTrack && _playlist.length > 1) {
+          unawaited(_queueNextTrackForGapless());
+        }
         await _refreshAudioOutputDiagnostics(
           reason: 'playback started',
           activeSong: song,
@@ -2842,6 +2925,20 @@ class PlayerService {
       return;
     }
     await _playInternal(song);
+  }
+
+  Future<void> _queueNextTrackForGapless() async {
+    if (!_shouldQueueNextTrack || _playlist.isEmpty) return;
+
+    final isLastTrack = _currentIndex >= _playlist.length - 1;
+    if (isLastTrack && loopModeNotifier.value != LoopMode.all) return;
+
+    final nextIndex = isLastTrack ? 0 : _currentIndex + 1;
+    final nextSong = _playlist[nextIndex];
+    final nextPath = await _resolveRustPath(nextSong);
+    if (nextPath != null) {
+      await _rustAudioService.queueNext(nextPath);
+    }
   }
 
   Future<void> _savePosition({Song? song, Duration? position}) async {

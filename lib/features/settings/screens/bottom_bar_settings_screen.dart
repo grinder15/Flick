@@ -98,6 +98,18 @@ class BottomBarSettingsScreen extends ConsumerWidget {
                       .setIconSizeFactor(value);
                 },
               ),
+              const SettingsDivider(),
+              ToggleSetting(
+                icon: LucideIcons.type,
+                title: 'Show Labels',
+                subtitle: 'Display text labels below icons',
+                value: config.showLabels,
+                onChanged: (value) {
+                  ref
+                      .read(navBarConfigProvider.notifier)
+                      .setShowLabels(value);
+                },
+              ),
             ],
           ),
           const SizedBox(height: AppConstants.spacingLg),

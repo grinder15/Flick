@@ -8,6 +8,7 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
   static const _sizeKey = 'nav_bar_size';
   static const _spacingKey = 'nav_bar_spacing';
   static const _iconSizeKey = 'nav_bar_icon_size';
+  static const _showLabelsKey = 'nav_bar_show_labels';
 
   bool _initialized = false;
 
@@ -34,6 +35,7 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
       barSizeFactor: prefs.getDouble(_sizeKey) ?? 1.0,
       buttonSpacingFactor: prefs.getDouble(_spacingKey) ?? 1.0,
       iconSizeFactor: prefs.getDouble(_iconSizeKey) ?? 1.0,
+      showLabels: prefs.getBool(_showLabelsKey) ?? true,
     );
   }
 
@@ -59,6 +61,7 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
     await prefs.setDouble(_sizeKey, state.barSizeFactor);
     await prefs.setDouble(_spacingKey, state.buttonSpacingFactor);
     await prefs.setDouble(_iconSizeKey, state.iconSizeFactor);
+    await prefs.setBool(_showLabelsKey, state.showLabels);
   }
 
   Future<void> setEnabledButtons(Set<NavBarButton> buttons) async {
@@ -96,6 +99,12 @@ class NavBarConfigNotifier extends Notifier<NavBarConfig> {
   Future<void> setIconSizeFactor(double value) async {
     if (state.iconSizeFactor == value) return;
     state = state.copyWith(iconSizeFactor: value);
+    await _persist();
+  }
+
+  Future<void> setShowLabels(bool value) async {
+    if (state.showLabels == value) return;
+    state = state.copyWith(showLabels: value);
     await _persist();
   }
 

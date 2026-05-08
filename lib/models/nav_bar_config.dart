@@ -24,6 +24,7 @@ class NavBarConfig {
   final double barSizeFactor;
   final double buttonSpacingFactor;
   final double iconSizeFactor;
+  final bool showLabels;
 
   static const allButtons = {
     NavBarButton.menu,
@@ -36,6 +37,7 @@ class NavBarConfig {
     this.barSizeFactor = 1.0,
     this.buttonSpacingFactor = 1.0,
     this.iconSizeFactor = 1.0,
+    this.showLabels = true,
   });
 
   static const defaultConfig = NavBarConfig();
@@ -62,12 +64,14 @@ class NavBarConfig {
     double? barSizeFactor,
     double? buttonSpacingFactor,
     double? iconSizeFactor,
+    bool? showLabels,
   }) {
     return NavBarConfig(
       enabledButtons: enabledButtons ?? this.enabledButtons,
       barSizeFactor: barSizeFactor ?? this.barSizeFactor,
       buttonSpacingFactor: buttonSpacingFactor ?? this.buttonSpacingFactor,
       iconSizeFactor: iconSizeFactor ?? this.iconSizeFactor,
+      showLabels: showLabels ?? this.showLabels,
     );
   }
 }

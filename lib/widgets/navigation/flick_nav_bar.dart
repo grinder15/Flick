@@ -172,16 +172,17 @@ class _OverflowNavItem extends StatelessWidget {
               size: iconSize,
             ),
             SizedBox(height: spacing),
-            Text(
-              'More',
-              style: TextStyle(
-                fontFamily: 'ProductSans',
-                fontSize: fontSize,
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                color: color,
-                letterSpacing: 0.4,
+            if (config.showLabels)
+              Text(
+                'More',
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: fontSize,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                  color: color,
+                  letterSpacing: 0.4,
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -409,18 +410,19 @@ class _FlickNavItemState extends State<_FlickNavItem>
                     ),
                   ),
                   SizedBox(height: spacing),
-                  Text(
-                    widget.button.label,
-                    style: TextStyle(
-                      fontFamily: 'ProductSans',
-                      fontSize: fontSize,
-                      fontWeight: widget.isSelected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                      color: lerpColor,
-                      letterSpacing: 0.4,
+                  if (widget.config.showLabels)
+                    Text(
+                      widget.button.label,
+                      style: TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: fontSize,
+                        fontWeight: widget.isSelected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: lerpColor,
+                        letterSpacing: 0.4,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),

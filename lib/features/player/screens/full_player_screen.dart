@@ -13,6 +13,7 @@ import 'package:flick/features/albums/screens/albums_screen.dart';
 import 'package:flick/features/artists/screens/artists_screen.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/features/songs/widgets/album_art_picker_bottom_sheet.dart';
+import 'package:flick/models/album_color_mode.dart';
 import 'package:flick/models/player_screen_mode.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/player_service.dart';
@@ -20,6 +21,7 @@ import 'package:flick/services/external_playback_service.dart';
 import 'package:flick/services/favorites_service.dart';
 import 'package:flick/services/lyrics_service.dart';
 import 'package:flick/services/player_screen_mode_preference_service.dart';
+import 'package:flick/providers/album_color_provider.dart';
 import 'package:flick/providers/playlist_provider.dart';
 import 'package:flick/features/player/widgets/audio_visualizer.dart';
 import 'package:flick/features/player/widgets/line_seek_bar.dart';
@@ -440,60 +442,136 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          border: Border.all(color: AppColors.glassBorder),
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      builder: (sheetContext) => Consumer(
+        builder: (context, ref, _) {
+          final colorMode = ref.watch(albumColorModeProvider);
+          return Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.dashboard_customize_rounded,
-                  size: 20,
-                  color: sheetContext.adaptiveTextSecondary,
+                Row(
+                  children: [
+                    Icon(
+                      Icons.dashboard_customize_rounded,
+                      size: 20,
+                      color: sheetContext.adaptiveTextSecondary,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Player Layout',
+                      style: TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: sheetContext.adaptiveTextPrimary,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Text(
-                  'Player Layout',
-                  style: TextStyle(
-                    fontFamily: 'ProductSans',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: sheetContext.adaptiveTextPrimary,
-                  ),
+                const SizedBox(height: 16),
+                _PlayerLayoutOptionTile(
+                  title: PlayerScreenMode.immersive.label,
+                  subtitle: PlayerScreenMode.immersive.description,
+                  icon: Icons.fit_screen_rounded,
+                  isSelected:
+                      _playerScreenMode == PlayerScreenMode.immersive,
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _setPlayerScreenMode(PlayerScreenMode.immersive);
+                  },
+                ),
+                const SizedBox(height: 12),
+                _PlayerLayoutOptionTile(
+                  title: PlayerScreenMode.artworkCard.label,
+                  subtitle: PlayerScreenMode.artworkCard.description,
+                  icon: Icons.rounded_corner_rounded,
+                  isSelected:
+                      _playerScreenMode == PlayerScreenMode.artworkCard,
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _setPlayerScreenMode(
+                        PlayerScreenMode.artworkCard);
+                  },
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.palette_outlined,
+                      size: 20,
+                      color: sheetContext.adaptiveTextSecondary,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Album Colors',
+                      style: TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: sheetContext.adaptiveTextPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: AlbumColorMode.values.map((mode) {
+                    final isSelected = colorMode == mode;
+                    return GestureDetector(
+                      onTap: () {
+                        ref
+                            .read(albumColorModeProvider.notifier)
+                            .setMode(mode);
+                      },
+                      child: AnimatedContainer(
+                        duration: AppConstants.animationFast,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? AppColors.accent.withValues(alpha: 0.14)
+                              : AppColors.glassBackground,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isSelected
+                                ? AppColors.accent.withValues(alpha: 0.6)
+                                : AppColors.glassBorder,
+                            width: 1,
+                          ),
+                        ),
+                        child: Text(
+                          mode.label,
+                          style: TextStyle(
+                            fontFamily: 'ProductSans',
+                            fontSize: 14,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? AppColors.textPrimary
+                                : sheetContext.adaptiveTextSecondary,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            _PlayerLayoutOptionTile(
-              title: PlayerScreenMode.immersive.label,
-              subtitle: PlayerScreenMode.immersive.description,
-              icon: Icons.fit_screen_rounded,
-              isSelected: _playerScreenMode == PlayerScreenMode.immersive,
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await _setPlayerScreenMode(PlayerScreenMode.immersive);
-              },
-            ),
-            const SizedBox(height: 12),
-            _PlayerLayoutOptionTile(
-              title: PlayerScreenMode.artworkCard.label,
-              subtitle: PlayerScreenMode.artworkCard.description,
-              icon: Icons.rounded_corner_rounded,
-              isSelected: _playerScreenMode == PlayerScreenMode.artworkCard,
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await _setPlayerScreenMode(PlayerScreenMode.artworkCard);
-              },
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -1210,6 +1288,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     Song song, {
     required bool lyricsMode,
     required PlayerScreenMode playerScreenMode,
+    Color? albumColor,
+    AlbumColorMode albumColorMode = AlbumColorMode.off,
   }) {
     final immersiveActions = playerScreenMode == PlayerScreenMode.immersive;
     final actionPadding = immersiveActions
@@ -1220,6 +1300,27 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     final favoriteIconSize = immersiveActions
         ? context.responsive(18.0, 20.0, 22.0)
         : context.responsive(16.0, 17.0, 18.0);
+
+    final accentBlend = albumColorMode.accentBlend;
+    final surfaceBlend = albumColorMode.surfaceBlend;
+    final hasAlbumTint = albumColor != null && accentBlend > 0;
+
+    final lyricsActiveBg = hasAlbumTint
+        ? _AnimatedSongScene.albumAccent(albumColor, accentBlend)
+            .withValues(alpha: 0.28)
+        : AppColors.accent.withValues(alpha: 0.28);
+    final lyricsActiveBorder = hasAlbumTint
+        ? _AnimatedSongScene.albumAccent(albumColor, accentBlend)
+            .withValues(alpha: 0.45)
+        : AppColors.accent.withValues(alpha: 0.45);
+    final inactiveBg = hasAlbumTint
+        ? _AnimatedSongScene.albumSurface(albumColor, surfaceBlend)
+            .withValues(alpha: 0.15)
+        : Colors.white.withValues(alpha: 0.15);
+    final inactiveBorder = hasAlbumTint
+        ? _AnimatedSongScene.albumSurface(albumColor, surfaceBlend)
+            .withValues(alpha: 0.08)
+        : Colors.white.withValues(alpha: 0.08);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1235,14 +1336,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
             child: Container(
               padding: actionPadding,
               decoration: BoxDecoration(
-                color: lyricsMode
-                    ? AppColors.accent.withValues(alpha: 0.28)
-                    : Colors.white.withValues(alpha: 0.15),
+                color: lyricsMode ? lyricsActiveBg : inactiveBg,
                 borderRadius: BorderRadius.circular(actionRadius),
                 border: Border.all(
-                  color: lyricsMode
-                      ? AppColors.accent.withValues(alpha: 0.45)
-                      : Colors.white.withValues(alpha: 0.08),
+                  color: lyricsMode ? lyricsActiveBorder : inactiveBorder,
                 ),
               ),
               child: Icon(
@@ -1313,14 +1410,21 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   padding: actionPadding,
                   decoration: BoxDecoration(
                     color: isFavorite
-                        ? Colors.red.withValues(alpha: 0.25)
-                        : Colors.white.withValues(alpha: 0.15),
+                        ? (hasAlbumTint
+                            ? _AnimatedSongScene.albumAccent(
+                                    albumColor, accentBlend)
+                                .withValues(alpha: 0.25)
+                            : Colors.red.withValues(alpha: 0.25))
+                        : inactiveBg,
                     borderRadius: BorderRadius.circular(actionRadius),
                   ),
                   child: Icon(
                     isFavorite ? Icons.favorite : Icons.favorite_border,
                     color: isFavorite
-                        ? Colors.red
+                        ? (hasAlbumTint
+                            ? _AnimatedSongScene.albumAccent(
+                                    albumColor, accentBlend)
+                            : Colors.red)
                         : Colors.white.withValues(alpha: 0.9),
                     size: favoriteIconSize,
                   ),
@@ -1420,9 +1524,17 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     return DisplayModeWrapper(
       child: Scaffold(
         backgroundColor: AppColors.background,
-        body: ValueListenableBuilder<Song?>(
-          valueListenable: _playerService.currentSongNotifier,
-          builder: (context, song, _) {
+        body: Consumer(
+          builder: (context, ref, _) {
+            final colorMode = ref.watch(albumColorModeProvider);
+            final dominantColor = ref.watch(albumDominantColorSyncProvider);
+            final Color? albumColor =
+                (colorMode != AlbumColorMode.off && dominantColor != null)
+                    ? dominantColor
+                    : null;
+            return ValueListenableBuilder<Song?>(
+              valueListenable: _playerService.currentSongNotifier,
+              builder: (context, song, _) {
             if (song == null) {
               // Should usually close the screen if song becomes null or error
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1490,6 +1602,8 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                   lyricsMode: _isLyricsMode,
                   visualizationMode: _isVisualizationMode,
                   playerScreenMode: _playerScreenMode,
+                  albumColorMode: colorMode,
+                  albumColor: albumColor,
                   transitionDirection: _songTransitionDirection,
                   topBarTextFontFamily: _topBarTextFontFamily,
                   topBarTextFontWeight: _topBarTextFontWeight,
@@ -1523,11 +1637,15 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                         song,
                         lyricsMode: lyricsMode,
                         playerScreenMode: mode,
+                        albumColor: albumColor,
+                        albumColorMode: colorMode,
                       ),
                   buildDirectoryInfo: (song) =>
                       _buildDirectoryInfo(context, song, compact: false),
                 ),
               ),
+            );
+              },
             );
           },
         ),
@@ -1541,7 +1659,25 @@ class _AnimatedSongScene extends StatelessWidget {
   final bool lyricsMode;
   final bool visualizationMode;
   final PlayerScreenMode playerScreenMode;
+  final AlbumColorMode albumColorMode;
+  final Color? albumColor;
   final int transitionDirection;
+
+  static const Color _darkBase = Color(0xFF121212);
+
+  /// Tinted surface for button/container backgrounds.
+  static Color albumSurface(Color albumColor, double blend) =>
+      Color.lerp(_darkBase, albumColor, blend)!;
+
+  /// Tinted accent for active states — lighter, slightly desaturated.
+  static Color albumAccent(Color albumColor, double blend) {
+    final hsl = HSLColor.fromColor(albumColor);
+    return hsl
+        .withSaturation((hsl.saturation * 0.7).clamp(0.3, 0.8))
+        .withLightness(0.65)
+        .toColor()
+        .withValues(alpha: (blend + 0.3).clamp(0.0, 1.0));
+  }
   final String topBarTextFontFamily;
   final FontWeight topBarTextFontWeight;
   final double cachedTopBarTextWidth;
@@ -1567,6 +1703,8 @@ class _AnimatedSongScene extends StatelessWidget {
     required this.lyricsMode,
     required this.visualizationMode,
     required this.playerScreenMode,
+    required this.albumColorMode,
+    this.albumColor,
     required this.transitionDirection,
     required this.topBarTextFontFamily,
     required this.topBarTextFontWeight,
@@ -1660,7 +1798,13 @@ class _AnimatedSongScene extends StatelessWidget {
   }
 
   Widget _buildBackground(BuildContext context) {
+    final bgBlend = albumColorMode.backgroundBlend;
+    final hasAlbumTint = albumColor != null && bgBlend > 0;
+
     if (visualizationMode && playerScreenMode != PlayerScreenMode.artworkCard) {
+      final overlayColor = hasAlbumTint
+          ? albumSurface(albumColor!, bgBlend * 0.5)
+          : const Color(0xFF0A0A0A);
       return Stack(
         children: [
           Positioned.fill(
@@ -1673,12 +1817,12 @@ class _AnimatedSongScene extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    const Color(0xFF0A0A0A).withValues(alpha: 0.7),
-                    const Color(0xFF0A0A0A).withValues(alpha: 0.35),
+                    overlayColor.withValues(alpha: 0.7),
+                    overlayColor.withValues(alpha: 0.35),
                     Colors.transparent,
                     Colors.transparent,
-                    const Color(0xFF0A0A0A).withValues(alpha: 0.3),
-                    const Color(0xFF0A0A0A).withValues(alpha: 0.75),
+                    overlayColor.withValues(alpha: 0.3),
+                    overlayColor.withValues(alpha: 0.75),
                   ],
                   stops: const [0.0, 0.12, 0.28, 0.62, 0.82, 1.0],
                 ),
@@ -1717,9 +1861,18 @@ class _AnimatedSongScene extends StatelessWidget {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    const Color(0xFF080808).withValues(alpha: 0.5),
-                    const Color(0xFF0E0E0E).withValues(alpha: 0.32),
-                    const Color(0xFF0A0A0A).withValues(alpha: 0.94),
+                    (hasAlbumTint
+                            ? albumSurface(albumColor!, bgBlend)
+                            : const Color(0xFF080808))
+                        .withValues(alpha: 0.5),
+                    (hasAlbumTint
+                            ? albumSurface(albumColor!, bgBlend * 0.6)
+                            : const Color(0xFF0E0E0E))
+                        .withValues(alpha: 0.32),
+                    (hasAlbumTint
+                            ? albumSurface(albumColor!, bgBlend)
+                            : const Color(0xFF0A0A0A))
+                        .withValues(alpha: 0.94),
                   ],
                   stops: const [0.0, 0.5, 1.0],
                 ),
@@ -1730,6 +1883,10 @@ class _AnimatedSongScene extends StatelessWidget {
       );
     }
 
+    // Immersive mode: full-bleed album art with dark gradient overlay
+    final gradientBase = hasAlbumTint
+        ? albumSurface(albumColor!, bgBlend)
+        : const Color(0xFF121212);
     return Stack(
       children: [
         Positioned.fill(
@@ -1762,11 +1919,11 @@ class _AnimatedSongScene extends StatelessWidget {
                 begin: Alignment.bottomCenter,
                 end: Alignment.topCenter,
                 colors: [
-                  const Color(0xFF121212),
-                  const Color(0xFF121212).withValues(alpha: 0.95),
-                  const Color(0xFF121212).withValues(alpha: 0.85),
-                  const Color(0xFF121212).withValues(alpha: 0.6),
-                  const Color(0xFF121212).withValues(alpha: 0.3),
+                  gradientBase,
+                  gradientBase.withValues(alpha: 0.95),
+                  gradientBase.withValues(alpha: 0.85),
+                  gradientBase.withValues(alpha: 0.6),
+                  gradientBase.withValues(alpha: 0.3),
                   Colors.transparent,
                 ],
                 stops: const [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
@@ -1984,9 +2141,12 @@ class _AnimatedSongScene extends StatelessWidget {
     required IconData icon,
     required VoidCallback onTap,
   }) {
+    final surfaceColor = albumColor != null
+        ? albumSurface(albumColor!, albumColorMode.surfaceBlend)
+        : const Color(0xFF121212);
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF121212).withValues(alpha: 0.7),
+        color: surfaceColor.withValues(alpha: 0.7),
         shape: BoxShape.circle,
       ),
       child: IconButton(
@@ -2021,6 +2181,7 @@ class _AnimatedSongScene extends StatelessWidget {
                             song: song,
                             playerService: playerService,
                             lyricsService: lyricsService,
+                            albumColor: albumColor,
                           ),
                         ),
                       ],
@@ -2205,6 +2366,7 @@ class _AnimatedSongScene extends StatelessWidget {
                     song: song,
                     playerService: playerService,
                     lyricsService: lyricsService,
+                    albumColor: albumColor,
                   ),
                 ),
                 SizedBox(height: lyricsSpacing),
@@ -2368,6 +2530,8 @@ class _AnimatedSongScene extends StatelessWidget {
           onPrevious: onPrevious,
           onNext: onNext,
           timelineHorizontalPadding: immersivePlaybackPadding,
+          albumColorMode: albumColorMode,
+          albumColor: albumColor,
         ),
       ],
     );
@@ -2606,11 +2770,13 @@ class _InlineLyricsPanel extends StatefulWidget {
   final PlayerService playerService;
   final LyricsService lyricsService;
   final Song song;
+  final Color? albumColor;
 
   const _InlineLyricsPanel({
     required this.playerService,
     required this.lyricsService,
     required this.song,
+    this.albumColor,
   });
 
   @override
@@ -2882,9 +3048,17 @@ class _InlineLyricsPanelState extends State<_InlineLyricsPanel> {
                                 ),
                                 decoration: BoxDecoration(
                                   borderRadius: BorderRadius.circular(22),
-                                  color: Colors.white.withValues(alpha: 0.16),
+                                  color: widget.albumColor != null
+                                      ? _AnimatedSongScene.albumAccent(
+                                              widget.albumColor!, 0.3)
+                                          .withValues(alpha: 0.16)
+                                      : Colors.white.withValues(alpha: 0.16),
                                   border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.22),
+                                    color: widget.albumColor != null
+                                        ? _AnimatedSongScene.albumAccent(
+                                                widget.albumColor!, 0.3)
+                                            .withValues(alpha: 0.22)
+                                        : Colors.white.withValues(alpha: 0.22),
                                   ),
                                 ),
                                 child: Text(
@@ -3044,6 +3218,8 @@ class _PlayerControls extends StatelessWidget {
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
   final double timelineHorizontalPadding;
+  final AlbumColorMode albumColorMode;
+  final Color? albumColor;
 
   const _PlayerControls({
     required this.playerService,
@@ -3053,10 +3229,23 @@ class _PlayerControls extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     this.timelineHorizontalPadding = 0,
+    this.albumColorMode = AlbumColorMode.off,
+    this.albumColor,
   });
 
   @override
   Widget build(BuildContext context) {
+    final surfaceBlend = albumColorMode.surfaceBlend;
+    final accentBlend = albumColorMode.accentBlend;
+    final hasAlbumTint = albumColor != null && surfaceBlend > 0;
+
+    final buttonSurface = hasAlbumTint
+        ? _AnimatedSongScene.albumSurface(albumColor!, surfaceBlend)
+        : const Color(0xFF121212);
+    final activeAccent = hasAlbumTint
+        ? _AnimatedSongScene.albumAccent(albumColor!, accentBlend)
+        : AppColors.accent;
+
     return RepaintBoundary(
       child: ValueListenableBuilder<Duration>(
         valueListenable: playerService.positionNotifier,
@@ -3064,7 +3253,6 @@ class _PlayerControls extends StatelessWidget {
           return ValueListenableBuilder<Duration>(
             valueListenable: playerService.durationNotifier,
             builder: (context, engineDuration, _) {
-              // Use engine duration if available, otherwise fallback to song duration
               final duration = engineDuration.inMilliseconds > 0
                   ? engineDuration
                   : (currentSong?.duration ?? Duration.zero);
@@ -3091,14 +3279,12 @@ class _PlayerControls extends StatelessWidget {
                             height: context.responsive(40.0, 44.0, 48.0),
                             decoration: BoxDecoration(
                               color: isShuffle
-                                  ? AppColors.accent.withValues(alpha: 0.25)
-                                  : const Color(
-                                      0xFF121212,
-                                    ).withValues(alpha: 0.6),
+                                  ? activeAccent.withValues(alpha: 0.25)
+                                  : buttonSurface.withValues(alpha: 0.6),
                               shape: BoxShape.circle,
                               border: isShuffle
                                   ? Border.all(
-                                      color: AppColors.accent.withValues(
+                                      color: activeAccent.withValues(
                                         alpha: 0.6,
                                       ),
                                       width: 1.5,
@@ -3115,7 +3301,7 @@ class _PlayerControls extends StatelessWidget {
                               icon: Icon(
                                 LucideIcons.shuffle,
                                 color: isShuffle
-                                    ? AppColors.accent
+                                    ? activeAccent
                                     : Colors.white.withValues(alpha: 0.7),
                               ),
                             ),
@@ -3128,7 +3314,7 @@ class _PlayerControls extends StatelessWidget {
                         width: context.responsive(40.0, 44.0, 48.0),
                         height: context.responsive(40.0, 44.0, 48.0),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF121212).withValues(alpha: 0.6),
+                          color: buttonSurface.withValues(alpha: 0.6),
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
@@ -3142,15 +3328,19 @@ class _PlayerControls extends StatelessWidget {
                         ),
                       ),
                       SizedBox(width: context.responsive(14.0, 18.0, 22.0)),
-                      // Play/Pause - separate widget to minimize rebuilds
-                      _PlayPauseButton(playerService: playerService),
+                      // Play/Pause
+                      _PlayPauseButton(
+                        playerService: playerService,
+                        albumColorMode: albumColorMode,
+                        albumColor: albumColor,
+                      ),
                       SizedBox(width: context.responsive(14.0, 18.0, 22.0)),
                       // Next
                       Container(
                         width: context.responsive(40.0, 44.0, 48.0),
                         height: context.responsive(40.0, 44.0, 48.0),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF121212).withValues(alpha: 0.6),
+                          color: buttonSurface.withValues(alpha: 0.6),
                           shape: BoxShape.circle,
                         ),
                         child: IconButton(
@@ -3174,19 +3364,17 @@ class _PlayerControls extends StatelessWidget {
                           IconData icon = LucideIcons.repeat;
                           Color color = Colors.white.withValues(alpha: 0.7);
                           if (loopMode == LoopMode.all) {
-                            color = AppColors.accent;
+                            color = activeAccent;
                           }
                           if (loopMode == LoopMode.one) {
                             icon = LucideIcons.repeat1;
-                            color = AppColors.accent;
+                            color = activeAccent;
                           }
                           return Container(
                             width: context.responsive(40.0, 44.0, 48.0),
                             height: context.responsive(40.0, 44.0, 48.0),
                             decoration: BoxDecoration(
-                              color: const Color(
-                                0xFF121212,
-                              ).withValues(alpha: 0.6),
+                              color: buttonSurface.withValues(alpha: 0.6),
                               shape: BoxShape.circle,
                             ),
                             child: Stack(
@@ -3212,7 +3400,7 @@ class _PlayerControls extends StatelessWidget {
                                       width: 4,
                                       height: 4,
                                       decoration: BoxDecoration(
-                                        color: AppColors.accent,
+                                        color: activeAccent,
                                         shape: BoxShape.circle,
                                       ),
                                     ),
@@ -3408,11 +3596,28 @@ class _PlaybackTimeLabels extends StatelessWidget {
 /// Extracted play/pause button to minimize rebuilds when only play state changes
 class _PlayPauseButton extends StatelessWidget {
   final PlayerService playerService;
+  final AlbumColorMode albumColorMode;
+  final Color? albumColor;
 
-  const _PlayPauseButton({required this.playerService});
+  const _PlayPauseButton({
+    required this.playerService,
+    this.albumColorMode = AlbumColorMode.off,
+    this.albumColor,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final surfaceBlend = albumColorMode.surfaceBlend;
+    final accentBlend = albumColorMode.accentBlend;
+    final hasAlbumTint = albumColor != null && surfaceBlend > 0;
+
+    final buttonSurface = hasAlbumTint
+        ? _AnimatedSongScene.albumSurface(albumColor!, surfaceBlend)
+        : const Color(0xFF121212);
+    final glowColor = hasAlbumTint
+        ? _AnimatedSongScene.albumAccent(albumColor!, accentBlend)
+        : AppColors.accent;
+
     return RepaintBoundary(
       child: ValueListenableBuilder<bool>(
         valueListenable: playerService.isPlayingNotifier,
@@ -3425,10 +3630,10 @@ class _PlayPauseButton extends StatelessWidget {
             height: buttonSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF121212).withValues(alpha: 0.6),
+              color: buttonSurface.withValues(alpha: 0.6),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.accent.withValues(alpha: 0.4),
+                  color: glowColor.withValues(alpha: 0.4),
                   blurRadius: context.responsive(14.0, 18.0, 22.0),
                   offset: Offset(0, context.responsive(5.0, 6.0, 7.0)),
                 ),

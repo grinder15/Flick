@@ -113,8 +113,10 @@ impl AudioCallbackData {
         finished_tracks: Sender<AudioSource>,
         pipeline_mode: PipelineMode,
     ) -> Self {
-        // Pre-allocate mix buffers (enough for ~100ms of audio)
-        let buffer_size = (sample_rate as usize / 10) * channels;
+        // Pre-allocate mix buffers for 1 second of audio — large enough
+        // for any platform's output callback (cpal can deliver up to 8k
+        // frames; Oboe typically ~1k).
+        let buffer_size = sample_rate as usize * channels;
         // Speed buffer needs to be larger to handle 2x speed (need 2x input for 1x output)
         let speed_buffer_size = buffer_size * 3;
 
@@ -316,6 +318,19 @@ impl AudioEngineHandle {
             enabled,
             duration_secs,
         })
+    }
+
+    /// Set the crossfade curve type.
+    pub fn set_crossfade_curve(
+        &self,
+        curve: crate::audio::crossfader::CrossfadeCurve,
+    ) -> Result<(), String> {
+        self.send_command(AudioCommand::SetCrossfadeCurve { curve })
+    }
+
+    /// Check if the engine is currently in passthrough (bit-perfect) mode.
+    pub fn is_passthrough(&self) -> bool {
+        self.callback_data.is_passthrough()
     }
 
     /// Skip to next track with crossfade.
@@ -1472,9 +1487,10 @@ pub(crate) fn audio_callback(
         };
 
         let (read, old_source) = sources.read(output);
-        if let Some(source) = old_source {
-            let _ = data.finished_tracks.try_send(source);
-        }
+            if let Some(source) = old_source {
+                eprintln!("[crossfade] gapless transition (old={})", source.info.path.display());
+                let _ = data.finished_tracks.try_send(source);
+            }
         if read < output.len() {
             output[read..].fill(0.0);
         }
@@ -1528,6 +1544,11 @@ pub(crate) fn audio_callback(
     };
 
     if crossfader.is_active() && sources.next_mut().is_some() {
+        eprintln!(
+            "[crossfade] callback mixing — position={}/{}",
+            crossfader.position(),
+            crossfader.duration_samples()
+        );
         let mut buf_a = match data.mix_buffer_a.try_lock() {
             Some(b) => b,
             None => {
@@ -1568,6 +1589,7 @@ pub(crate) fn audio_callback(
         let _ = crossfader.mix(&buf_a[..needed], &buf_b[..needed], output, channels);
 
         if !crossfader.is_active() {
+            eprintln!("[crossfade] DONE — advancing to next track");
             drop(crossfader);
             if let Some(source) = sources.advance_to_next() {
                 let _ = data.finished_tracks.try_send(source);
@@ -1684,6 +1706,14 @@ fn command_processing_loop(
         while let Ok(source) = finished_rx.try_recv() {
             let path = source.info.path.to_string_lossy().to_string();
             let _ = event_tx.try_send(AudioEvent::TrackEnded { path });
+
+            // Crossfade completed — restore Playing state. This is the
+            // natural bookend: a crossfade always ends with advance_to_next()
+            // pushing the old source through finished_tracks.
+            if state.load(Ordering::Relaxed) == PlaybackState::Crossfading as u8 {
+                state.store(PlaybackState::Playing as u8, Ordering::Relaxed);
+                let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Playing));
+            }
         }
 
         match command_rx.recv_timeout(std::time::Duration::from_millis(50)) {
@@ -1763,6 +1793,9 @@ fn command_processing_loop(
                         let mut crossfader = callback_data.crossfader.lock();
                         crossfader.set_enabled(enabled);
                         crossfader.set_duration(duration_secs);
+                    }
+                    AudioCommand::SetCrossfadeCurve { curve } => {
+                        callback_data.crossfader.lock().set_curve(curve);
                     }
                     AudioCommand::SetPlaybackSpeed { speed } => {
                         callback_data.set_playback_speed(speed);
@@ -1846,6 +1879,75 @@ fn command_processing_loop(
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                 // Channel closed - exit
                 break;
+            }
+        }
+
+        // Auto-crossfade: start when the current track is near its end.
+        // Both locks are held across the entire check+start to prevent the
+        // audio callback from doing a hard gapless transition between the
+        // remaining check and the crossfader.start() call.
+        if !callback_data.is_passthrough() {
+            let mut sources = callback_data.sources.lock();
+            let mut crossfader = callback_data.crossfader.lock();
+            if crossfader.is_enabled()
+                && !crossfader.is_active()
+                && sources.has_next()
+                && crossfader.duration_secs() > 0.0
+            {
+                if let Some(current) = sources.current() {
+                    let remaining = current.remaining_secs();
+                    if remaining > 0.0 && remaining <= crossfader.duration_secs() as f64 {
+                        // Only start crossfade if next track has buffered data.
+                        // Require any data (≥0s) — the decoder has been running
+                        // since the next track was pre-queued, so the buffer
+                        // should be full by now.
+                        if sources.next_has_enough_buffer(0.0) {
+                            eprintln!(
+                                "[crossfade] TRIGGERING! remaining={:.3}s threshold={:.1}s",
+                                remaining,
+                                crossfader.duration_secs()
+                            );
+                            crossfader.start();
+                            state.store(PlaybackState::Crossfading as u8, Ordering::Relaxed);
+                            let _ = event_tx
+                                .try_send(AudioEvent::StateChanged(PlaybackState::Crossfading));
+                            let from = sources
+                                .current()
+                                .map(|s| s.info.path.to_string_lossy().to_string());
+                            let to = sources
+                                .next_mut()
+                                .map(|s| s.info.path.to_string_lossy().to_string());
+                            if let (Some(from_path), Some(to_path)) = (from, to) {
+                                let _ = event_tx.try_send(AudioEvent::CrossfadeStarted {
+                                    from_path,
+                                    to_path,
+                                });
+                            }
+                        } else {
+                            eprintln!(
+                                "[crossfade] DELAYED - next buffer insufficient, waiting for more data"
+                            );
+                        }
+                    }
+                }
+            } else if crossfader.is_enabled() && crossfader.duration_secs() > 0.0 {
+                // Only print when we're near the crossfade window
+                let remaining = sources
+                    .current()
+                    .map(|s| s.remaining_secs())
+                    .unwrap_or(-1.0);
+                let threshold = crossfader.duration_secs() as f64;
+                if remaining > 0.0 && remaining <= threshold * 3.0 {
+                    eprintln!(
+                        "[crossfade] NEAR: active={} has_next={} has_current={} next_buffered={} remaining={:.3}s threshold={:.1}s",
+                        crossfader.is_active(),
+                        sources.has_next(),
+                        sources.current().is_some(),
+                        sources.next_has_enough_buffer(0.0),
+                        remaining,
+                        crossfader.duration_secs()
+                    );
+                }
             }
         }
 
@@ -1989,11 +2091,23 @@ fn handle_skip_to_next(
     let mut crossfader = callback_data.crossfader.lock();
 
     if sources.has_next() {
-        if crossfader.is_enabled() {
+        if crossfader.is_enabled() && !crossfader.is_active() {
             // Start crossfade
+            let from_path = sources
+                .current()
+                .map(|s| s.info.path.to_string_lossy().to_string());
+            let to_path = sources
+                .next_mut()
+                .map(|s| s.info.path.to_string_lossy().to_string());
             crossfader.start();
             state.store(PlaybackState::Crossfading as u8, Ordering::Relaxed);
             let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Crossfading));
+            if let (Some(from), Some(to)) = (from_path, to_path) {
+                let _ = event_tx.try_send(AudioEvent::CrossfadeStarted {
+                    from_path: from,
+                    to_path: to,
+                });
+            }
         } else {
             // Immediate transition
             sources.advance_to_next();

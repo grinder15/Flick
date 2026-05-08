@@ -323,6 +323,25 @@ impl SourceProvider {
         self.next.is_some()
     }
 
+    /// Get a reference to the next source.
+    pub fn next(&self) -> Option<&AudioSource> {
+        self.next.as_ref()
+    }
+
+    /// Check if the next source has enough buffered data for crossfade.
+    pub fn next_has_enough_buffer(&self, min_secs: f64) -> bool {
+        if let Some(next) = &self.next {
+            if next.decoder_finished.load(Ordering::Acquire) {
+                return true;
+            }
+            let buffered_secs = next.consumer.occupied_len() as f64
+                / (next.info.output_sample_rate as f64 * next.info.channels as f64);
+            buffered_secs >= min_secs
+        } else {
+            false
+        }
+    }
+
     /// Get a reference to the current source.
     pub fn current(&self) -> Option<&AudioSource> {
         self.current.as_ref()

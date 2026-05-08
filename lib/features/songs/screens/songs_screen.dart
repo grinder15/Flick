@@ -16,6 +16,7 @@ import 'package:flick/features/songs/widgets/song_fast_index_overlay.dart';
 import 'package:flick/features/songs/widgets/song_actions_bottom_sheet.dart';
 import 'package:flick/features/songs/widgets/sort_filter_bottom_sheet.dart';
 import 'package:flick/providers/providers.dart';
+import 'package:flick/services/player_service.dart';
 import 'package:flick/widgets/common/glass_search_bar.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
@@ -741,10 +742,14 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       }
 
       ref.invalidate(favoritesProvider);
+      PlayerService().refreshNotificationState();
     }());
     _showSongActionSnackBar(
       'Added "${song.title}" to favorites',
-      onUndo: () => ref.read(favoritesServiceProvider).removeFavorite(song.id).then((_) => ref.invalidate(favoritesProvider)),
+      onUndo: () => ref.read(favoritesServiceProvider).removeFavorite(song.id).then((_) {
+        ref.invalidate(favoritesProvider);
+        PlayerService().refreshNotificationState();
+      }),
     );
   }
 

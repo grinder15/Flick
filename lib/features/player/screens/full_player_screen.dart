@@ -104,6 +104,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     });
 
     _playerService.currentSongNotifier.addListener(_handleCurrentSongChanged);
+    _playerService.favoriteNotificationToggleNotifier.addListener(_handleFavoriteToggledFromNotification);
     _updateTopBarTextMeasurement(_playerService.currentSongNotifier.value);
     _loadPlayerScreenMode();
   }
@@ -119,6 +120,9 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
     _playerService.currentSongNotifier.removeListener(
       _handleCurrentSongChanged,
     );
+    _playerService.favoriteNotificationToggleNotifier.removeListener(
+      _handleFavoriteToggledFromNotification,
+    );
     _positionThrottleTimer?.cancel();
     _throttledPositionNotifier.dispose();
     _dragController.dispose();
@@ -130,6 +134,10 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
       return;
     }
     _updateTopBarTextMeasurement(_playerService.currentSongNotifier.value);
+  }
+
+  void _handleFavoriteToggledFromNotification() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadPlayerScreenMode() async {
@@ -1393,6 +1401,7 @@ class _FullPlayerScreenState extends State<FullPlayerScreen>
                     song.id,
                   );
                   setState(() {});
+                  _playerService.refreshNotificationState();
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(

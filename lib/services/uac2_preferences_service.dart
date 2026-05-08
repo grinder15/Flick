@@ -22,6 +22,7 @@ class Uac2PreferencesService {
   static const _keyAudioFormatEnabled = 'uac2_audio_format_enabled';
   static const _keyUsbSoftwareVolume = 'uac2_usb_software_volume';
   static const _keyKillIsochronousUsbOnQuit = 'uac2_kill_isochronous_usb_on_quit';
+  static const _keyGaplessPlaybackEnabled = 'gapless_playback_enabled';
 
   static bool get isDeveloperModeEnabledSync => developerModeNotifier.value;
   static bool get isKillIsochronousUsbOnQuitSync => killIsochronousUsbOnQuitNotifier.value;
@@ -299,6 +300,25 @@ class Uac2PreferencesService {
     }
   }
 
+  Future<void> setGaplessPlaybackEnabled(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_keyGaplessPlaybackEnabled, enabled);
+    } catch (e) {
+      debugPrint('Failed to save gapless playback setting: $e');
+    }
+  }
+
+  Future<bool> getGaplessPlaybackEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_keyGaplessPlaybackEnabled) ?? true;
+    } catch (e) {
+      debugPrint('Failed to load gapless playback setting: $e');
+      return true;
+    }
+  }
+
   Future<Uac2FormatPreference> getFormatPreference() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -329,8 +349,9 @@ class Uac2PreferencesService {
       await prefs.remove(_keyDeveloperModeEnabled);
       await prefs.remove(_keyAudioFormatEnabled);
       await prefs.remove(_keyUsbSoftwareVolume);
-      await prefs.remove(_keyKillIsochronousUsbOnQuit);
-      developerModeNotifier.value = false;
+    await prefs.remove(_keyKillIsochronousUsbOnQuit);
+    await prefs.remove(_keyGaplessPlaybackEnabled);
+    developerModeNotifier.value = false;
       killIsochronousUsbOnQuitNotifier.value = true;
     } catch (e) {
       debugPrint('Failed to clear preferences: $e');

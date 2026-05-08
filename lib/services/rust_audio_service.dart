@@ -290,6 +290,12 @@ class RustAudioService {
     );
   }
 
+  /// Set the crossfade curve type.
+  Future<void> setCrossfadeCurve(rust_audio.CrossfadeCurveType curve) async {
+    if (!_initialized) return;
+    await rust_audio.audioSetCrossfadeCurve(curve: curve);
+  }
+
   /// Skip to the next queued track (with crossfade if enabled).
   Future<void> skipToNext() async {
     if (!_initialized) return;

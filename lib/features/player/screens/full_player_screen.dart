@@ -22,7 +22,10 @@ import 'package:flick/services/lyrics_service.dart';
 import 'package:flick/services/player_screen_mode_preference_service.dart';
 import 'package:flick/providers/playlist_provider.dart';
 import 'package:flick/features/player/widgets/audio_visualizer.dart';
+import 'package:flick/features/player/widgets/line_seek_bar.dart';
 import 'package:flick/features/player/widgets/waveform_seek_bar.dart';
+import 'package:flick/models/progress_bar_style.dart';
+import 'package:flick/providers/progress_bar_style_provider.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
@@ -2983,33 +2986,47 @@ class _WaveformLayer extends StatefulWidget {
 class _WaveformLayerState extends State<_WaveformLayer> {
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Duration>(
-      valueListenable: widget.playerService.durationNotifier,
-      builder: (context, engineDuration, _) {
-        final duration = engineDuration.inMilliseconds > 0
-            ? engineDuration
-            : (widget.currentSong?.duration ?? Duration.zero);
-
-        if (duration.inMilliseconds == 0) {
-          return const SizedBox();
-        }
-
+    return Consumer(
+      builder: (context, ref, _) {
+        final style = ref.watch(progressBarStyleProvider);
         return ValueListenableBuilder<Duration>(
-          valueListenable: widget.positionNotifier,
-          builder: (context, position, _) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: RepaintBoundary(
-                child: WaveformSeekBar(
-                  barCount: 60,
-                  position: position,
-                  duration: duration,
-                  onChanged: (newPos) {
-                    widget.positionNotifier.value = newPos;
-                    unawaited(widget.playerService.seek(newPos));
-                  },
-                ),
-              ),
+          valueListenable: widget.playerService.durationNotifier,
+          builder: (context, engineDuration, _) {
+            final duration = engineDuration.inMilliseconds > 0
+                ? engineDuration
+                : (widget.currentSong?.duration ?? Duration.zero);
+
+            if (duration.inMilliseconds == 0) {
+              return const SizedBox();
+            }
+
+            return ValueListenableBuilder<Duration>(
+              valueListenable: widget.positionNotifier,
+              builder: (context, position, _) {
+                final seekBar = switch (style) {
+                  ProgressBarStyle.line => LineSeekBar(
+                    position: position,
+                    duration: duration,
+                    onChanged: (newPos) {
+                      widget.positionNotifier.value = newPos;
+                      unawaited(widget.playerService.seek(newPos));
+                    },
+                  ),
+                  ProgressBarStyle.waveform => WaveformSeekBar(
+                    barCount: 60,
+                    position: position,
+                    duration: duration,
+                    onChanged: (newPos) {
+                      widget.positionNotifier.value = newPos;
+                      unawaited(widget.playerService.seek(newPos));
+                    },
+                  ),
+                };
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: RepaintBoundary(child: seekBar),
+                );
+              },
             );
           },
         );

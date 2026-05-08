@@ -21,6 +21,7 @@ import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/library_scanner_service.dart';
+import 'package:flick/services/player_service.dart';
 
 /// Main application widget for Flick Player.
 class FlickPlayerApp extends StatelessWidget {
@@ -68,6 +69,7 @@ class _MainShellState extends ConsumerState<MainShell>
 
   // Track previous song to detect changes
   Song? _previousSong;
+  late final PlayerService _playerService;
 
   @override
   void initState() {
@@ -76,6 +78,7 @@ class _MainShellState extends ConsumerState<MainShell>
     // Seed _previousSong from the already-restored state so the auto-navigate
     // listener doesn't treat the restored song as "new" on cold start.
     _previousSong = ref.read(currentSongProvider);
+    _playerService = ref.read(playerServiceProvider);
     final initialIndex = ref.read(navigationIndexProvider);
     _pageController = PageController(initialPage: initialIndex);
     _navBarAnimationController = AnimationController(
@@ -197,6 +200,10 @@ class _MainShellState extends ConsumerState<MainShell>
       _maybeOpenExternalPlayer(ref.read(currentSongProvider));
       _refreshLibraryDeletions();
     });
+
+    _playerService.playbackDesyncedNotifier.addListener(
+      _onPlaybackDesyncChanged,
+    );
   }
 
   void _refreshLibraryDeletions() {
@@ -216,8 +223,34 @@ class _MainShellState extends ConsumerState<MainShell>
     }
   }
 
+  void _onPlaybackDesyncChanged() {
+    if (!mounted) return;
+    final desynced = _playerService.playbackDesyncedNotifier.value;
+    if (!desynced) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      return;
+    }
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Playback desynced'),
+        duration: const Duration(days: 1),
+        action: SnackBarAction(
+          label: 'Sync',
+          onPressed: () {
+            _playerService.syncNow();
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _playerService.playbackDesyncedNotifier.removeListener(
+      _onPlaybackDesyncChanged,
+    );
     WidgetsBinding.instance.removeObserver(this);
     _navBarVisibilitySubscription.close();
     _navBarAlwaysVisibleSubscription.close();

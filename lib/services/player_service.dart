@@ -350,6 +350,11 @@ class PlayerService {
 
   final ValueNotifier<int> favoriteNotificationToggleNotifier = ValueNotifier(0);
 
+  final ValueNotifier<bool> playbackDesyncedNotifier = ValueNotifier(false);
+  Song? _engineCurrentTrack;
+  Timer? _desyncDetectionTimer;
+  static const Duration _desyncThreshold = Duration(seconds: 3);
+
   List<Song> get queue =>
       List.unmodifiable(_queuedEntries.map((entry) => entry.song));
   int get currentIndex => _currentIndex;
@@ -1760,6 +1765,8 @@ class PlayerService {
       }
 
       _lastPosition = state.position;
+
+      _checkPlaybackDesync(state);
 
       final criticalDiagnosticsChange =
           previous == null ||
@@ -3627,6 +3634,54 @@ class PlayerService {
   void _clearAutoSyncGuard() {
     _autoSyncGuardSongId = null;
     _autoSyncGuardUntil = null;
+  }
+
+  void _checkPlaybackDesync(PlaybackState state) {
+    final engineTrack = state.currentTrack;
+    _engineCurrentTrack = engineTrack;
+
+    final uiSong = currentSongNotifier.value;
+
+    if (engineTrack == null) {
+      _desyncDetectionTimer?.cancel();
+      _desyncDetectionTimer = null;
+      if (playbackDesyncedNotifier.value) {
+        playbackDesyncedNotifier.value = false;
+      }
+      return;
+    }
+
+    if (uiSong != null && uiSong.id == engineTrack.id) {
+      _desyncDetectionTimer?.cancel();
+      _desyncDetectionTimer = null;
+      if (playbackDesyncedNotifier.value) {
+        playbackDesyncedNotifier.value = false;
+      }
+      return;
+    }
+
+    if (_desyncDetectionTimer != null) return;
+
+    _desyncDetectionTimer = Timer(_desyncThreshold, () {
+      if (_engineCurrentTrack != null &&
+          currentSongNotifier.value?.id != _engineCurrentTrack!.id) {
+        playbackDesyncedNotifier.value = true;
+      }
+    });
+  }
+
+  void syncNow() {
+    _desyncDetectionTimer?.cancel();
+    _desyncDetectionTimer = null;
+    playbackDesyncedNotifier.value = false;
+
+    final engineTrack = _engineCurrentTrack;
+    if (engineTrack == null) return;
+
+    currentSongNotifier.value = engineTrack;
+    _syncCurrentIndexToTrack(engineTrack);
+    _syncUac2PlaybackStatus(engineTrack, isPlaying: isPlayingNotifier.value);
+    _updateNotificationState();
   }
 
   void _ensurePositionSaveTimer() {

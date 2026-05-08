@@ -2,9 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/song.dart';
 import '../services/favorites_service.dart';
+import 'player_provider.dart';
 
 /// Provider for the FavoritesService.
 final favoritesServiceProvider = Provider<FavoritesService>((ref) {
+  ref.watch(favoriteNotificationSyncProvider);
   return FavoritesService();
 });
 
@@ -107,4 +109,17 @@ final isSongFavoriteProvider = Provider.autoDispose.family<bool, String>((
 /// Favorites count provider.
 final favoritesCountProvider = Provider.autoDispose<int>((ref) {
   return ref.watch(favoritesProvider).value?.count ?? 0;
+});
+
+/// Syncs favorites state from lock screen/notification toggles back into
+/// Riverpod so the app UI reflects changes made via the media session.
+final favoriteNotificationSyncProvider = Provider<void>((ref) {
+  final service = ref.watch(playerServiceProvider);
+  final notifier = service.favoriteNotificationToggleNotifier;
+
+  void listener() => ref.invalidate(favoritesProvider);
+
+  notifier.addListener(listener);
+  ref.onDispose(() => notifier.removeListener(listener));
+  return;
 });

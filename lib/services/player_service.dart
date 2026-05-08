@@ -348,6 +348,8 @@ class PlayerService {
   // Track last notification update time to throttle updates
   DateTime _lastNotificationUpdate = DateTime.now();
 
+  final ValueNotifier<int> favoriteNotificationToggleNotifier = ValueNotifier(0);
+
   List<Song> get queue =>
       List.unmodifiable(_queuedEntries.map((entry) => entry.song));
   int get currentIndex => _currentIndex;
@@ -1792,11 +1794,16 @@ class PlayerService {
     });
   }
 
+  Future<void> refreshNotificationState() {
+    return _updateNotificationState();
+  }
+
   Future<void> _toggleFavoriteFromNotification() async {
     final song = currentSongNotifier.value;
     if (_allowsFavoriteActions(song)) {
       await _favoritesService.toggleFavorite(song!.id);
       _updateNotificationState();
+      favoriteNotificationToggleNotifier.value++;
     }
   }
 

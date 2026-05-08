@@ -55,19 +55,26 @@ final _colorExtractionServiceProvider = Provider<ColorExtractionService>((ref) {
   return ColorExtractionService();
 });
 
+/// Watches the current song's album art path directly.
+/// Avoids `currentSongProvider` because its `select()` uses `Song.==` (by id),
+/// which masks in-place album art updates from `syncAlbumArtPaths`.
+final _currentAlbumArtPathProvider = Provider<String?>((ref) {
+  return ref.watch(playerProvider).currentSong?.albumArt;
+});
+
 /// Extracted dominant color from the current song's album art.
 /// Returns null when no album art is available.
 final albumDominantColorProvider = FutureProvider.autoDispose<Color?>((
   ref,
 ) async {
-  final currentSong = ref.watch(currentSongProvider);
+  final albumArt = ref.watch(_currentAlbumArtPathProvider);
   final colorService = ref.watch(_colorExtractionServiceProvider);
 
-  if (currentSong?.albumArt == null) {
+  if (albumArt == null || albumArt.isEmpty) {
     return null;
   }
 
-  return colorService.extractDominantColor(currentSong!.albumArt);
+  return colorService.extractDominantColor(albumArt);
 });
 
 /// Synchronous accessor — returns the dominant color or null.

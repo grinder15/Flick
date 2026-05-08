@@ -44,6 +44,9 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -54,6 +57,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import kotlin.math.roundToInt
+import kotlin.math.min
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.mossapps.flick/storage"
@@ -1317,61 +1321,89 @@ class MainActivity: FlutterActivity() {
     }
 
     // Phase 2: Metadata Extraction (Targeted)
-    private fun extractMetadataForFiles(uris: List<String>): List<Map<String, Any?>> {
+    // Uses coroutine parallelism — each chunk runs on its own MediaMetadataRetriever
+    private suspend fun extractMetadataForFiles(uris: List<String>): List<Map<String, Any?>> {
+        if (uris.isEmpty()) return emptyList()
+        if (uris.size == 1) return listOf(extractSingleMetadata(uris[0]))
+
+        val cores = Runtime.getRuntime().availableProcessors()
+        val chunkCount = kotlin.math.min(cores * 2, uris.size).coerceAtLeast(1)
+        val chunkSize = (uris.size + chunkCount - 1) / chunkCount
+
+        val chunks = uris.chunked(chunkSize)
+
+        return coroutineScope {
+            chunks.map { chunk ->
+                async(Dispatchers.IO) {
+                    extractMetadataChunk(chunk)
+                }
+            }.awaitAll().flatten()
+        }
+    }
+
+    private fun extractSingleMetadata(uriString: String): Map<String, Any?> {
         val retriever = MediaMetadataRetriever()
-        val result = mutableListOf<Map<String, Any?>>()
+        return try {
+            retriever.setDataSource(context, Uri.parse(uriString))
+            readMetadataFields(retriever, uriString)
+        } catch (e: Exception) {
+            mapOf("uri" to uriString)
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+    }
 
-        for (uriString in uris) {
+    private fun extractMetadataChunk(uriStrings: List<String>): List<Map<String, Any?>> {
+        val retriever = MediaMetadataRetriever()
+        val results = mutableListOf<Map<String, Any?>>()
+
+        for (uriString in uriStrings) {
             try {
-                val uri = Uri.parse(uriString)
-                retriever.setDataSource(context, uri)
-                
-                val metadata = mutableMapOf<String, Any?>("uri" to uriString)
-                
-                metadata["title"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                metadata["artist"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
-                metadata["album"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                metadata["albumArtist"] = extractMetadataByKeyName(retriever, "METADATA_KEY_ALBUMARTIST")
-                metadata["trackNumber"] = parseMetadataNumber(
-                    extractMetadataByKeyName(retriever, "METADATA_KEY_CD_TRACK_NUMBER")
-                )
-                metadata["discNumber"] = parseMetadataNumber(
-                    extractMetadataByKeyName(retriever, "METADATA_KEY_DISC_NUMBER")
-                )
-                metadata["bitrate"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
-                metadata["mimeType"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
-                
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val sampleRateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
-                    if (sampleRateStr != null) {
-                        metadata["sampleRate"] = sampleRateStr.toIntOrNull()
-                    }
-                    
-                    val bitDepthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)
-                    if (bitDepthStr != null) {
-                        metadata["bitDepth"] = bitDepthStr.toIntOrNull()
-                    }
-                }
-                
-                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                if (durationStr != null) {
-                    metadata["duration"] = durationStr.toLongOrNull()
-                }
-
-                result.add(metadata)
+                retriever.setDataSource(context, Uri.parse(uriString))
+                results.add(readMetadataFields(retriever, uriString))
             } catch (e: Exception) {
-                // Return just the URI if metadata fails, so Dart knows we tried
-                result.add(mapOf("uri" to uriString))
+                results.add(mapOf("uri" to uriString))
             }
         }
 
-        try {
-            retriever.release()
-        } catch (e: Exception) {
-            // Ignore
+        try { retriever.release() } catch (_: Exception) {}
+        return results
+    }
+
+    private fun readMetadataFields(retriever: MediaMetadataRetriever, uriString: String): Map<String, Any?> {
+        val metadata = mutableMapOf<String, Any?>("uri" to uriString)
+
+        metadata["title"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+        metadata["artist"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+        metadata["album"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+        metadata["albumArtist"] = extractMetadataByKeyName(retriever, "METADATA_KEY_ALBUMARTIST")
+        metadata["trackNumber"] = parseMetadataNumber(
+            extractMetadataByKeyName(retriever, "METADATA_KEY_CD_TRACK_NUMBER")
+        )
+        metadata["discNumber"] = parseMetadataNumber(
+            extractMetadataByKeyName(retriever, "METADATA_KEY_DISC_NUMBER")
+        )
+        metadata["bitrate"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+        metadata["mimeType"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val sampleRateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
+            if (sampleRateStr != null) {
+                metadata["sampleRate"] = sampleRateStr.toIntOrNull()
+            }
+
+            val bitDepthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)
+            if (bitDepthStr != null) {
+                metadata["bitDepth"] = bitDepthStr.toIntOrNull()
+            }
         }
 
-        return result
+        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+        if (durationStr != null) {
+            metadata["duration"] = durationStr.toLongOrNull()
+        }
+
+        return metadata
     }
 
     private fun extractEmbeddedArtwork(uriString: String): ByteArray? {

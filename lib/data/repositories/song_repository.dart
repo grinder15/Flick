@@ -208,6 +208,13 @@ class SongRepository {
     return await _isar.songEntitys.filter().folderUriEqualTo(folderUri).count();
   }
 
+  Future<List<SongEntity>> getIncompleteMetadataSongs() async {
+    return await _isar.songEntitys
+        .filter()
+        .metadataCompleteEqualTo(false)
+        .findAll();
+  }
+
   /// Delete all songs.
   Future<void> deleteAllSongs() async {
     await _isar.writeTxn(() async {

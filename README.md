@@ -20,9 +20,10 @@
 
 ### USB Audio Class 2.0 (UAC 2.0)
 - Custom Rust implementation for USB DAC/AMP detection and enumeration
+- Improved Android-side detection with expanded keyword matching and AudioManager fallback
 - Descriptor parsing for Audio Control and Audio Streaming interfaces
 - Isochronous transfer management for real-time audio streaming
-- Hot-plug support for dynamic device connection/disconnection
+- Hot-plug support with toast notifications on device connect/stream
 - Bit-perfect audio transmission to external USB audio devices
 
 ### Advanced Equalizer & Audio Effects
@@ -33,7 +34,8 @@
 - Android-optimized audio processing via JustAudioProcessingController
 
 ### Library Management
-- Automatic scanning of local music folders
+- MediaStore-based scanning with differential database sync (~34x faster than filesystem walk)
+- Background metadata extraction and MediaStore change observer for live updates
 - Metadata extraction (ID3 tags, Vorbis comments) using `lofty`
 - Fast library queries via Isar database
 - Browse by songs, albums, artists, folders, playlists, favorites, and recently played
@@ -219,7 +221,7 @@ flick_player/
 
 - Flutter SDK 3.10 or higher
 - Rust toolchain (stable)
-- Android SDK
+- Android SDK (minSdk 26 / Android 8.0+)
 - USB host support (OTG) for UAC 2.0 support
 
 ### Installation
@@ -295,7 +297,9 @@ Documentation is available in the `docs/` directory:
 - `UAC2_IMPLEMENTATION_CHECKLIST.md`: Implementation checklist for the UAC 2.0 subsystem
 - `DAP_BIT_PERFECT_OFF_ISSUES.md`: Bit-perfect DAP Internal OFF issues and fixes
 - `hardware_volume_control.md`: Three-tier hardware volume control implementation
-- `LIBRARY_SCAN_ARCHITECTURE.md`: Two-phase + event-driven library scanning architecture
+- `LIBRARY_SCAN_ARCHITECTURE.md`: MediaStore + two-phase + event-driven library scanning architecture
+- `scanning_benchmark05092026.md`: Library scanner benchmark results (34x improvement)
+- `ANDROID_7_CRASH.md`: Android 7 crash root cause and minSdk 26 fix
 - `ANDROID_NDK_SETUP.md`: Android NDK setup for Rust libraries
 
 ## License

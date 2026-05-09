@@ -266,6 +266,7 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 - [X] Show connection status
 - [X] Add error notifications
 - [X] Display device capabilities
+- [X] Toast notification on device connect/stream (device name + format)
 - [-] ~~Pipeline info widget exported API~~ — **REMOVED** from Rust `uac2_api.rs` (commit `f368367`)
 
 ### 8.3 User Preferences
@@ -317,6 +318,8 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 - [X] Handle USB device permissions on Android
 - [X] Test with Android audio routing
 - [X] Handle Android audio focus
+- [X] USB audio detection with expanded keyword matching (30+ keywords: hi-fi, sound, speaker, Realtek, Conexant, C-Media, etc.)
+- [X] `AudioManager` fallback detection (`hasUsbAudioOutputViaDeviceInfo`) for devices missed by USB Host API heuristic
 
 ---
 
@@ -438,7 +441,7 @@ This checklist outlines the implementation of a custom USB Audio Class 2.0 (UAC 
 
 ---
 
-*Last Updated: 2026-05-03*
+*Last Updated: 2026-05-09*
 
-> **Note:** The UAC2 pipeline info and transfer stats widgets (and their associated Rust API methods) were removed in commits `d51b784`/`f368367`. The remaining UAC2 widgets in `lib/widgets/uac2/` are not currently imported by any active code and may be considered dead/deprecated. The core UAC2 engine (device discovery, descriptor parsing, isochronous transfers, hardware volume control) remains active in the Rust backend.
+> **Note:** The UAC2 pipeline info and transfer stats widgets (and their associated Rust API methods) were removed in commits `d51b784`/`f368367`. The `Uac2ConnectionManager` widget remains active and was updated in commit `d6041d4` to show snackbar toast notifications when a device connects or starts streaming. The core UAC2 engine (device discovery, descriptor parsing, isochronous transfers, hardware volume control) remains active in the Rust backend.
 

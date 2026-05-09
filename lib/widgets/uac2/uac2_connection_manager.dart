@@ -79,9 +79,40 @@ class _Uac2ConnectionManagerState extends ConsumerState<Uac2ConnectionManager> {
     await _loadConnectionState();
   }
 
+  void _showDeviceInitializedToast(Uac2DeviceStatus? next) {
+    if (!mounted || next == null) return;
+    final deviceName = next.device.productName;
+    final isStreaming = next.state == Uac2State.streaming;
+    final format = next.currentFormat;
+    final formatSuffix = format != null
+        ? ' at ${(format.sampleRate ~/ 1000)}kHz/${format.bitDepth}bit'
+        : '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '$deviceName ${isStreaming ? "streaming" : "connected"}$formatSuffix',
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final deviceStatus = ref.watch(uac2DeviceStatusProvider);
+
+    ref.listen<Uac2DeviceStatus?>(uac2DeviceStatusProvider, (prev, next) {
+      final prevState = prev?.state;
+      final nextState = next?.state;
+      if (nextState != null &&
+          nextState != prevState &&
+          (nextState == Uac2State.connected ||
+              nextState == Uac2State.streaming)) {
+        _showDeviceInitializedToast(next);
+      }
+    });
 
     if (deviceStatus == null) {
       return const SizedBox.shrink();

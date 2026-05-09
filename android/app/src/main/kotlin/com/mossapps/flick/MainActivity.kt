@@ -2564,6 +2564,18 @@ class MainActivity: FlutterActivity() {
             "headphone",
             "dongle",
             "amp",
+            "hi-fi",
+            "hifi",
+            "sound",
+            "speaker",
+            "c-media",
+            "realtek",
+            "conexant",
+            "pnp",
+            "output",
+            "cx",
+            "cm108",
+            "hs",
         )
         return keywords.any { keyword -> haystack.contains(keyword) }
     }
@@ -2580,7 +2592,24 @@ class MainActivity: FlutterActivity() {
             return true
         }
 
-        return deviceHasIsochronousEndpoint(device) && looksLikeUsbAudioName(device)
+        if (deviceHasIsochronousEndpoint(device) && looksLikeUsbAudioName(device)) {
+            return true
+        }
+
+        if (deviceHasIsochronousEndpoint(device) && hasUsbAudioOutputViaDeviceInfo()) {
+            return true
+        }
+
+        return false
+    }
+
+    private fun hasUsbAudioOutputViaDeviceInfo(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+            it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+        }
     }
 
     private fun usbDeviceDebugSummary(device: UsbDevice): String {

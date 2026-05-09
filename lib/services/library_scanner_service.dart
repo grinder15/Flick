@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flick/services/android_audio_device_service.dart';
 import '../core/utils/audio_metadata_utils.dart';
 import '../data/database.dart';
 import '../data/repositories/song_repository.dart';
@@ -70,7 +69,6 @@ class LibraryScannerService {
     final scanKey = normalizeFolderIdentifier(folderUri);
     final scanPreferences = await _scanPreferencesService.getPreferences();
 
-    // Prevent concurrent scans of the same folder
     if (_currentlyScanning.contains(scanKey)) {
       debugPrint('Folder $displayName is already being scanned, skipping...');
       return;
@@ -79,16 +77,12 @@ class LibraryScannerService {
     _currentlyScanning.add(scanKey);
     try {
       if (Platform.isAndroid) {
-        final deviceInfo = await AndroidAudioDeviceService.instance.refresh();
-        final shouldPreferSafScan = deviceInfo.isXiaomiDevice;
         final resolvedScanRoot = await _musicFolderService
             .resolveFilesystemPath(folderUri);
 
-        if (!shouldPreferSafScan &&
-            resolvedScanRoot != null &&
-            resolvedScanRoot.isNotEmpty) {
+        if (resolvedScanRoot != null && resolvedScanRoot.isNotEmpty) {
           try {
-            yield* _scanFolderRust(
+            yield* _scanFolderMediaStore(
               resolvedScanRoot,
               folderUri,
               displayName,
@@ -97,14 +91,23 @@ class LibraryScannerService {
             return;
           } catch (e) {
             debugPrint(
-              'Rust Android scan fallback for $displayName failed at $resolvedScanRoot: $e',
+              'MediaStore scan failed for $displayName at $resolvedScanRoot: $e, '
+              'falling back',
             );
           }
         }
 
-        if (shouldPreferSafScan) {
+        try {
+          yield* _scanFolderRust(
+            resolvedScanRoot ?? folderUri,
+            folderUri,
+            displayName,
+            scanPreferences,
+          );
+          return;
+        } catch (e) {
           debugPrint(
-            'Using SAF scan path for $displayName on Xiaomi-family device',
+            'Rust scan fallback for $displayName failed: $e',
           );
         }
 
@@ -119,6 +122,365 @@ class LibraryScannerService {
       }
     } finally {
       _currentlyScanning.remove(scanKey);
+    }
+  }
+
+  Stream<ScanProgress> _scanFolderMediaStore(
+    String folderPath,
+    String folderUri,
+    String displayName,
+    LibraryScanPreferences scanPreferences,
+  ) async* {
+    _isCancelled = false;
+    yield ScanProgress(
+      songsFound: 0,
+      totalFiles: 0,
+      currentFolder: displayName,
+      isComplete: false,
+    );
+
+    final List<AudioFileInfo> mediaStoreFiles;
+    try {
+      mediaStoreFiles = await _musicFolderService.queryMediaStoreAudio(
+        [folderPath],
+      );
+    } catch (e) {
+      debugPrint("MediaStore audio query failed for $displayName: $e");
+      return;
+    }
+
+    if (_isCancelled) return;
+
+    List<Map<String, dynamic>> nonAudioFiles;
+    try {
+      nonAudioFiles = await _musicFolderService.queryMediaStoreNonAudio(
+        [folderPath],
+      );
+    } catch (e) {
+      debugPrint("MediaStore non-audio query failed for $displayName: $e");
+      nonAudioFiles = [];
+    }
+
+    final existingSongs = await _songRepository.getSongEntitiesByFolder(
+      folderUri,
+    );
+    final filteredExistingSongs = await _purgeExistingSongsFilteredByRules(
+      existingSongs,
+      scanPreferences,
+    );
+
+    final rawExistingMap = <String, SongEntity>{};
+    final existingByPath = <String, SongEntity>{};
+    final existingByContentUri = <String, SongEntity>{};
+    for (var s in existingSongs) {
+      if (s.startOffsetMs == null) {
+        rawExistingMap[s.filePath] = s;
+      }
+      existingByPath[s.filePath] = s;
+      if (s.filePath.startsWith('content://')) {
+        existingByContentUri[s.filePath] = s;
+      }
+    }
+    for (final song in filteredExistingSongs) {
+      existingByPath.remove(song.filePath);
+      existingByContentUri.remove(song.filePath);
+      rawExistingMap.remove(song.filePath);
+    }
+
+    final scannedByPath = <String, AudioFileInfo>{};
+    final scannedByUri = <String, AudioFileInfo>{};
+    for (final f in mediaStoreFiles) {
+      if (f.filePath != null) scannedByPath[f.filePath!] = f;
+      scannedByUri[f.uri] = f;
+    }
+
+    final cueFileMaps = nonAudioFiles
+        .where((f) => (f['extension'] as String?)?.toLowerCase() == 'cue')
+        .toList();
+    final logFileMaps = nonAudioFiles
+        .where((f) {
+          final ext = (f['extension'] as String?)?.toLowerCase() ?? '';
+          return ext == 'log' || ext == 'txt';
+        })
+        .toList();
+
+    final cueFilesForParsing = cueFileMaps.map((m) => AudioFileInfo(
+      uri: m['filePath'] as String? ?? '',
+      name: m['name'] as String? ?? '',
+      size: (m['size'] as num?)?.toInt() ?? 0,
+      lastModified: (m['lastModified'] as num?)?.toInt() ?? 0,
+      extension: m['extension'] as String? ?? '',
+    )).toList();
+    final logFilesForParsing = logFileMaps.map((m) => AudioFileInfo(
+      uri: m['filePath'] as String? ?? '',
+      name: m['name'] as String? ?? '',
+      size: (m['size'] as num?)?.toInt() ?? 0,
+      lastModified: (m['lastModified'] as num?)?.toInt() ?? 0,
+      extension: m['extension'] as String? ?? '',
+    )).toList();
+
+    final cueMap = cueFilesForParsing.isNotEmpty
+        ? await _parseCueFilesAndroid(cueFilesForParsing, scannedByPath)
+        : <String, CueSheet>{};
+    final logMap = logFilesForParsing.isNotEmpty
+        ? await _parseLogFilesAndroid(logFilesForParsing, scannedByPath)
+        : <String, RipLog>{};
+
+    final allScannedPaths = scannedByPath.keys.toSet();
+    final allScannedUris = scannedByUri.keys.toSet();
+    final allKnownPaths = allScannedPaths.union(allScannedUris);
+
+    final urisToDelete = <String>[];
+    for (final path in existingByPath.keys) {
+      if (!allKnownPaths.contains(path)) {
+        urisToDelete.add(path);
+      }
+    }
+    for (final uri in existingByContentUri.keys) {
+      if (!allKnownPaths.contains(uri) && !urisToDelete.contains(uri)) {
+        urisToDelete.add(uri);
+      }
+    }
+
+    if (urisToDelete.isNotEmpty) {
+      final idsToDelete = urisToDelete
+          .map((uri) => existingByPath[uri]?.id ?? existingByContentUri[uri]?.id)
+          .whereType<int>()
+          .toList();
+      if (idsToDelete.isNotEmpty) {
+        await _songRepository.deleteSongsByIds(idsToDelete);
+      } else {
+        await _songRepository.deleteSongsByPath(urisToDelete);
+      }
+    }
+
+    final audioFilesWithCue = cueMap.keys.toSet();
+    final existingCuePaths = existingSongs
+        .where((s) => s.startOffsetMs != null)
+        .map((s) => s.filePath)
+        .toSet();
+    final orphanedCuePaths = existingCuePaths
+        .where((p) => allKnownPaths.contains(p) && !audioFilesWithCue.contains(p))
+        .toList();
+    if (orphanedCuePaths.isNotEmpty) {
+      await _songRepository.deleteCueTracksByPath(orphanedCuePaths);
+    }
+
+    final urisNeedingSparseMetadata = <String>[];
+    final batch = <SongEntity>[];
+    final idsToDeleteInline = <int>[];
+
+    for (final file in mediaStoreFiles) {
+      final lookupKey = file.filePath ?? file.uri;
+      final existing = existingByPath[lookupKey] ?? existingByContentUri[file.uri];
+
+      if (existing != null) {
+        final existingTime = existing.lastModified?.millisecondsSinceEpoch ?? 0;
+        if (file.lastModified == existingTime && existing.metadataComplete) {
+          continue;
+        }
+      }
+
+      final looksLikeAudio =
+          _looksLikeSupportedAudioExtension(file.extension) ||
+          (file.mimeType?.toLowerCase().startsWith('audio/') ?? false) ||
+          (file.duration ?? 0) > 0;
+      if (!looksLikeAudio) continue;
+
+      if (_shouldIgnoreDiscoveredTrack(
+        fileSizeBytes: file.size,
+        durationMs: file.duration,
+        scanPreferences: scanPreferences,
+      )) {
+        if (existing != null) idsToDeleteInline.add(existing.id);
+        continue;
+      }
+
+      final cueSheet = cueMap[file.filePath ?? file.uri];
+      final ripLog = logMap[file.filePath ?? file.uri];
+
+      if (cueSheet != null) {
+        final rawExisting = rawExistingMap[file.filePath ?? file.uri];
+        if (rawExisting != null) idsToDeleteInline.add(rawExisting.id);
+
+        final cueExistingMap = <String, SongEntity>{};
+        final cueTracksInDb = existingSongs.where(
+          (s) => s.filePath == (file.filePath ?? file.uri) && s.startOffsetMs != null,
+        );
+        for (final s in cueTracksInDb) {
+          cueExistingMap['${s.filePath}#${s.startOffsetMs}'] = s;
+        }
+
+        final cueEntities = _buildCueTrackEntities(
+          audioUri: file.filePath ?? file.uri,
+          cueSheet: cueSheet,
+          meta: file,
+          folderUri: folderUri,
+          existingMap: cueExistingMap,
+          ripLog: ripLog,
+          lastModified: DateTime.fromMillisecondsSinceEpoch(
+            file.lastModified,
+          ),
+        );
+
+        for (final entity in cueEntities) {
+          if (_shouldIgnoreDiscoveredTrack(
+            fileSizeBytes: entity.fileSize,
+            durationMs: entity.durationMs,
+            scanPreferences: scanPreferences,
+          )) {
+            continue;
+          }
+          batch.add(entity);
+        }
+        continue;
+      }
+
+      final needsSparseMetadata = existing == null ||
+          existing.sampleRate == null ||
+          existing.bitDepth == null ||
+          existing.discNumber == null;
+
+      final artist = (file.artist?.trim().isNotEmpty ?? false)
+          ? file.artist!.trim()
+          : 'Unknown Artist';
+      final song = SongEntity()
+        ..filePath = file.filePath ?? file.uri
+        ..title = (file.title?.trim().isNotEmpty ?? false)
+            ? file.title!.trim()
+            : _extractTitleFromFilename(file.name)
+        ..artist = artist
+        ..album = (file.album?.trim().isNotEmpty ?? false)
+            ? file.album!.trim()
+            : 'Unknown Album'
+        ..albumArtist = (file.albumArtist?.trim().isNotEmpty ?? false)
+            ? file.albumArtist!.trim()
+            : artist
+        ..trackNumber = file.trackNumber ?? 0
+        ..discNumber = file.discNumber ?? 1
+        ..durationMs = file.duration ?? 0
+        ..fileType = file.extension.toUpperCase()
+        ..dateAdded = existing?.dateAdded ??
+            (file.dateAdded != null
+                ? DateTime.fromMillisecondsSinceEpoch(file.dateAdded!)
+                : DateTime.now())
+        ..lastModified = DateTime.fromMillisecondsSinceEpoch(
+          file.lastModified,
+        )
+        ..folderUri = folderUri
+        ..fileSize = file.size
+        ..albumArtPath = existing?.albumArtPath
+        ..bitrate = file.bitrate != null
+            ? AudioMetadataUtils.bitrateFromBitsPerSecond(
+                int.tryParse(file.bitrate!),
+              )
+            : null
+        ..bitDepth = file.bitDepth
+        ..sampleRate = file.sampleRate
+        ..year = file.year
+        ..ripper = ripLog?.ripper
+        ..readMode = ripLog?.readMode
+        ..accurateRip = ripLog?.accurateRipEnabled
+        ..metadataComplete = !needsSparseMetadata;
+
+      if (existing != null) song.id = existing.id;
+
+      batch.add(song);
+
+      if (needsSparseMetadata) {
+        urisNeedingSparseMetadata.add(file.uri);
+      }
+    }
+
+    if (idsToDeleteInline.isNotEmpty) {
+      await _songRepository.deleteSongsByIds(idsToDeleteInline);
+    }
+
+    if (batch.isNotEmpty) {
+      await _songRepository.upsertSongs(batch);
+    }
+
+    yield ScanProgress(
+      songsFound: mediaStoreFiles.length,
+      totalFiles: mediaStoreFiles.length,
+      currentFolder: displayName,
+      isComplete: false,
+    );
+
+    if (urisNeedingSparseMetadata.isNotEmpty) {
+      yield* _extractSparseMetadataBackground(
+        urisNeedingSparseMetadata,
+        folderUri,
+        displayName,
+      );
+    }
+
+    final finalCount = await _songRepository.countSongsInFolder(folderUri);
+    await _folderRepository.updateFolderScanInfo(folderUri, finalCount);
+    await _syncPlaylistSourcesForFolder(
+      folderUri,
+      scanPreferences,
+      scanRootPath: folderPath,
+    );
+
+    yield ScanProgress(
+      songsFound: finalCount,
+      totalFiles: mediaStoreFiles.length,
+      currentFolder: displayName,
+      isComplete: true,
+    );
+  }
+
+  Stream<ScanProgress> _extractSparseMetadataBackground(
+    List<String> contentUris,
+    String folderUri,
+    String displayName,
+  ) async* {
+    final metadataBatchSize = _recommendedMetadataBatchSize(contentUris.length);
+    final metadataChunks = _chunkList(contentUris, metadataBatchSize);
+
+    for (final chunkUris in metadataChunks) {
+      if (_isCancelled) break;
+
+      final metadataList = await _fetchMetadataChunk(chunkUris);
+      if (metadataList == null) continue;
+
+      final updateBatch = <SongEntity>[];
+      final songsByUri = await _songRepository.getSongEntitiesByFolder(folderUri);
+      final pathMap = <String, SongEntity>{};
+      for (final s in songsByUri) {
+        if (s.filePath.startsWith('content://')) {
+          pathMap[s.filePath] = s;
+        }
+        if (s.filePath.startsWith('/')) {
+          pathMap[s.filePath] = s;
+        }
+      }
+
+      for (final meta in metadataList) {
+        final existing = pathMap[meta.uri];
+        if (existing == null) continue;
+
+        existing.sampleRate = meta.sampleRate ?? existing.sampleRate;
+        existing.bitDepth = meta.bitDepth ?? existing.bitDepth;
+        existing.discNumber = meta.discNumber ?? existing.discNumber;
+        existing.albumArtist = (meta.albumArtist?.trim().isNotEmpty ?? false)
+            ? meta.albumArtist!.trim()
+            : existing.albumArtist;
+        existing.metadataComplete = true;
+        updateBatch.add(existing);
+      }
+
+      if (updateBatch.isNotEmpty) {
+        await _songRepository.upsertSongs(updateBatch);
+      }
+
+      yield ScanProgress(
+        songsFound: 0,
+        totalFiles: contentUris.length,
+        currentFolder: displayName,
+        isComplete: false,
+      );
     }
   }
 
@@ -246,12 +608,8 @@ class LibraryScannerService {
             currentFileType.isNotEmpty &&
             (storedFileType == null || storedFileType != currentFileType);
         final missingMetadata =
+            !existing.metadataComplete ||
             existing.bitrate == null ||
-            existing.sampleRate == null ||
-            existing.bitDepth == null ||
-            existing.trackNumber == null ||
-            existing.discNumber == null ||
-            existing.albumArtist == null ||
             fileTypeMismatch;
 
         if (file.lastModified != existingTime || missingMetadata) {
@@ -377,8 +735,6 @@ class LibraryScannerService {
           ..albumArtist = (meta?.albumArtist?.trim().isNotEmpty ?? false)
               ? meta!.albumArtist!.trim()
               : artist
-          // 0 is used as a persisted sentinel for "unknown track" so we can
-          // migrate old rows once without forcing rescans forever.
           ..trackNumber = meta?.trackNumber ?? 0
           ..discNumber = meta?.discNumber ?? 1
           ..durationMs = meta?.duration ?? 0
@@ -399,7 +755,8 @@ class LibraryScannerService {
           ..sampleRate = meta?.sampleRate
           ..ripper = ripLog?.ripper
           ..readMode = ripLog?.readMode
-          ..accurateRip = ripLog?.accurateRipEnabled;
+          ..accurateRip = ripLog?.accurateRipEnabled
+          ..metadataComplete = meta?.sampleRate != null && meta?.bitDepth != null;
 
         if (existing != null) {
           song.id = existing.id;
@@ -584,7 +941,8 @@ class LibraryScannerService {
               bitDepth: metadata.bitDepth,
             )
             ..bitDepth = metadata.bitDepth
-            ..sampleRate = metadata.sampleRate;
+            ..sampleRate = metadata.sampleRate
+            ..metadataComplete = true;
 
           if (existing != null) {
             song.id = existing.id;
@@ -944,6 +1302,19 @@ class LibraryScannerService {
     List<SongEntity> existingSongs,
     LibraryScanPreferences scanPreferences,
   ) async {
+    final filePaths = existingSongs
+        .where((s) => s.filePath.startsWith('/'))
+        .map((s) => s.filePath)
+        .toList();
+
+    if (filePaths.isNotEmpty && Platform.isAndroid) {
+      try {
+        return await _musicFolderService.queryMediaStoreDeletions(filePaths);
+      } catch (e) {
+        debugPrint('MediaStore deletion check failed, falling back to SAF: $e');
+      }
+    }
+
     final fastScanFiles = await _musicFolderService.scanFolder(
       folderUri,
       filterNonMusicFilesAndFolders:
@@ -1187,6 +1558,9 @@ class LibraryScannerService {
 
   Future<String?> _readTextFile(String uri) async {
     try {
+      if (uri.startsWith('/') && File(uri).existsSync()) {
+        return File(uri).readAsString();
+      }
       return await _storageChannel.invokeMethod<String>(
         'readTextDocument',
         {'uri': uri},
@@ -1205,7 +1579,7 @@ class LibraryScannerService {
     final target = audioFileName.toLowerCase();
     for (final entry in fastScanMap.values) {
       if (entry.name.toLowerCase() == target) {
-        return entry.uri;
+        return entry.filePath ?? entry.uri;
       }
     }
     return null;
@@ -1399,7 +1773,8 @@ class LibraryScannerService {
             : null
         ..copyCrc = trackLog?.trackNumber == track.trackNumber
             ? trackLog?.copyCrc
-            : null;
+            : null
+        ..metadataComplete = meta?.sampleRate != null && meta?.bitDepth != null;
 
       if (existing != null) {
         entity.id = existing.id;

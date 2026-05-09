@@ -33,7 +33,7 @@ class SongRepository {
   /// Get songs by folder URI.
   Future<List<Song>> getSongsByFolder(String folderUri) async {
     final entities = await _isar.songEntitys
-        .filter()
+        .where()
         .folderUriEqualTo(folderUri)
         .sortByTitle()
         .findAll();
@@ -43,7 +43,7 @@ class SongRepository {
   /// Get song entities by folder URI (internal use for scanning).
   Future<List<SongEntity>> getSongEntitiesByFolder(String folderUri) async {
     return await _isar.songEntitys
-        .filter()
+        .where()
         .folderUriEqualTo(folderUri)
         .findAll();
   }
@@ -71,12 +71,10 @@ class SongRepository {
   /// Add or update a song. Matches on composite key (filePath, startOffsetMs).
   Future<void> upsertSong(SongEntity entity) async {
     await _isar.writeTxn(() async {
-      final existing = await _isar.songEntitys
-          .filter()
-          .filePathEqualTo(entity.filePath)
-          .and()
-          .startOffsetMsEqualTo(entity.startOffsetMs)
-          .findFirst();
+      final existing = await _isar.songEntitys.getByFilePathStartOffsetMs(
+        entity.filePath,
+        entity.startOffsetMs,
+      );
 
       if (existing != null) {
         entity.id = existing.id;
@@ -105,7 +103,7 @@ class SongRepository {
   /// Delete all songs for a specific folder.
   Future<void> deleteSongsForFolder(String folderUri) async {
     await _isar.writeTxn(() async {
-      await _isar.songEntitys.filter().folderUriEqualTo(folderUri).deleteAll();
+      await _isar.songEntitys.where().folderUriEqualTo(folderUri).deleteAll();
     });
   }
 
@@ -116,35 +114,43 @@ class SongRepository {
 
   /// Delete songs by their file paths.
   Future<void> deleteSongsByPath(List<String> paths) async {
+    final uniquePaths = paths.where((path) => path.isNotEmpty).toSet();
+    if (uniquePaths.isEmpty) return;
+
     await _isar.writeTxn(() async {
-      for (final path in paths) {
-        await _isar.songEntitys.filter().filePathEqualTo(path).deleteAll();
+      for (final path in uniquePaths) {
+        await _isar.songEntitys
+            .where()
+            .filePathEqualToAnyStartOffsetMs(path)
+            .deleteAll();
       }
     });
   }
 
   /// Delete raw (non-CUE) songs by file path.
   Future<void> deleteRawSongsByPath(List<String> paths) async {
+    final uniquePaths = paths.where((path) => path.isNotEmpty).toList();
+    if (uniquePaths.isEmpty) return;
+
     await _isar.writeTxn(() async {
-      for (final path in paths) {
-        await _isar.songEntitys
-            .filter()
-            .filePathEqualTo(path)
-            .and()
-            .startOffsetMsIsNull()
-            .deleteAll();
-      }
+      await _isar.songEntitys.deleteAllByFilePathStartOffsetMs(
+        uniquePaths,
+        List<int?>.filled(uniquePaths.length, null),
+      );
     });
   }
 
   /// Delete CUE track songs by file path.
   Future<void> deleteCueTracksByPath(List<String> paths) async {
+    final uniquePaths = paths.where((path) => path.isNotEmpty).toSet();
+    if (uniquePaths.isEmpty) return;
+
     await _isar.writeTxn(() async {
-      for (final path in paths) {
+      for (final path in uniquePaths) {
         await _isar.songEntitys
+            .where()
+            .filePathEqualToAnyStartOffsetMs(path)
             .filter()
-            .filePathEqualTo(path)
-            .and()
             .startOffsetMsIsNotNull()
             .deleteAll();
       }
@@ -205,12 +211,12 @@ class SongRepository {
 
   /// Count songs in a folder.
   Future<int> countSongsInFolder(String folderUri) async {
-    return await _isar.songEntitys.filter().folderUriEqualTo(folderUri).count();
+    return await _isar.songEntitys.where().folderUriEqualTo(folderUri).count();
   }
 
   Future<List<SongEntity>> getIncompleteMetadataSongs() async {
     return await _isar.songEntitys
-        .filter()
+        .where()
         .metadataCompleteEqualTo(false)
         .findAll();
   }
@@ -272,9 +278,7 @@ class SongRepository {
   }
 
   Future<AlbumGroup?> getAlbumGroupForSong(Song song) async {
-    final targetKey = _albumGroupKey(
-      _albumNameForSong(song),
-    );
+    final targetKey = _albumGroupKey(_albumNameForSong(song));
     final groups = await getAlbumGroups();
 
     for (final group in groups) {

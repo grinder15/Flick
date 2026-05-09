@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'music_folder_service.dart';
 import '../data/repositories/song_repository.dart';
 import '../data/entities/song_entity.dart';
+import 'uac2_preferences_service.dart';
 
 class BackgroundMetadataService {
   final MusicFolderService _musicFolderService;
@@ -14,10 +15,12 @@ class BackgroundMetadataService {
   BackgroundMetadataService({
     MusicFolderService? musicFolderService,
     SongRepository? songRepository,
-  })  : _musicFolderService = musicFolderService ?? MusicFolderService(),
-        _songRepository = songRepository ?? SongRepository();
+  }) : _musicFolderService = musicFolderService ?? MusicFolderService(),
+       _songRepository = songRepository ?? SongRepository();
 
-  void startPeriodicExtraction({Duration interval = const Duration(minutes: 5)}) {
+  void startPeriodicExtraction({
+    Duration interval = const Duration(minutes: 5),
+  }) {
     _timer?.cancel();
     _timer = Timer.periodic(interval, (_) => extractPendingMetadata());
   }
@@ -27,12 +30,24 @@ class BackgroundMetadataService {
     _timer = null;
   }
 
+  void _logTiming(String label, Duration elapsed) {
+    if (!Uac2PreferencesService.isDeveloperModeEnabledSync) return;
+    debugPrint('[BackgroundMetadata] $label: ${elapsed.inMilliseconds}ms');
+  }
+
   Future<int> extractPendingMetadata() async {
     if (_isRunning) return 0;
     _isRunning = true;
 
     try {
+      final totalStopwatch = Stopwatch()..start();
+      final dbStopwatch = Stopwatch()..start();
       final incomplete = await _songRepository.getIncompleteMetadataSongs();
+      _logTiming(
+        'DB query incomplete (${incomplete.length} songs)',
+        dbStopwatch.elapsed,
+      );
+
       if (incomplete.isEmpty) return 0;
 
       const batchSize = 100;
@@ -41,12 +56,15 @@ class BackgroundMetadataService {
       for (var i = 0; i < incomplete.length; i += batchSize) {
         final batch = incomplete.sublist(
           i,
-          (i + batchSize > incomplete.length) ? incomplete.length : i + batchSize,
+          (i + batchSize > incomplete.length)
+              ? incomplete.length
+              : i + batchSize,
         );
 
         final contentUris = batch
-            .where((s) => s.filePath.startsWith('content://'))
-            .map((s) => s.filePath)
+            .map((s) => s.mediaStoreUri ?? s.filePath)
+            .where((uri) => uri.startsWith('content://'))
+            .toSet()
             .toList();
 
         if (contentUris.isEmpty) {
@@ -59,7 +77,10 @@ class BackgroundMetadataService {
         }
 
         try {
-          final metadataList = await _musicFolderService.fetchMetadata(contentUris);
+          final chunkStopwatch = Stopwatch()..start();
+          final metadataList = await _musicFolderService.fetchMetadata(
+            contentUris,
+          );
           final metaByUri = <String, AudioFileInfo>{};
           for (final m in metadataList) {
             metaByUri[m.uri] = m;
@@ -67,7 +88,8 @@ class BackgroundMetadataService {
 
           final updateBatch = <SongEntity>[];
           for (final song in batch) {
-            final meta = metaByUri[song.filePath];
+            final lookupUri = song.mediaStoreUri ?? song.filePath;
+            final meta = metaByUri[lookupUri];
             if (meta != null) {
               song.sampleRate = meta.sampleRate ?? song.sampleRate;
               song.bitDepth = meta.bitDepth ?? song.bitDepth;
@@ -82,10 +104,20 @@ class BackgroundMetadataService {
 
           await _songRepository.upsertSongs(updateBatch);
           totalUpdated += updateBatch.length;
+          _logTiming(
+            'batch ${i ~/ batchSize + 1} (${batch.length} songs, '
+            '${contentUris.length} URIs, ${updateBatch.length} updated)',
+            chunkStopwatch.elapsed,
+          );
         } catch (e) {
           debugPrint('BackgroundMetadataService batch failed: $e');
         }
       }
+
+      _logTiming(
+        'extract pending metadata total ($totalUpdated updated)',
+        totalStopwatch.elapsed,
+      );
 
       return totalUpdated;
     } finally {

@@ -2413,10 +2413,6 @@ class PlayerService {
     if (isBitPerfectModeEnabled) {
       await _reconcileVolumeForTier(_determineCurrentTier());
       await _rustAudioService.setPlaybackSpeed(1.0);
-      await _rustAudioService.setCrossfade(
-        enabled: false,
-        durationSecs: _rustAudioService.crossfadeDurationNotifier.value,
-      );
     } else if (playbackMode == AudioEngineType.usbDacExperimental) {
       await _rustAudioService.setVolume(_currentVolume);
       await _rustAudioService.setPlaybackSpeed(1.0);
@@ -2433,15 +2429,17 @@ class PlayerService {
       );
     }
 
-    final curveIndex = await _appPreferencesService.getCrossfadeCurveIndex();
-    final curves = <rust_audio.CrossfadeCurveType>[
-      rust_audio.CrossfadeCurveType.equalPower,
-      rust_audio.CrossfadeCurveType.linear,
-      rust_audio.CrossfadeCurveType.squareRoot,
-      rust_audio.CrossfadeCurveType.sCurve,
-    ];
-    final curve = curves[curveIndex.clamp(0, curves.length - 1)];
-    await _rustAudioService.setCrossfadeCurve(curve);
+    if (!isBitPerfectModeEnabled) {
+      final curveIndex = await _appPreferencesService.getCrossfadeCurveIndex();
+      final curves = <rust_audio.CrossfadeCurveType>[
+        rust_audio.CrossfadeCurveType.equalPower,
+        rust_audio.CrossfadeCurveType.linear,
+        rust_audio.CrossfadeCurveType.squareRoot,
+        rust_audio.CrossfadeCurveType.sCurve,
+      ];
+      final curve = curves[curveIndex.clamp(0, curves.length - 1)];
+      await _rustAudioService.setCrossfadeCurve(curve);
+    }
 
     await reapplyEqualizer();
     _updatePriorityAnchor();

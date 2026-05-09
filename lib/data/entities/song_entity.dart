@@ -90,4 +90,8 @@ class SongEntity {
 
   /// Last time metadata was updated
   DateTime? lastModified;
+
+  /// Whether all metadata fields (sampleRate, bitDepth, discNumber) have been
+  /// extracted. false means background extraction is still pending.
+  bool metadataComplete = false;
 }

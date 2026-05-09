@@ -389,6 +389,111 @@ class CustomSwitch extends StatelessWidget {
   }
 }
 
+/// Row with a slider for continuous or stepped values.
+class SliderSetting extends StatelessWidget {
+  const SliderSetting({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.value,
+    required this.displayValue,
+    required this.min,
+    required this.max,
+    this.divisions,
+    this.onChanged,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final double value;
+  final String displayValue;
+  final double min;
+  final double max;
+  final int? divisions;
+  final ValueChanged<double>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppConstants.spacingLg,
+        AppConstants.spacingMd,
+        AppConstants.spacingMd,
+        AppConstants.spacingSm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _SettingsIcon(icon: icon),
+              const SizedBox(width: AppConstants.spacingMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: context.adaptiveTextTertiary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackgroundStrong,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  displayValue,
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: context.adaptiveTextSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderThemeData(
+              activeTrackColor: AppColors.textPrimary.withValues(alpha: 0.9),
+              inactiveTrackColor: AppColors.glassBackgroundStrong,
+              thumbColor: AppColors.textPrimary,
+              overlayColor: AppColors.textPrimary.withValues(alpha: 0.15),
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
+            ),
+            child: Slider(
+              value: value,
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Small icon container used by every settings tile.
 class _SettingsIcon extends StatelessWidget {
   const _SettingsIcon({required this.icon, this.color});

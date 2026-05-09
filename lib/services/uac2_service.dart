@@ -1302,11 +1302,6 @@ Future<void> stopPriorityAnchor() async {
     final effectiveFormat = formatOverride ?? _lastKnownFormat;
     final effectiveIsPlaying = isPlaying ?? _lastKnownIsPlaying;
     final effectiveHasSong = hasActiveSong ?? _lastKnownHasSong;
-    final prefersExternalDevice =
-        resolvedPreferredDevice != null &&
-        (resolvedPreferredDevice.vendorId != 0 ||
-            resolvedPreferredDevice.productId != 0 ||
-            (resolvedPreferredDevice.deviceName?.isNotEmpty ?? false));
 
     if (routeStatus == null) {
       if (!effectiveHasSong && !effectiveIsPlaying) {
@@ -1355,36 +1350,9 @@ Future<void> stopPriorityAnchor() async {
     if (!effectiveHasSong &&
         !effectiveIsPlaying &&
         !isExternal &&
-        !prefersExternalDevice &&
         !preferredUsbDetected &&
         !directUsbRegistered) {
       _updateStatus(null);
-      return;
-    }
-
-    if (!effectiveHasSong &&
-        !effectiveIsPlaying &&
-        prefersExternalDevice &&
-        routeType != Uac2RouteType.externalUsb &&
-        !preferredUsbDetected &&
-        !directUsbRegistered) {
-      _updateStatus(
-        Uac2DeviceStatus(
-          device: resolvedPreferredDevice,
-          state: Uac2State.error,
-          errorMessage: 'Selected USB DAC not detected',
-          warningMessage: null,
-          currentFormat: effectiveFormat,
-          routeType: routeType,
-          routeLabel: routeLabel,
-          isExternalRoute: false,
-          volumeMode: volumeMode,
-          hasVolumeControl: hasVolumeControl,
-          volumeControlWritable: volumeControlWritable,
-          volume: volume,
-          muted: muted,
-        ),
-      );
       return;
     }
 

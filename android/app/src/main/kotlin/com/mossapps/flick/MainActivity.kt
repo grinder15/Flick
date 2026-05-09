@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -44,6 +45,9 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -54,6 +58,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
 import kotlin.math.roundToInt
+import kotlin.math.min
 
 class MainActivity: FlutterActivity() {
     private val CHANNEL = "com.mossapps.flick/storage"
@@ -99,6 +104,8 @@ class MainActivity: FlutterActivity() {
     private var integrationChannel: MethodChannel? = null
     private var pendingExternalPlaybackPayload: Map<String, Any?>? = null
     private var volumeContentObserver: ContentObserver? = null
+    private var mediaStoreContentObserver: ContentObserver? = null
+    private var mediaStoreEventSink: EventChannel.EventSink? = null
     private val volumeObserverHandler = Handler(Looper.getMainLooper())
     private var volumeObserverDebounceRunnable: Runnable? = null
     private var suppressVolumeObserver = false
@@ -452,10 +459,62 @@ class MainActivity: FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "folderTreeUri and filePath are required", null)
                     }
                 }
+                "queryMediaStoreAudio" -> {
+                    val folderPaths = call.argument<List<String>>("folderPaths")
+                    mainScope.launch {
+                        try {
+                            val files = withContext(Dispatchers.IO) {
+                                queryMediaStoreAudio(folderPaths ?: emptyList())
+                            }
+                            result.success(files)
+                        } catch (e: Exception) {
+                            result.error("MEDIASTORE_ERROR", "Failed to query MediaStore: ${e.message}", null)
+                        }
+                    }
+                }
+                "queryMediaStoreNonAudio" -> {
+                    val folderPaths = call.argument<List<String>>("folderPaths")
+                    mainScope.launch {
+                        try {
+                            val files = withContext(Dispatchers.IO) {
+                                queryMediaStoreNonAudio(folderPaths ?: emptyList())
+                            }
+                            result.success(files)
+                        } catch (e: Exception) {
+                            result.error("MEDIASTORE_ERROR", "Failed to query MediaStore non-audio: ${e.message}", null)
+                        }
+                    }
+                }
+                "queryMediaStoreDeletions" -> {
+                    val filePaths = call.argument<List<String>>("filePaths")
+                    mainScope.launch {
+                        try {
+                            val deleted = withContext(Dispatchers.IO) {
+                                queryMediaStoreDeletions(filePaths ?: emptyList())
+                            }
+                            result.success(deleted)
+                        } catch (e: Exception) {
+                            result.error("MEDIASTORE_ERROR", "Failed to check deletions: ${e.message}", null)
+                        }
+                    }
+                }
                 else -> result.notImplemented()
             }
         }
-        
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, "com.mossapps.flick/mediastore_events").setStreamHandler(
+            object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    mediaStoreEventSink = events
+                    registerMediaStoreObserver()
+                }
+                override fun onCancel(arguments: Any?) {
+                    mediaStoreEventSink = null
+                    unregisterMediaStoreObserver()
+                }
+            }
+        )
+
         // Cache the Flutter engine for notification service to use
         // Engine is already cached in provideFlutterEngine
         
@@ -1317,61 +1376,89 @@ class MainActivity: FlutterActivity() {
     }
 
     // Phase 2: Metadata Extraction (Targeted)
-    private fun extractMetadataForFiles(uris: List<String>): List<Map<String, Any?>> {
+    // Uses coroutine parallelism — each chunk runs on its own MediaMetadataRetriever
+    private suspend fun extractMetadataForFiles(uris: List<String>): List<Map<String, Any?>> {
+        if (uris.isEmpty()) return emptyList()
+        if (uris.size == 1) return listOf(extractSingleMetadata(uris[0]))
+
+        val cores = Runtime.getRuntime().availableProcessors()
+        val chunkCount = kotlin.math.min(cores * 2, uris.size).coerceAtLeast(1)
+        val chunkSize = (uris.size + chunkCount - 1) / chunkCount
+
+        val chunks = uris.chunked(chunkSize)
+
+        return coroutineScope {
+            chunks.map { chunk ->
+                async(Dispatchers.IO) {
+                    extractMetadataChunk(chunk)
+                }
+            }.awaitAll().flatten()
+        }
+    }
+
+    private fun extractSingleMetadata(uriString: String): Map<String, Any?> {
         val retriever = MediaMetadataRetriever()
-        val result = mutableListOf<Map<String, Any?>>()
+        return try {
+            retriever.setDataSource(context, Uri.parse(uriString))
+            readMetadataFields(retriever, uriString)
+        } catch (e: Exception) {
+            mapOf("uri" to uriString)
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+    }
 
-        for (uriString in uris) {
+    private fun extractMetadataChunk(uriStrings: List<String>): List<Map<String, Any?>> {
+        val retriever = MediaMetadataRetriever()
+        val results = mutableListOf<Map<String, Any?>>()
+
+        for (uriString in uriStrings) {
             try {
-                val uri = Uri.parse(uriString)
-                retriever.setDataSource(context, uri)
-                
-                val metadata = mutableMapOf<String, Any?>("uri" to uriString)
-                
-                metadata["title"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                metadata["artist"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
-                metadata["album"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
-                metadata["albumArtist"] = extractMetadataByKeyName(retriever, "METADATA_KEY_ALBUMARTIST")
-                metadata["trackNumber"] = parseMetadataNumber(
-                    extractMetadataByKeyName(retriever, "METADATA_KEY_CD_TRACK_NUMBER")
-                )
-                metadata["discNumber"] = parseMetadataNumber(
-                    extractMetadataByKeyName(retriever, "METADATA_KEY_DISC_NUMBER")
-                )
-                metadata["bitrate"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
-                metadata["mimeType"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
-                
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    val sampleRateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
-                    if (sampleRateStr != null) {
-                        metadata["sampleRate"] = sampleRateStr.toIntOrNull()
-                    }
-                    
-                    val bitDepthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)
-                    if (bitDepthStr != null) {
-                        metadata["bitDepth"] = bitDepthStr.toIntOrNull()
-                    }
-                }
-                
-                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                if (durationStr != null) {
-                    metadata["duration"] = durationStr.toLongOrNull()
-                }
-
-                result.add(metadata)
+                retriever.setDataSource(context, Uri.parse(uriString))
+                results.add(readMetadataFields(retriever, uriString))
             } catch (e: Exception) {
-                // Return just the URI if metadata fails, so Dart knows we tried
-                result.add(mapOf("uri" to uriString))
+                results.add(mapOf("uri" to uriString))
             }
         }
 
-        try {
-            retriever.release()
-        } catch (e: Exception) {
-            // Ignore
+        try { retriever.release() } catch (_: Exception) {}
+        return results
+    }
+
+    private fun readMetadataFields(retriever: MediaMetadataRetriever, uriString: String): Map<String, Any?> {
+        val metadata = mutableMapOf<String, Any?>("uri" to uriString)
+
+        metadata["title"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+        metadata["artist"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+        metadata["album"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
+        metadata["albumArtist"] = extractMetadataByKeyName(retriever, "METADATA_KEY_ALBUMARTIST")
+        metadata["trackNumber"] = parseMetadataNumber(
+            extractMetadataByKeyName(retriever, "METADATA_KEY_CD_TRACK_NUMBER")
+        )
+        metadata["discNumber"] = parseMetadataNumber(
+            extractMetadataByKeyName(retriever, "METADATA_KEY_DISC_NUMBER")
+        )
+        metadata["bitrate"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)
+        metadata["mimeType"] = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_MIMETYPE)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val sampleRateStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_SAMPLERATE)
+            if (sampleRateStr != null) {
+                metadata["sampleRate"] = sampleRateStr.toIntOrNull()
+            }
+
+            val bitDepthStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITS_PER_SAMPLE)
+            if (bitDepthStr != null) {
+                metadata["bitDepth"] = bitDepthStr.toIntOrNull()
+            }
         }
 
-        return result
+        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+        if (durationStr != null) {
+            metadata["duration"] = durationStr.toLongOrNull()
+        }
+
+        return metadata
     }
 
     private fun extractEmbeddedArtwork(uriString: String): ByteArray? {
@@ -1407,6 +1494,234 @@ class MainActivity: FlutterActivity() {
         val match = Regex("""\d+""").find(rawValue) ?: return null
         val value = match.value.toIntOrNull() ?: return null
         return if (value > 0) value else null
+    }
+
+    private fun queryMediaStoreAudio(folderPaths: List<String>): List<Map<String, Any?>> {
+        val startedAt = System.nanoTime()
+        val result = mutableListOf<Map<String, Any?>>()
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        }
+
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.DATA,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.ALBUM_ARTIST,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.TRACK,
+            MediaStore.Audio.Media.YEAR,
+            MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_MODIFIED,
+            MediaStore.Audio.Media.DATE_ADDED,
+            MediaStore.Audio.Media.COMPOSER,
+        )
+
+        val selection = if (folderPaths.isNotEmpty()) {
+            folderPaths.joinToString(" OR ") { "${MediaStore.Audio.Media.DATA} LIKE ?" }
+        } else null
+        val selectionArgs = if (folderPaths.isNotEmpty()) {
+            folderPaths.map { "$it%" }.toTypedArray()
+        } else null
+
+        try {
+            contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+                val albumArtistCol = cursor.getColumnIndex(MediaStore.Audio.Media.ALBUM_ARTIST)
+                val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                val trackCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
+                val yearCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
+                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                val dateModCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+                val dateAddedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
+
+                while (cursor.moveToNext()) {
+                    val data = cursor.getString(dataCol) ?: continue
+                    val extension = data.substringAfterLast('.', "").lowercase()
+                    if (extension !in setOf(
+                        "mp3", "flac", "wav", "aac", "m4a", "ogg", "oga",
+                        "ogx", "opus", "wma", "alac", "aif", "aiff"
+                    )) continue
+
+                    val id = cursor.getLong(idCol)
+                    val contentUri = ContentUris.withAppendedId(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
+                    ).toString()
+
+                    val duration = cursor.getLong(durationCol)
+                    val size = cursor.getLong(sizeCol)
+
+                    val rawTrack = cursor.getInt(trackCol)
+                    val trackNumber = rawTrack % 1000
+                    val discNumber = rawTrack / 1000
+
+                    result.add(mapOf(
+                        "uri" to contentUri,
+                        "filePath" to data,
+                        "name" to (data.substringAfterLast('/', "")),
+                        "title" to (cursor.getString(titleCol) ?: ""),
+                        "artist" to (cursor.getString(artistCol) ?: ""),
+                        "album" to (cursor.getString(albumCol) ?: ""),
+                        "albumArtist" to (if (albumArtistCol >= 0) cursor.getString(albumArtistCol) else null),
+                        "duration" to duration,
+                        "trackNumber" to (if (trackNumber > 0) trackNumber else null),
+                        "discNumber" to (if (discNumber > 0) discNumber else null),
+                        "year" to (cursor.getInt(yearCol).takeIf { it > 0 }),
+                        "mimeType" to (cursor.getString(mimeCol)),
+                        "extension" to extension,
+                        "size" to size,
+                        "lastModified" to (cursor.getLong(dateModCol) * 1000L),
+                        "dateAdded" to (cursor.getLong(dateAddedCol) * 1000L),
+                        "bitrate" to (if (duration > 0 && size > 0) ((size * 8) / (duration / 1000)).toString() else null),
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "MediaStore audio query failed: ${e.message}", e)
+        } finally {
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+            Log.d("MainActivity", "MediaStore audio query returned ${result.size} rows in ${elapsedMs}ms")
+        }
+
+        return result
+    }
+
+    private fun queryMediaStoreNonAudio(folderPaths: List<String>): List<Map<String, Any?>> {
+        val result = mutableListOf<Map<String, Any?>>()
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            return result
+        }
+
+        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DATA,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.DATE_MODIFIED,
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+        )
+
+        val nonAudioExtensions = setOf("cue", "log", "txt", "m3u", "m3u8")
+
+        val folderConditions = folderPaths.map { "${MediaStore.Files.FileColumns.DATA} LIKE ?" }
+        val extConditions = nonAudioExtensions.map { "${MediaStore.Files.FileColumns.DATA} LIKE ?" }
+
+        val selection = buildString {
+            if (folderConditions.isNotEmpty()) {
+                append("(")
+                append(folderConditions.joinToString(" OR "))
+                append(")")
+            }
+            if (extConditions.isNotEmpty()) {
+                if (isNotEmpty()) append(" AND ")
+                append("(")
+                append(extConditions.joinToString(" OR "))
+                append(")")
+            }
+        }
+
+        val selectionArgs = (
+            folderPaths.map { "$it%" } +
+            nonAudioExtensions.map { "%.$it" }
+        ).toTypedArray()
+
+        try {
+            contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
+                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
+                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+                val dateModCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
+                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+
+                while (cursor.moveToNext()) {
+                    val data = cursor.getString(dataCol) ?: continue
+                    val extension = data.substringAfterLast('.', "").lowercase()
+                    if (extension !in nonAudioExtensions) continue
+
+                    val isInFolder = folderPaths.any { data.startsWith(it) }
+                    if (!isInFolder && folderPaths.isNotEmpty()) continue
+
+                    result.add(mapOf(
+                        "filePath" to data,
+                        "name" to (cursor.getString(nameCol) ?: ""),
+                        "extension" to extension,
+                        "size" to cursor.getLong(sizeCol),
+                        "lastModified" to (cursor.getLong(dateModCol) * 1000L),
+                        "mimeType" to cursor.getString(mimeCol),
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "MediaStore non-audio query failed: ${e.message}", e)
+        }
+
+        return result
+    }
+
+    private fun queryMediaStoreDeletions(filePaths: List<String>): List<String> {
+        if (filePaths.isEmpty()) return emptyList()
+
+        val existingPaths = mutableSetOf<String>()
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        }
+
+        val projection = arrayOf(MediaStore.Audio.Media.DATA)
+
+        try {
+            contentResolver.query(collection, projection, null, null, null)?.use { cursor ->
+                val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                while (cursor.moveToNext()) {
+                    cursor.getString(dataCol)?.let { existingPaths.add(it) }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "MediaStore deletion check failed: ${e.message}", e)
+            return emptyList()
+        }
+
+        return filePaths.filter { !existingPaths.contains(it) }
+    }
+
+    private fun registerMediaStoreObserver() {
+        if (mediaStoreContentObserver != null) return
+        mediaStoreContentObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                super.onChange(selfChange)
+                try {
+                    mediaStoreEventSink?.success(mapOf("type" to "changed"))
+                } catch (_: Exception) {}
+            }
+        }
+        contentResolver.registerContentObserver(
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+            true,
+            mediaStoreContentObserver!!
+        )
+    }
+
+    private fun unregisterMediaStoreObserver() {
+        mediaStoreContentObserver?.let {
+            contentResolver.unregisterContentObserver(it)
+        }
+        mediaStoreContentObserver = null
     }
 
     private fun cacheUriForPlayback(uriString: String, extensionHint: String?): String? {
@@ -2249,6 +2564,18 @@ class MainActivity: FlutterActivity() {
             "headphone",
             "dongle",
             "amp",
+            "hi-fi",
+            "hifi",
+            "sound",
+            "speaker",
+            "c-media",
+            "realtek",
+            "conexant",
+            "pnp",
+            "output",
+            "cx",
+            "cm108",
+            "hs",
         )
         return keywords.any { keyword -> haystack.contains(keyword) }
     }
@@ -2265,7 +2592,24 @@ class MainActivity: FlutterActivity() {
             return true
         }
 
-        return deviceHasIsochronousEndpoint(device) && looksLikeUsbAudioName(device)
+        if (deviceHasIsochronousEndpoint(device) && looksLikeUsbAudioName(device)) {
+            return true
+        }
+
+        if (deviceHasIsochronousEndpoint(device) && hasUsbAudioOutputViaDeviceInfo()) {
+            return true
+        }
+
+        return false
+    }
+
+    private fun hasUsbAudioOutputViaDeviceInfo(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+        return audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+            it.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+        }
     }
 
     private fun usbDeviceDebugSummary(device: UsbDevice): String {

@@ -390,6 +390,11 @@ class PlayerNotifier extends Notifier<PlayerState> {
   Future<void> setVolume(double volume) async {
     await _service.setVolume(volume);
   }
+
+  /// Sync UI state with the actual engine playback state.
+  void syncNow() {
+    _service.syncNow();
+  }
 }
 
 /// Main player state provider.

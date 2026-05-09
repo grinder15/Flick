@@ -5,6 +5,7 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/features/settings/widgets/settings_widgets.dart';
+import 'package:flick/features/settings/screens/bottom_bar_settings_screen.dart';
 
 class InterfaceSettingsScreen extends ConsumerWidget {
   const InterfaceSettingsScreen({super.key});
@@ -44,6 +45,19 @@ class InterfaceSettingsScreen extends ConsumerWidget {
                       .read(appPreferencesProvider.notifier)
                       .setHapticsEnabled(value);
                   AppHaptics.setEnabled(value);
+                },
+              ),
+              const SettingsDivider(),
+              NavigationSetting(
+                icon: LucideIcons.navigation,
+                title: 'Bottom Bar',
+                subtitle: 'Customize which tabs appear and their size',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const BottomBarSettingsScreen(),
+                    ),
+                  );
                 },
               ),
             ],

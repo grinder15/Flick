@@ -71,6 +71,9 @@ class AudioFileInfo {
   final String? bitrate;
   final int? bitDepth;
   final int? sampleRate;
+  final String? filePath;
+  final int? year;
+  final int? dateAdded;
 
   AudioFileInfo({
     required this.uri,
@@ -90,6 +93,9 @@ class AudioFileInfo {
     this.bitrate,
     this.bitDepth,
     this.sampleRate,
+    this.filePath,
+    this.year,
+    this.dateAdded,
   });
 
   factory AudioFileInfo.fromMap(Map<String, dynamic> map) {
@@ -97,7 +103,7 @@ class AudioFileInfo {
       uri: map['uri'] as String,
       name:
           map['name'] as String? ??
-          '', // Name might be null in metadata-only response
+          '',
       size: (map['size'] as num?)?.toInt() ?? 0,
       lastModified: (map['lastModified'] as num?)?.toInt() ?? 0,
       mimeType: map['mimeType'] as String?,
@@ -115,6 +121,9 @@ class AudioFileInfo {
       bitrate: map['bitrate'] as String?,
       bitDepth: (map['bitDepth'] as num?)?.toInt(),
       sampleRate: (map['sampleRate'] as num?)?.toInt(),
+      filePath: map['filePath'] as String?,
+      year: (map['year'] as num?)?.toInt(),
+      dateAdded: (map['dateAdded'] as num?)?.toInt(),
     );
   }
 }
@@ -183,6 +192,7 @@ class FolderAlreadyExistsException implements Exception {
 /// Service for managing music folders and their contents.
 class MusicFolderService {
   static const _channel = MethodChannel('com.mossapps.flick/storage');
+  static const _mediastoreEventChannel = EventChannel('com.mossapps.flick/mediastore_events');
   static const _prefKey = 'music_folders';
 
   final PermissionService _permissionService;
@@ -386,6 +396,63 @@ class MusicFolderService {
     } catch (e) {
       return null;
     }
+  }
+
+  Future<List<AudioFileInfo>> queryMediaStoreAudio(
+    List<String> folderPaths,
+  ) async {
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>(
+        'queryMediaStoreAudio',
+        {'folderPaths': folderPaths},
+      );
+      if (result == null) return [];
+      return result
+          .cast<Map<dynamic, dynamic>>()
+          .map((map) => AudioFileInfo.fromMap(map.cast<String, dynamic>()))
+          .toList();
+    } on PlatformException catch (e) {
+      throw StorageException('Failed to query MediaStore: ${e.message}');
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> queryMediaStoreNonAudio(
+    List<String> folderPaths,
+  ) async {
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>(
+        'queryMediaStoreNonAudio',
+        {'folderPaths': folderPaths},
+      );
+      if (result == null) return [];
+      return result
+          .cast<Map<dynamic, dynamic>>()
+          .map((map) => map.cast<String, dynamic>())
+          .toList();
+    } on PlatformException catch (e) {
+      throw StorageException('Failed to query MediaStore non-audio: ${e.message}');
+    }
+  }
+
+  Future<List<String>> queryMediaStoreDeletions(
+    List<String> filePaths,
+  ) async {
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>(
+        'queryMediaStoreDeletions',
+        {'filePaths': filePaths},
+      );
+      if (result == null) return [];
+      return result.cast<String>();
+    } on PlatformException catch (e) {
+      throw StorageException('Failed to check MediaStore deletions: ${e.message}');
+    }
+  }
+
+  Stream<Map<String, dynamic>> get mediaStoreChanges {
+    return _mediastoreEventChannel.receiveBroadcastStream().map(
+      (event) => (event as Map<dynamic, dynamic>).cast<String, dynamic>(),
+    );
   }
 
   Future<void> _saveFolderToPrefs(MusicFolder folder) async {

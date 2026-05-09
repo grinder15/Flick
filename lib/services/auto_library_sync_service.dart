@@ -1,28 +1,29 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'library_scanner_service.dart';
-import 'music_folder_service.dart';
-import '../data/repositories/folder_repository.dart';
+import 'mediastore_observer_service.dart';
+import 'background_metadata_service.dart';
 
-/// Service for automatically syncing library changes in the background.
 class AutoLibrarySyncService {
   final LibraryScannerService _scannerService;
-  final FolderRepository _folderRepository;
+  final MediaStoreObserverService? _observerService;
+  final BackgroundMetadataService? _backgroundMetadataService;
 
   Timer? _syncTimer;
   bool _isRunning = false;
   bool _isSyncing = false;
 
-  // Configurable sync interval (default: 5 minutes)
-  Duration syncInterval = const Duration(minutes: 5);
+  Duration syncInterval = const Duration(minutes: 30);
 
   AutoLibrarySyncService({
     LibraryScannerService? scannerService,
-    FolderRepository? folderRepository,
-  }) : _scannerService = scannerService ?? LibraryScannerService(),
-       _folderRepository = folderRepository ?? FolderRepository();
+    MediaStoreObserverService? observerService,
+    BackgroundMetadataService? backgroundMetadataService,
+  })  : _scannerService = scannerService ?? LibraryScannerService(),
+        _observerService = observerService,
+        _backgroundMetadataService = backgroundMetadataService;
 
-  /// Start automatic library syncing.
   void start() {
     if (_isRunning) return;
 
@@ -31,18 +32,24 @@ class AutoLibrarySyncService {
       'Auto library sync started (interval: ${syncInterval.inMinutes} minutes)',
     );
 
+    if (Platform.isAndroid && _observerService != null) {
+      _observerService.start();
+    }
+
+    _backgroundMetadataService?.startPeriodicExtraction();
+
     _syncTimer = Timer.periodic(syncInterval, (_) => _performSync());
   }
 
-  /// Stop automatic library syncing.
   void stop() {
     _syncTimer?.cancel();
     _syncTimer = null;
+    _observerService?.stop();
+    _backgroundMetadataService?.stop();
     _isRunning = false;
     debugPrint('Auto library sync stopped');
   }
 
-  /// Manually trigger a sync.
   Future<void> syncNow() async {
     await _performSync();
   }
@@ -57,64 +64,8 @@ class AutoLibrarySyncService {
     debugPrint('Starting automatic library sync...');
 
     try {
-      final folders = await _folderRepository.getAllFolders();
-      final scheduledRoots = <String>{};
-      final scanPlan = folders.where((folder) {
-        final normalized = normalizeFolderIdentifier(folder.uri);
-        final overlapsExisting = scheduledRoots.any(
-          (root) =>
-              isSameOrDescendantFolder(normalized, root) ||
-              isSameOrDescendantFolder(root, normalized),
-        );
-        if (overlapsExisting) {
-          debugPrint(
-            'Skipping overlapping auto-sync root ${folder.displayName} (${folder.uri})',
-          );
-          return false;
-        }
-        scheduledRoots.add(normalized);
-        return true;
-      }).toList();
-
-      if (scanPlan.isEmpty) {
-        debugPrint('No folders to sync');
-        return;
-      }
-
-      int totalNewSongs = 0;
-      int totalDeletedSongs = 0;
-
-      for (final folder in scanPlan) {
-        final initialCount = folder.songCount;
-
-        await for (final progress in _scannerService.scanFolder(
-          folder.uri,
-          folder.displayName,
-        )) {
-          if (progress.isComplete) {
-            final newCount = progress.songsFound;
-            final diff = newCount - initialCount;
-
-            if (diff > 0) {
-              totalNewSongs += diff;
-              debugPrint('Found $diff new songs in ${folder.displayName}');
-            } else if (diff < 0) {
-              totalDeletedSongs += diff.abs();
-              debugPrint(
-                'Removed ${diff.abs()} songs from ${folder.displayName}',
-              );
-            }
-          }
-        }
-      }
-
-      if (totalNewSongs > 0 || totalDeletedSongs > 0) {
-        debugPrint(
-          'Sync complete: +$totalNewSongs new, -$totalDeletedSongs removed',
-        );
-      } else {
-        debugPrint('Sync complete: No changes detected');
-      }
+      await _scannerService.refreshDeletions();
+      debugPrint('Sync complete: checked for deleted files');
     } catch (e) {
       debugPrint('Error during automatic sync: $e');
     } finally {

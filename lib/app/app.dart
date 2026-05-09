@@ -11,6 +11,12 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/features/songs/screens/songs_screen.dart';
 import 'package:flick/features/menu/screens/menu_screen.dart';
 import 'package:flick/features/settings/screens/settings_screen.dart';
+import 'package:flick/features/albums/screens/albums_screen.dart';
+import 'package:flick/features/artists/screens/artists_screen.dart';
+import 'package:flick/features/folders/screens/folders_screen.dart';
+import 'package:flick/features/playlists/screens/playlists_screen.dart';
+import 'package:flick/features/favorites/screens/favorites_screen.dart';
+import 'package:flick/features/search/screens/search_screen.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/constants/app_constants.dart';
@@ -20,6 +26,8 @@ import 'package:flick/providers/providers.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/models/song.dart';
+import 'package:flick/services/library_scanner_service.dart';
+import 'package:flick/services/player_service.dart';
 
 /// Main application widget for Flick Player.
 class FlickPlayerApp extends StatelessWidget {
@@ -67,6 +75,7 @@ class _MainShellState extends ConsumerState<MainShell>
 
   // Track previous song to detect changes
   Song? _previousSong;
+  late final PlayerService _playerService;
 
   @override
   void initState() {
@@ -75,6 +84,7 @@ class _MainShellState extends ConsumerState<MainShell>
     // Seed _previousSong from the already-restored state so the auto-navigate
     // listener doesn't treat the restored song as "new" on cold start.
     _previousSong = ref.read(currentSongProvider);
+    _playerService = ref.read(playerServiceProvider);
     final initialIndex = ref.read(navigationIndexProvider);
     _pageController = PageController(initialPage: initialIndex);
     _navBarAnimationController = AnimationController(
@@ -194,11 +204,59 @@ class _MainShellState extends ConsumerState<MainShell>
         return;
       }
       _maybeOpenExternalPlayer(ref.read(currentSongProvider));
+      _refreshLibraryDeletions();
     });
+
+    _playerService.playbackDesyncedNotifier.addListener(
+      _onPlaybackDesyncChanged,
+    );
+  }
+
+  void _refreshLibraryDeletions() {
+    unawaited(_refreshLibraryDeletionsAsync());
+  }
+
+  Future<void> _refreshLibraryDeletionsAsync() async {
+    try {
+      final scannerService = LibraryScannerService();
+      await scannerService.refreshDeletions();
+      if (mounted) {
+        ref.invalidate(songsProvider);
+        ref.invalidate(musicFoldersProvider);
+      }
+    } catch (e) {
+      debugPrint('Library deletion refresh failed: $e');
+    }
+  }
+
+  void _onPlaybackDesyncChanged() {
+    if (!mounted) return;
+    final desynced = _playerService.playbackDesyncedNotifier.value;
+    if (!desynced) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      return;
+    }
+
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Playback desynced'),
+        duration: const Duration(days: 1),
+        action: SnackBarAction(
+          label: 'Sync',
+          onPressed: () {
+            _playerService.syncNow();
+          },
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
+    _playerService.playbackDesyncedNotifier.removeListener(
+      _onPlaybackDesyncChanged,
+    );
     WidgetsBinding.instance.removeObserver(this);
     _navBarVisibilitySubscription.close();
     _navBarAlwaysVisibleSubscription.close();
@@ -366,6 +424,36 @@ class _MainShellState extends ConsumerState<MainShell>
                     currentIndex: currentIndex,
                     child: const SettingsScreen(key: ValueKey('settings')),
                   ),
+                  _buildTab(
+                    tabIndex: 3,
+                    currentIndex: currentIndex,
+                    child: const AlbumsScreen(key: ValueKey('albums')),
+                  ),
+                  _buildTab(
+                    tabIndex: 4,
+                    currentIndex: currentIndex,
+                    child: const ArtistsScreen(key: ValueKey('artists')),
+                  ),
+                  _buildTab(
+                    tabIndex: 5,
+                    currentIndex: currentIndex,
+                    child: const FoldersScreen(key: ValueKey('folders')),
+                  ),
+                  _buildTab(
+                    tabIndex: 6,
+                    currentIndex: currentIndex,
+                    child: const PlaylistsScreen(key: ValueKey('playlists')),
+                  ),
+                  _buildTab(
+                    tabIndex: 7,
+                    currentIndex: currentIndex,
+                    child: const FavoritesScreen(key: ValueKey('favorites')),
+                  ),
+                  _buildTab(
+                    tabIndex: 8,
+                    currentIndex: currentIndex,
+                    child: const SearchScreen(key: ValueKey('search')),
+                  ),
                 ],
               ),
 
@@ -400,9 +488,11 @@ class _MainShellState extends ConsumerState<MainShell>
 
   Widget _buildUnifiedBottomBar() {
     final currentIndex = ref.watch(navigationIndexProvider);
+    final navBarConfig = ref.watch(navBarConfigProvider);
 
     return FlickNavBar(
       currentIndex: currentIndex,
+      config: navBarConfig,
       onTap: (index) {
         if (ref.read(navigationIndexProvider) != index) {
           ref.read(navigationIndexProvider.notifier).setIndex(index);

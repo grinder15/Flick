@@ -86,6 +86,11 @@ The current roadmap includes:
 - **CUE Sheet Support**: Track start/end offset support for CUE sheet-based files
 - **In-App Updates**: Shorebird code push replaced with Google Play InAppUpdate API
 - **Hardware Volume Control**: Three-tier volume system with UAC2 Feature Unit SET_CUR, Rust engine f32 multiply, and Android system fallback
+- **MediaStore Scanning**: ~34× faster library scanning via Android MediaStore queries with differential sync, background metadata extraction, and live content observer
+- **USB Audio Detection**: Improved Android-side detection with expanded keyword matching and AudioManager fallback for USB audio devices
+- **Device Connect Toast**: Snackbar notification when UAC2 device connects or starts streaming, showing device name and format
+- **Crossfade Curve in Bit-Perfect Mode**: Crossfade curve is no longer set when bit-perfect mode is active (avoids unnecessary configuration)
+- **Android 7 Dropped**: minSdk raised from 21 to 26; Android 7 crash (Impeller + missing desugaring) resolved by dropping API 21–25
 
 ## Code "Functions" (Core Architecture)
 
@@ -152,10 +157,21 @@ The visual layer that interacts with the user:
 
 ### 8. The Librarian (Scanner & Metadata)
 
-Located in `rust/src/api/scanner.rs` and utilizing `lofty`:
+Flick uses a two-tier scanning architecture:
 
-- **Scanner**: Recursively searches user-defined folders for audio files. It uses `rayon` for parallel processing, making it extremely fast even for large libraries.
-- **Metadata Parser**: Reads the ID3 tags, Vorbis comments, and covers from files so the UI displays the correct Artist, Album, and Art.
+**Tier 1 — Android MediaStore** (primary, Android-only):
+- `LibraryScannerService` queries Android's `MediaStore` for audio files in user-configured folders
+- Differential sync against Isar database — only `NEW`/`MODIFIED` files get metadata parsing
+- `MediaStoreObserverService` listens for `MediaStore` changes via content observer and triggers live rescans
+- Non-audio files (CUE sheets, rip logs) are queried in a separate `MediaStore` pass
+- Deletion detection queries `MediaStore` for missing files
+
+**Tier 2 — Rust scanner** (legacy, used for direct filesystem access):
+- Located in `rust/src/api/scanner.rs` and utilizing `lofty` and `rayon` for parallel processing
+- Recursively walks user-defined folders, extracting metadata from ID3 tags, Vorbis comments, covers
+- Used as fallback when `MediaStore` querying is unavailable
+
+The combined approach delivered a **~34× speedup** (from 11–12s to 328ms for a 60GB / 1,287-track library).
 
 ## Simplified Explanation
 

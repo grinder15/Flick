@@ -9,6 +9,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../data/repositories/song_repository.dart';
 import '../src/rust/api/scanner.dart' as rust_scanner;
 import 'music_folder_service.dart';
+import 'player_service.dart';
 
 class AlbumArtService {
   AlbumArtService._();
@@ -92,6 +93,12 @@ class AlbumArtService {
   ) async {
     try {
       await _songRepository.updateAlbumArtPath(audioSourcePath, albumArtPath);
+      if (albumArtPath != null) {
+        PlayerService().syncAlbumArtPaths(
+          filePaths: [audioSourcePath],
+          albumArtPath: albumArtPath,
+        );
+      }
     } catch (_) {
       // Best-effort cache persistence should not break rendering.
     }

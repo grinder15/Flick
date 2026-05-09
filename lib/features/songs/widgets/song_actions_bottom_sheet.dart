@@ -10,6 +10,7 @@ import 'package:flick/features/songs/widgets/album_art_picker_bottom_sheet.dart'
 import 'package:flick/models/song.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/services/music_folder_service.dart';
+import 'package:flick/services/player_service.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -58,6 +59,7 @@ class SongActionsBottomSheet extends ConsumerWidget {
               await ref
                   .read(favoritesProvider.notifier)
                   .toggleFavorite(song.id);
+              PlayerService().refreshNotificationState();
               if (context.mounted) {
                 Navigator.pop(context);
               }

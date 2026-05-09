@@ -83,6 +83,18 @@ impl Crossfader {
         self.active
     }
 
+    /// Current crossfade position (frame count).
+    #[inline]
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
+    /// Crossfade duration in frames.
+    #[inline]
+    pub fn duration_samples(&self) -> usize {
+        self.duration_samples
+    }
+
     /// Enable or disable crossfade.
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;

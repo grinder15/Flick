@@ -90,6 +90,30 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
         .read(appPreferencesServiceProvider)
         .setShowQuickAccess(value);
   }
+
+  Future<void> setCrossfadeEnabled(bool value) async {
+    if (state.crossfadeEnabled == value) return;
+    state = state.copyWith(crossfadeEnabled: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setCrossfadeEnabled(value);
+  }
+
+  Future<void> setCrossfadeDurationSecs(double value) async {
+    if (state.crossfadeDurationSecs == value) return;
+    state = state.copyWith(crossfadeDurationSecs: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setCrossfadeDurationSecs(value);
+  }
+
+  Future<void> setCrossfadeCurveIndex(int value) async {
+    if (state.crossfadeCurveIndex == value) return;
+    state = state.copyWith(crossfadeCurveIndex: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setCrossfadeCurveIndex(value);
+  }
 }
 
 final appPreferencesProvider =

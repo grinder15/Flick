@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/models/album_color_mode.dart';
+import 'package:flick/models/progress_bar_style.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/features/settings/widgets/settings_widgets.dart';
 
@@ -92,6 +94,62 @@ class UiCustomizationSettingsScreen extends ConsumerWidget {
                 },
               ),
             ],
+          ),
+          const SizedBox(height: AppConstants.spacingLg),
+          const SettingsSectionHeader('Progress Bar'),
+          SettingsCard(
+            children: [
+              SelectionSetting(
+                icon: LucideIcons.audioWaveform,
+                title: ProgressBarStyle.waveform.label,
+                subtitle: ProgressBarStyle.waveform.description,
+                selected: ref.watch(progressBarStyleProvider) ==
+                    ProgressBarStyle.waveform,
+                onTap: () {
+                  ref
+                      .read(progressBarStyleProvider.notifier)
+                      .setStyle(ProgressBarStyle.waveform);
+                },
+              ),
+              const SettingsDivider(),
+              SelectionSetting(
+                icon: LucideIcons.minus,
+                title: ProgressBarStyle.line.label,
+                subtitle: ProgressBarStyle.line.description,
+                selected: ref.watch(progressBarStyleProvider) ==
+                    ProgressBarStyle.line,
+                onTap: () {
+                  ref
+                      .read(progressBarStyleProvider.notifier)
+                      .setStyle(ProgressBarStyle.line);
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.spacingLg),
+          const SettingsSectionHeader('Album Colors'),
+          SettingsCard(
+            children: AlbumColorMode.values.map((mode) {
+              final isSelected =
+                  ref.watch(albumColorModeProvider) == mode;
+              return Column(
+                children: [
+                  if (mode != AlbumColorMode.values.first)
+                    const SettingsDivider(),
+                  SelectionSetting(
+                    icon: LucideIcons.palette,
+                    title: mode.label,
+                    subtitle: mode.description,
+                    selected: isSelected,
+                    onTap: () {
+                      ref
+                          .read(albumColorModeProvider.notifier)
+                          .setMode(mode);
+                    },
+                  ),
+                ],
+              );
+            }).toList(),
           ),
           const SizedBox(height: AppConstants.spacingLg),
           const SizedBox(height: AppConstants.navBarHeight + 40),

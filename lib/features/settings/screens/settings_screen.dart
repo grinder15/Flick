@@ -37,9 +37,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           // Ambient album-art background
           if (ambientBackgroundEnabled)
-            Positioned.fill(
-              child: AmbientBackground(song: currentSong),
-            ),
+            Positioned.fill(child: AmbientBackground(song: currentSong)),
           SafeArea(
             bottom: false,
             child: Column(
@@ -154,8 +152,11 @@ class SettingsScreen extends ConsumerWidget {
                           ],
                         ),
                         const SizedBox(height: AppConstants.spacingLg),
-                        const SizedBox(
-                          height: AppConstants.navBarHeight + 40,
+                        SizedBox(
+                          height:
+                              AppConstants.navBarHeight +
+                              MediaQuery.of(context).padding.bottom +
+                              AppConstants.spacingLg * 4,
                         ),
                       ],
                     ),
@@ -215,9 +216,7 @@ class SettingsScreen extends ConsumerWidget {
   }
 
   void _navigate(BuildContext context, Widget screen) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => screen),
-    );
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => screen));
   }
 }
 

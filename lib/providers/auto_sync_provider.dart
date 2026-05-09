@@ -1,15 +1,21 @@
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/auto_library_sync_service.dart';
+import '../services/mediastore_observer_service.dart';
+import '../services/background_metadata_service.dart';
 
-/// Provider for the auto library sync service.
 final autoLibrarySyncServiceProvider = Provider<AutoLibrarySyncService>((ref) {
-  final service = AutoLibrarySyncService();
-  
-  // Clean up when provider is disposed
+  final observerService = Platform.isAndroid ? MediaStoreObserverService() : null;
+  final backgroundMetadataService = Platform.isAndroid ? BackgroundMetadataService() : null;
+  final service = AutoLibrarySyncService(
+    observerService: observerService,
+    backgroundMetadataService: backgroundMetadataService,
+  );
+
   ref.onDispose(() {
     service.stop();
   });
-  
+
   return service;
 });
 

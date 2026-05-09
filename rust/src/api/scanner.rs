@@ -143,6 +143,16 @@ pub fn discover_playlist_files(root_path: String, scan_options: ScanOptions) -> 
         .collect()
 }
 
+pub fn check_deleted_paths(
+    root_path: String,
+    known_files: HashMap<String, i64>,
+    scan_options: ScanOptions,
+) -> Vec<String> {
+    let files_on_disk = collect_scan_file_entries(&root_path, &scan_options);
+    let (_, deleted_paths, _) = classify_scan_work(files_on_disk, &known_files);
+    deleted_paths
+}
+
 pub fn extract_embedded_artwork(path: String) -> Option<Vec<u8>> {
     let parse_options = ParseOptions::new().read_properties(false);
     let tagged_file = Probe::open(path)

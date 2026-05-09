@@ -38,6 +38,16 @@ Future<List<String>> discoverPlaylistFiles({
   scanOptions: scanOptions,
 );
 
+Future<List<String>> checkDeletedPaths({
+  required String rootPath,
+  required Map<String, PlatformInt64> knownFiles,
+  required ScanOptions scanOptions,
+}) => RustLib.instance.api.crateApiScannerCheckDeletedPaths(
+  rootPath: rootPath,
+  knownFiles: knownFiles,
+  scanOptions: scanOptions,
+);
+
 Future<Uint8List?> extractEmbeddedArtwork({required String path}) =>
     RustLib.instance.api.crateApiScannerExtractEmbeddedArtwork(path: path);
 

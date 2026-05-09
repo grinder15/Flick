@@ -1,76 +1,34 @@
-
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/responsive.dart';
-
-/// Navigation destination enum for type-safe navigation.
-enum NavDestination { menu, songs, settings }
-
-/// Navigation item data model.
-class _NavItem {
-  final String iconPath;
-  final String label;
-  final NavDestination destination;
-
-  const _NavItem({
-    required this.iconPath,
-    required this.label,
-    required this.destination,
-  });
-}
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flick/models/nav_bar_config.dart';
 
 class FlickNavBar extends StatelessWidget {
-  /// Currently selected navigation destination
   final int currentIndex;
-
-  /// Callback when a destination is selected
   final ValueChanged<int> onTap;
-
-  /// Whether to show the mini player above the nav bar
   final bool showMiniPlayer;
-
-  /// Optional widget to display as the mini player
   final Widget? miniPlayerWidget;
+  final NavBarConfig config;
 
   const FlickNavBar({
     super.key,
     required this.currentIndex,
     required this.onTap,
+    required this.config,
     this.showMiniPlayer = false,
     this.miniPlayerWidget,
   });
 
-  static const List<_NavItem> _navItems = [
-    _NavItem(
-      iconPath: 'assets/icons/svg/menu_white.svg',
-      label: 'Menu',
-      destination: NavDestination.menu,
-    ),
-    _NavItem(
-      iconPath: 'assets/icons/svg/record_vinyl_white.svg',
-      label: 'Songs',
-      destination: NavDestination.songs,
-    ),
-    _NavItem(
-      iconPath: 'assets/icons/svg/settings_white.svg',
-      label: 'Settings',
-      destination: NavDestination.settings,
-    ),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final buttons = config.orderedButtons;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
     final horizontalPadding = context.scaleSize(AppConstants.spacingLg);
     final verticalPadding = context.scaleSize(AppConstants.spacingSm);
 
-    // NOTE: BackdropFilter (blur) was intentionally removed here.
-    // Using a more-opaque semi-solid gradient achieves the same dark-glass look
-    // on the existing dark theme at zero GPU cost, versus a permanent per-frame
-    // blur layer that was expensive on lower-end devices.
     return Container(
       margin: EdgeInsets.fromLTRB(
         horizontalPadding,
@@ -107,55 +65,228 @@ class FlickNavBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Optional Mini Player
-          if (showMiniPlayer && miniPlayerWidget != null)
-            miniPlayerWidget!,
-
-          // Navigation Items
-          _buildNavigationRow(context),
+          if (showMiniPlayer && miniPlayerWidget != null) miniPlayerWidget!,
+          _buildNavigationRow(context, buttons),
         ],
       ),
     );
   }
 
-  Widget _buildNavigationRow(BuildContext context) {
-    final itemPadding = context.scaleSize(AppConstants.spacingMd);
-    const minTapTargetSize = 48.0; // Material minimum for touch targets
+  Widget _buildNavigationRow(BuildContext context, List<NavBarButton> buttons) {
+    final spacingFactor = config.buttonSpacingFactor;
+    final baseItemPadding = context.scaleSize(AppConstants.spacingMd);
+    final itemPadding = baseItemPadding * spacingFactor;
+
+    const minTapTargetSize = 48.0;
+
+    final missingEssentials = config.missingEssentials;
+    final isOnMissingEssential = missingEssentials.any((b) => b.pageIndex == currentIndex);
 
     return Padding(
       padding: EdgeInsets.symmetric(
         horizontal: itemPadding,
-        vertical: context.scaleSize(AppConstants.spacingXs),
+        vertical: context.scaleSize(AppConstants.spacingXs) * config.barSizeFactor,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: List.generate(
-          _navItems.length,
-          (index) => Expanded(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: minTapTargetSize),
-              child: _FlickNavItem(
-                item: _navItems[index],
-                isSelected: currentIndex == index,
-                onTap: () => onTap(index),
+        children: [
+          ...List.generate(
+            buttons.length,
+            (index) {
+              final button = buttons[index];
+              return Expanded(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: minTapTargetSize),
+                  child: _FlickNavItem(
+                    button: button,
+                    isSelected: currentIndex == button.pageIndex,
+                    config: config,
+                    onTap: () => onTap(button.pageIndex),
+                  ),
+                ),
+              );
+            },
+          ),
+          if (missingEssentials.isNotEmpty)
+            Expanded(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: minTapTargetSize),
+                child: _OverflowNavItem(
+                  isSelected: isOnMissingEssential,
+                  config: config,
+                  missingButtons: missingEssentials,
+                  onSelect: (button) => onTap(button.pageIndex),
+                ),
               ),
             ),
-          ),
-        ),
+        ],
       ),
     );
   }
 }
 
-/// Individual navigation item with animations.
-class _FlickNavItem extends StatefulWidget {
-  final _NavItem item;
+class _OverflowNavItem extends StatelessWidget {
   final bool isSelected;
+  final NavBarConfig config;
+  final List<NavBarButton> missingButtons;
+  final ValueChanged<NavBarButton> onSelect;
+
+  const _OverflowNavItem({
+    required this.isSelected,
+    required this.config,
+    required this.missingButtons,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final iconFactor = config.iconSizeFactor;
+    final barSizeFactor = config.barSizeFactor;
+
+    final iconSize = context.responsiveIcon(AppConstants.iconSizeSm) * iconFactor;
+    final fontSize = context.responsiveText(8.0) * barSizeFactor;
+    final horizontalPadding = context.scaleSize(AppConstants.spacingMd) * config.buttonSpacingFactor;
+    final verticalPadding = context.scaleSize(AppConstants.spacingXs) * barSizeFactor;
+    final spacing = context.scaleSize(2.0) * config.buttonSpacingFactor;
+
+    final color = isSelected ? AppColors.activeState : AppColors.inactiveState;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        AppHaptics.tap();
+        _showOverflowMenu(context);
+      },
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: verticalPadding,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              LucideIcons.ellipsis,
+              color: color,
+              size: iconSize,
+            ),
+            SizedBox(height: spacing),
+            if (config.showLabels)
+              Text(
+                'More',
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: fontSize,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                  color: color,
+                  letterSpacing: 0.4,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showOverflowMenu(BuildContext context) {
+    final overlay = Overlay.of(context);
+    late OverlayEntry entry;
+    final renderBox = context.findRenderObject() as RenderBox;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+
+    final menuWidth = 180.0;
+    final itemHeight = 48.0;
+    final totalHeight = itemHeight * missingButtons.length + 8.0;
+
+    final left = (offset.dx + size.width / 2 - menuWidth / 2).clamp(8.0, MediaQuery.of(context).size.width - menuWidth - 8.0);
+    final top = offset.dy - totalHeight - 8.0;
+
+    entry = OverlayEntry(
+      builder: (ctx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => entry.remove(),
+        child: Stack(
+          children: [
+            Positioned(
+              left: left,
+              top: top,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: menuWidth,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.surfaceLight.withValues(alpha: 0.95),
+                        AppColors.surface.withValues(alpha: 0.98),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.glassBorder, width: 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 16,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: missingButtons.map((button) {
+                      return InkWell(
+                        onTap: () {
+                          entry.remove();
+                          onSelect(button);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          child: Row(
+                            children: [
+                              Icon(button.icon, size: 20, color: AppColors.textSecondary),
+                              const SizedBox(width: 12),
+                              Text(
+                                button.label,
+                                style: const TextStyle(
+                                  fontFamily: 'ProductSans',
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+  }
+}
+
+class _FlickNavItem extends StatefulWidget {
+  final NavBarButton button;
+  final bool isSelected;
+  final NavBarConfig config;
   final VoidCallback onTap;
 
   const _FlickNavItem({
-    required this.item,
+    required this.button,
     required this.isSelected,
+    required this.config,
     required this.onTap,
   });
 
@@ -175,7 +306,6 @@ class _FlickNavItemState extends State<_FlickNavItem>
   void initState() {
     super.initState();
 
-    // Scale animation for tap feedback
     _scaleController = AnimationController(
       duration: AppConstants.animationFast,
       vsync: this,
@@ -184,7 +314,6 @@ class _FlickNavItemState extends State<_FlickNavItem>
       CurvedAnimation(parent: _scaleController, curve: Curves.easeOutCubic),
     );
 
-    // Selection animation for smooth state transitions
     _selectionController = AnimationController(
       duration: AppConstants.animationNormal,
       vsync: this,
@@ -195,7 +324,6 @@ class _FlickNavItemState extends State<_FlickNavItem>
       curve: Curves.easeOutQuart,
     );
 
-    // Icon scale animation when selected
     _iconScaleAnimation = Tween<double>(begin: 1.0, end: 1.1).animate(
       CurvedAnimation(parent: _selectionController, curve: Curves.easeOutBack),
     );
@@ -237,11 +365,16 @@ class _FlickNavItemState extends State<_FlickNavItem>
 
   @override
   Widget build(BuildContext context) {
-    final iconSize = context.responsiveIcon(AppConstants.iconSizeSm);
-    final fontSize = context.responsiveText(8.0);
-    final horizontalPadding = context.scaleSize(AppConstants.spacingMd);
-    final verticalPadding = context.scaleSize(AppConstants.spacingXs);
-    final spacing = context.scaleSize(2.0);
+    final iconFactor = widget.config.iconSizeFactor;
+    final spacerFactor = widget.config.buttonSpacingFactor;
+    final horizontalPaddingFactor = widget.config.buttonSpacingFactor;
+    final barSizeFactor = widget.config.barSizeFactor;
+
+    final iconSize = context.responsiveIcon(AppConstants.iconSizeSm) * iconFactor;
+    final fontSize = context.responsiveText(8.0) * barSizeFactor;
+    final horizontalPadding = context.scaleSize(AppConstants.spacingMd) * horizontalPaddingFactor;
+    final verticalPadding = context.scaleSize(AppConstants.spacingXs) * barSizeFactor;
+    final spacing = context.scaleSize(2.0) * spacerFactor;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -251,6 +384,12 @@ class _FlickNavItemState extends State<_FlickNavItem>
       child: AnimatedBuilder(
         animation: Listenable.merge([_scaleAnimation, _selectionAnimation]),
         builder: (context, child) {
+          final lerpColor = Color.lerp(
+            AppColors.inactiveState,
+            AppColors.activeState,
+            _selectionAnimation.value,
+          );
+
           return Transform.scale(
             scale: _scaleAnimation.value,
             child: Padding(
@@ -262,43 +401,28 @@ class _FlickNavItemState extends State<_FlickNavItem>
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Icon with scale animation
                   Transform.scale(
                     scale: _iconScaleAnimation.value,
-                    child: SvgPicture.asset(
-                      widget.item.iconPath,
-                      width: iconSize,
-                      height: iconSize,
-                      colorFilter: ColorFilter.mode(
-                        Color.lerp(
-                          AppColors.inactiveState,
-                          AppColors.activeState,
-                          _selectionAnimation.value,
-                        )!,
-                        BlendMode.srcIn,
-                      ),
+                    child: Icon(
+                      widget.button.icon,
+                      color: lerpColor,
+                      size: iconSize,
                     ),
                   ),
-
                   SizedBox(height: spacing),
-
-                  // Label with opacity animation
-                  Text(
-                    widget.item.label,
-                    style: TextStyle(
-                      fontFamily: 'ProductSans',
-                      fontSize: fontSize,
-                      fontWeight: widget.isSelected
-                          ? FontWeight.w600
-                          : FontWeight.w400,
-                      color: Color.lerp(
-                        AppColors.inactiveState,
-                        AppColors.activeState,
-                        _selectionAnimation.value,
+                  if (widget.config.showLabels)
+                    Text(
+                      widget.button.label,
+                      style: TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: fontSize,
+                        fontWeight: widget.isSelected
+                            ? FontWeight.w600
+                            : FontWeight.w400,
+                        color: lerpColor,
+                        letterSpacing: 0.4,
                       ),
-                      letterSpacing: 0.4,
                     ),
-                  ),
                 ],
               ),
             ),

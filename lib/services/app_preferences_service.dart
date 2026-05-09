@@ -9,6 +9,9 @@ class AppPreferences {
   final bool showPlaylistPreviews;
   final bool showBrowseMore;
   final bool showQuickAccess;
+  final bool crossfadeEnabled;
+  final double crossfadeDurationSecs;
+  final int crossfadeCurveIndex;
 
   const AppPreferences({
     this.animationsEnabled = true,
@@ -19,6 +22,9 @@ class AppPreferences {
     this.showPlaylistPreviews = true,
     this.showBrowseMore = true,
     this.showQuickAccess = true,
+    this.crossfadeEnabled = false,
+    this.crossfadeDurationSecs = 3.0,
+    this.crossfadeCurveIndex = 0,
   });
 
   AppPreferences copyWith({
@@ -30,6 +36,9 @@ class AppPreferences {
     bool? showPlaylistPreviews,
     bool? showBrowseMore,
     bool? showQuickAccess,
+    bool? crossfadeEnabled,
+    double? crossfadeDurationSecs,
+    int? crossfadeCurveIndex,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
@@ -40,6 +49,9 @@ class AppPreferences {
       showPlaylistPreviews: showPlaylistPreviews ?? this.showPlaylistPreviews,
       showBrowseMore: showBrowseMore ?? this.showBrowseMore,
       showQuickAccess: showQuickAccess ?? this.showQuickAccess,
+      crossfadeEnabled: crossfadeEnabled ?? this.crossfadeEnabled,
+      crossfadeDurationSecs: crossfadeDurationSecs ?? this.crossfadeDurationSecs,
+      crossfadeCurveIndex: crossfadeCurveIndex ?? this.crossfadeCurveIndex,
     );
   }
 }
@@ -53,6 +65,9 @@ class AppPreferencesService {
   static const _showPlaylistPreviewsKey = 'menu_show_playlist_previews';
   static const _showBrowseMoreKey = 'menu_show_browse_more';
   static const _showQuickAccessKey = 'menu_show_quick_access';
+  static const _crossfadeEnabledKey = 'audio_crossfade_enabled';
+  static const _crossfadeDurationKey = 'audio_crossfade_duration_secs';
+  static const _crossfadeCurveKey = 'audio_crossfade_curve_index';
 
   Future<AppPreferences> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
@@ -65,6 +80,9 @@ class AppPreferencesService {
       showPlaylistPreviews: prefs.getBool(_showPlaylistPreviewsKey) ?? true,
       showBrowseMore: prefs.getBool(_showBrowseMoreKey) ?? true,
       showQuickAccess: prefs.getBool(_showQuickAccessKey) ?? true,
+      crossfadeEnabled: prefs.getBool(_crossfadeEnabledKey) ?? false,
+      crossfadeDurationSecs: prefs.getDouble(_crossfadeDurationKey) ?? 3.0,
+      crossfadeCurveIndex: prefs.getInt(_crossfadeCurveKey) ?? 0,
     );
   }
 
@@ -146,5 +164,35 @@ class AppPreferencesService {
   Future<void> setShowQuickAccess(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_showQuickAccessKey, value);
+  }
+
+  Future<bool> getCrossfadeEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_crossfadeEnabledKey) ?? false;
+  }
+
+  Future<void> setCrossfadeEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_crossfadeEnabledKey, value);
+  }
+
+  Future<double> getCrossfadeDurationSecs() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getDouble(_crossfadeDurationKey) ?? 3.0;
+  }
+
+  Future<void> setCrossfadeDurationSecs(double value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_crossfadeDurationKey, value);
+  }
+
+  Future<int> getCrossfadeCurveIndex() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_crossfadeCurveKey) ?? 0;
+  }
+
+  Future<void> setCrossfadeCurveIndex(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_crossfadeCurveKey, value);
   }
 }

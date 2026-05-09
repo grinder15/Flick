@@ -1497,6 +1497,7 @@ class MainActivity: FlutterActivity() {
     }
 
     private fun queryMediaStoreAudio(folderPaths: List<String>): List<Map<String, Any?>> {
+        val startedAt = System.nanoTime()
         val result = mutableListOf<Map<String, Any?>>()
         val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
@@ -1529,10 +1530,8 @@ class MainActivity: FlutterActivity() {
             folderPaths.map { "$it%" }.toTypedArray()
         } else null
 
-        val sortOrder = "${MediaStore.Audio.Media.DATA} ASC"
-
         try {
-            contentResolver.query(collection, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+            contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
                 val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                 val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
                 val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
@@ -1591,6 +1590,9 @@ class MainActivity: FlutterActivity() {
             }
         } catch (e: Exception) {
             Log.w("MainActivity", "MediaStore audio query failed: ${e.message}", e)
+        } finally {
+            val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+            Log.d("MainActivity", "MediaStore audio query returned ${result.size} rows in ${elapsedMs}ms")
         }
 
         return result

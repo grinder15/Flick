@@ -11,6 +11,10 @@ class SongEntity {
   @Index(composite: [CompositeIndex('startOffsetMs')], unique: true)
   late String filePath;
 
+  /// MediaStore content URI used for Android metadata refreshes.
+  @Index()
+  String? mediaStoreUri;
+
   /// Start offset in milliseconds (for CUE sheet tracks)
   int? startOffsetMs;
 
@@ -86,12 +90,15 @@ class SongEntity {
   String? folderUri;
 
   /// Date the song was added to the library
+  @Index()
   late DateTime dateAdded;
 
   /// Last time metadata was updated
+  @Index()
   DateTime? lastModified;
 
   /// Whether all metadata fields (sampleRate, bitDepth, discNumber) have been
   /// extracted. false means background extraction is still pending.
+  @Index()
   bool metadataComplete = false;
 }

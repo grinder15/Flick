@@ -12,6 +12,7 @@ class AppPreferences {
   final bool crossfadeEnabled;
   final double crossfadeDurationSecs;
   final int crossfadeCurveIndex;
+  final bool swipeActionsEnabled;
 
   const AppPreferences({
     this.animationsEnabled = true,
@@ -25,6 +26,7 @@ class AppPreferences {
     this.crossfadeEnabled = false,
     this.crossfadeDurationSecs = 3.0,
     this.crossfadeCurveIndex = 0,
+    this.swipeActionsEnabled = false,
   });
 
   AppPreferences copyWith({
@@ -39,6 +41,7 @@ class AppPreferences {
     bool? crossfadeEnabled,
     double? crossfadeDurationSecs,
     int? crossfadeCurveIndex,
+    bool? swipeActionsEnabled,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
@@ -52,6 +55,7 @@ class AppPreferences {
       crossfadeEnabled: crossfadeEnabled ?? this.crossfadeEnabled,
       crossfadeDurationSecs: crossfadeDurationSecs ?? this.crossfadeDurationSecs,
       crossfadeCurveIndex: crossfadeCurveIndex ?? this.crossfadeCurveIndex,
+      swipeActionsEnabled: swipeActionsEnabled ?? this.swipeActionsEnabled,
     );
   }
 }
@@ -68,6 +72,7 @@ class AppPreferencesService {
   static const _crossfadeEnabledKey = 'audio_crossfade_enabled';
   static const _crossfadeDurationKey = 'audio_crossfade_duration_secs';
   static const _crossfadeCurveKey = 'audio_crossfade_curve_index';
+  static const _swipeActionsEnabledKey = 'swipe_actions_enabled';
 
   Future<AppPreferences> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
@@ -83,6 +88,7 @@ class AppPreferencesService {
       crossfadeEnabled: prefs.getBool(_crossfadeEnabledKey) ?? false,
       crossfadeDurationSecs: prefs.getDouble(_crossfadeDurationKey) ?? 3.0,
       crossfadeCurveIndex: prefs.getInt(_crossfadeCurveKey) ?? 0,
+      swipeActionsEnabled: prefs.getBool(_swipeActionsEnabledKey) ?? false,
     );
   }
 
@@ -194,5 +200,15 @@ class AppPreferencesService {
   Future<void> setCrossfadeCurveIndex(int value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_crossfadeCurveKey, value);
+  }
+
+  Future<bool> getSwipeActionsEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_swipeActionsEnabledKey) ?? false;
+  }
+
+  Future<void> setSwipeActionsEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_swipeActionsEnabledKey, value);
   }
 }

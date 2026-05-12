@@ -114,6 +114,14 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
         .read(appPreferencesServiceProvider)
         .setCrossfadeCurveIndex(value);
   }
+
+  Future<void> setSwipeActionsEnabled(bool value) async {
+    if (state.swipeActionsEnabled == value) return;
+    state = state.copyWith(swipeActionsEnabled: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setSwipeActionsEnabled(value);
+  }
 }
 
 final appPreferencesProvider =

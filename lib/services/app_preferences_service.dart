@@ -13,6 +13,9 @@ class AppPreferences {
   final double crossfadeDurationSecs;
   final int crossfadeCurveIndex;
   final bool swipeActionsEnabled;
+  final bool fastIndexEnabled;
+  final int fastIndexTimeoutSeconds;
+  final int immersiveAutoFullViewSeconds;
 
   const AppPreferences({
     this.animationsEnabled = true,
@@ -27,6 +30,9 @@ class AppPreferences {
     this.crossfadeDurationSecs = 3.0,
     this.crossfadeCurveIndex = 0,
     this.swipeActionsEnabled = false,
+    this.fastIndexEnabled = true,
+    this.fastIndexTimeoutSeconds = 3,
+    this.immersiveAutoFullViewSeconds = 0,
   });
 
   AppPreferences copyWith({
@@ -42,6 +48,9 @@ class AppPreferences {
     double? crossfadeDurationSecs,
     int? crossfadeCurveIndex,
     bool? swipeActionsEnabled,
+    bool? fastIndexEnabled,
+    int? fastIndexTimeoutSeconds,
+    int? immersiveAutoFullViewSeconds,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
@@ -53,9 +62,15 @@ class AppPreferences {
       showBrowseMore: showBrowseMore ?? this.showBrowseMore,
       showQuickAccess: showQuickAccess ?? this.showQuickAccess,
       crossfadeEnabled: crossfadeEnabled ?? this.crossfadeEnabled,
-      crossfadeDurationSecs: crossfadeDurationSecs ?? this.crossfadeDurationSecs,
+      crossfadeDurationSecs:
+          crossfadeDurationSecs ?? this.crossfadeDurationSecs,
       crossfadeCurveIndex: crossfadeCurveIndex ?? this.crossfadeCurveIndex,
       swipeActionsEnabled: swipeActionsEnabled ?? this.swipeActionsEnabled,
+      fastIndexEnabled: fastIndexEnabled ?? this.fastIndexEnabled,
+      fastIndexTimeoutSeconds:
+          fastIndexTimeoutSeconds ?? this.fastIndexTimeoutSeconds,
+      immersiveAutoFullViewSeconds:
+          immersiveAutoFullViewSeconds ?? this.immersiveAutoFullViewSeconds,
     );
   }
 }
@@ -73,6 +88,9 @@ class AppPreferencesService {
   static const _crossfadeDurationKey = 'audio_crossfade_duration_secs';
   static const _crossfadeCurveKey = 'audio_crossfade_curve_index';
   static const _swipeActionsEnabledKey = 'swipe_actions_enabled';
+  static const _fastIndexEnabledKey = 'fast_index_enabled';
+  static const _fastIndexTimeoutKey = 'fast_index_timeout_seconds';
+  static const _immersiveAutoFullViewKey = 'immersive_auto_full_view_seconds';
 
   Future<AppPreferences> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
@@ -89,6 +107,10 @@ class AppPreferencesService {
       crossfadeDurationSecs: prefs.getDouble(_crossfadeDurationKey) ?? 3.0,
       crossfadeCurveIndex: prefs.getInt(_crossfadeCurveKey) ?? 0,
       swipeActionsEnabled: prefs.getBool(_swipeActionsEnabledKey) ?? false,
+      fastIndexEnabled: prefs.getBool(_fastIndexEnabledKey) ?? true,
+      fastIndexTimeoutSeconds: prefs.getInt(_fastIndexTimeoutKey) ?? 3,
+      immersiveAutoFullViewSeconds:
+          prefs.getInt(_immersiveAutoFullViewKey) ?? 0,
     );
   }
 
@@ -210,5 +232,35 @@ class AppPreferencesService {
   Future<void> setSwipeActionsEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_swipeActionsEnabledKey, value);
+  }
+
+  Future<bool> getFastIndexEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_fastIndexEnabledKey) ?? true;
+  }
+
+  Future<void> setFastIndexEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_fastIndexEnabledKey, value);
+  }
+
+  Future<int> getFastIndexTimeoutSeconds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_fastIndexTimeoutKey) ?? 3;
+  }
+
+  Future<void> setFastIndexTimeoutSeconds(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_fastIndexTimeoutKey, value);
+  }
+
+  Future<int> getImmersiveAutoFullViewSeconds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_immersiveAutoFullViewKey) ?? 0;
+  }
+
+  Future<void> setImmersiveAutoFullViewSeconds(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_immersiveAutoFullViewKey, value);
   }
 }

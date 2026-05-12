@@ -48,6 +48,18 @@ class InterfaceSettingsScreen extends ConsumerWidget {
                 },
               ),
               const SettingsDivider(),
+              ToggleSetting(
+                icon: LucideIcons.swipe,
+                title: 'Swipe Actions',
+                subtitle: 'Swipe songs left to queue or right to favorite',
+                value: appPreferences.swipeActionsEnabled,
+                onChanged: (value) {
+                  ref
+                      .read(appPreferencesProvider.notifier)
+                      .setSwipeActionsEnabled(value);
+                },
+              ),
+              const SettingsDivider(),
               NavigationSetting(
                 icon: LucideIcons.navigation,
                 title: 'Bottom Bar',

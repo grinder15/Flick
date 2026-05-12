@@ -47,6 +47,8 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   late final ProviderSubscription<Song?> _currentSongSubscription;
   bool _alignedCurrentSongAfterLoad = false;
   final Set<String> _expandedFolders = {};
+  Timer? _fastIndexTimer;
+  bool _fastIndexVisible = true;
 
   @override
   void initState() {
@@ -57,13 +59,16 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     ) {
       _syncInterfaceToCurrentSong(next);
     });
+    _listScrollController.addListener(_onListScroll);
   }
 
   @override
   void dispose() {
     _currentSongSubscription.close();
+    _listScrollController.removeListener(_onListScroll);
     _listScrollController.dispose();
     _searchController.dispose();
+    _fastIndexTimer?.cancel();
     super.dispose();
   }
 
@@ -221,6 +226,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                       _syncSelectedTokenForIndex(songs, _selectedIndex);
 
                       final tokenToIndexMap = _buildFastIndexMap(songs);
+                      final appPrefs = ref.watch(appPreferencesProvider);
 
                       return _buildSongsView(
                         songs,
@@ -228,6 +234,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                         tokenToIndexMap,
                         navBarVisible,
                         swipeActionsEnabled,
+                        appPrefs.fastIndexEnabled,
                       );
                     },
                   ),
@@ -256,9 +263,11 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     Map<String, int> tokenToIndexMap,
     bool isBottomBarVisible,
     bool swipeActionsEnabled,
+    bool fastIndexEnabled,
   ) {
+    final overlayRailVisible = fastIndexEnabled && _fastIndexVisible;
     final content = viewMode == SongViewMode.list
-        ? _buildListView(songs, swipeActionsEnabled)
+        ? _buildListView(songs, swipeActionsEnabled, overlayRailVisible)
         : _buildOrbitView(songs, swipeActionsEnabled);
 
     if (tokenToIndexMap.isEmpty) {
@@ -297,23 +306,31 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
         AnimatedPositioned(
           duration: AppConstants.animationNormal,
           curve: Curves.easeOutCubic,
-          right: AppConstants.spacingSm,
+          right: overlayRailVisible ? AppConstants.spacingSm : -40,
           top: railTopInset,
           bottom: railBottomInset - keyboardInset,
-          child: SongFastIndexOverlay(
-            tokenToIndex: tokenToIndexMap,
-            selectedToken: _selectedFastToken,
-            tokens: tokens,
-            onSelect: (token, animate) {
-              _onFastIndexSelected(
-                songs: songs,
-                tokenToIndexMap: tokenToIndexMap,
-                token: token,
-                animate: animate,
-                viewMode: viewMode,
+          child: IgnorePointer(
+            ignoring: !overlayRailVisible,
+            child: AnimatedOpacity(
+              duration: AppConstants.animationNormal,
+              opacity: overlayRailVisible ? 1.0 : 0.0,
+              child: SongFastIndexOverlay(
+                tokenToIndex: tokenToIndexMap,
+                selectedToken: _selectedFastToken,
                 tokens: tokens,
-              );
-            },
+                onSelect: (token, animate) {
+                  _resetFastIndexTimer();
+                  _onFastIndexSelected(
+                    songs: songs,
+                    tokenToIndexMap: tokenToIndexMap,
+                    token: token,
+                    animate: animate,
+                    viewMode: viewMode,
+                    tokens: tokens,
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ],
@@ -334,6 +351,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
         swipeActionsEnabled: swipeActionsEnabled,
         onSelectedIndexChanged: (index) {
           if (!mounted) return;
+          _showFastIndexOverlay();
           setState(() {
             _selectedIndex = index;
           });
@@ -352,19 +370,30 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     );
   }
 
-  Widget _buildListView(List<Song> songs, bool swipeActionsEnabled) {
-    return ListView.builder(
-      controller: _listScrollController,
-      itemExtent: _listItemExtent,
-      addAutomaticKeepAlives: false,
-      padding: const EdgeInsets.fromLTRB(
-        AppConstants.spacingLg,
-        0,
-        AppConstants.spacingXl + 30,
-        AppConstants.navBarHeight + 120,
-      ),
-      itemCount: songs.length,
-      itemBuilder: (context, index) {
+  Widget _buildListView(
+    List<Song> songs,
+    bool swipeActionsEnabled,
+    bool overlayRailVisible,
+  ) {
+    final rightPadding = overlayRailVisible
+        ? AppConstants.spacingXl + 30
+        : AppConstants.spacingXl;
+    return AnimatedPadding(
+      duration: AppConstants.animationNormal,
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.only(right: rightPadding),
+      child: ListView.builder(
+        controller: _listScrollController,
+        itemExtent: _listItemExtent,
+        addAutomaticKeepAlives: false,
+        padding: const EdgeInsets.fromLTRB(
+          AppConstants.spacingLg,
+          0,
+          0,
+          AppConstants.navBarHeight + 120,
+        ),
+        itemCount: songs.length,
+        itemBuilder: (context, index) {
         final song = songs[index];
         final isSelected = index == _selectedIndex;
 
@@ -396,6 +425,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
           ),
         );
       },
+    ),
     );
   }
 
@@ -416,7 +446,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       padding: const EdgeInsets.fromLTRB(
         AppConstants.spacingLg,
         0,
-        AppConstants.spacingXl + 30,
+        AppConstants.spacingXl,
         AppConstants.navBarHeight + 120,
       ),
       itemCount: items.length,
@@ -703,6 +733,30 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     final sortOption =
         songsAsync.value?.sortOption ?? SongSortOption.albumArtist;
     _selectedFastToken = _tokenForSong(songs[index], sortOption);
+  }
+
+  void _showFastIndexOverlay() {
+    if (!mounted) return;
+    if (!_fastIndexVisible) {
+      setState(() => _fastIndexVisible = true);
+    }
+    _resetFastIndexTimer();
+  }
+
+  void _resetFastIndexTimer() {
+    final timeout = ref.read(appPreferencesProvider).fastIndexTimeoutSeconds;
+    _fastIndexTimer?.cancel();
+    if (timeout > 0) {
+      _fastIndexTimer = Timer(Duration(seconds: timeout), () {
+        if (mounted) {
+          setState(() => _fastIndexVisible = false);
+        }
+      });
+    }
+  }
+
+  void _onListScroll() {
+    _showFastIndexOverlay();
   }
 
   Future<void> _playSongAndOpenPlayer({

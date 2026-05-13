@@ -13,10 +13,9 @@ class QueueScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final queue = ref.watch(playerProvider.select((state) => state.queue));
-    final currentSong = ref.watch(
-      playerProvider.select((state) => state.currentSong),
-    );
+    final queue = ref.watch(queueProvider);
+    final upNext = ref.watch(upNextProvider);
+    final currentSong = ref.watch(currentSongProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -25,14 +24,14 @@ class QueueScreen extends ConsumerWidget {
         child: Column(
           children: [
             _Header(
-              queueCount: queue.length,
+              queueCount: upNext.length,
               canClear: queue.isNotEmpty,
               onClear: () async {
                 await ref.read(playerProvider.notifier).clearQueue();
               },
             ),
             Expanded(
-              child: queue.isEmpty && currentSong == null
+              child: upNext.isEmpty && currentSong == null
                   ? const _EmptyQueue()
                   : CustomScrollView(
                       slivers: [
@@ -57,7 +56,7 @@ class QueueScreen extends ConsumerWidget {
                               AppConstants.spacingSm,
                             ),
                             child: Text(
-                              queue.isEmpty ? 'Up next' : 'Next in queue',
+                              'Up next',
                               style: Theme.of(context).textTheme.titleMedium
                                   ?.copyWith(
                                     color: context.adaptiveTextSecondary,
@@ -66,9 +65,52 @@ class QueueScreen extends ConsumerWidget {
                             ),
                           ),
                         ),
-                        if (queue.isEmpty)
+                        if (upNext.isEmpty)
                           const SliverToBoxAdapter(child: _EmptyUpcomingState())
                         else
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(
+                              AppConstants.spacingLg,
+                              0,
+                              AppConstants.spacingLg,
+                              AppConstants.spacingLg,
+                            ),
+                            sliver: SliverList.builder(
+                              itemCount: upNext.length,
+                              itemBuilder: (context, index) {
+                                final song = upNext[index];
+                                return _UpcomingTile(
+                                  song: song,
+                                  index: index,
+                                  onTap: () async {
+                                    await ref
+                                        .read(playerProvider.notifier)
+                                        .playFromUpNextIndex(index);
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                        if (queue.isNotEmpty)
+                          SliverToBoxAdapter(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppConstants.spacingLg,
+                                0,
+                                AppConstants.spacingLg,
+                                AppConstants.spacingSm,
+                              ),
+                              child: Text(
+                                'Manual queue',
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(
+                                      color: context.adaptiveTextSecondary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ),
+                          ),
+                        if (queue.isNotEmpty)
                           SliverPadding(
                             padding: const EdgeInsets.fromLTRB(
                               AppConstants.spacingLg,
@@ -324,6 +366,98 @@ class _NowPlayingCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _UpcomingTile extends StatelessWidget {
+  final Song song;
+  final int index;
+  final VoidCallback onTap;
+
+  const _UpcomingTile({
+    required this.song,
+    required this.index,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.spacingSm),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppConstants.spacingMd,
+              vertical: AppConstants.spacingSm,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.surfaceLight.withValues(alpha: 0.7),
+                  AppColors.surface.withValues(alpha: 0.82),
+                ],
+              ),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 24,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '${index + 1}',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: context.adaptiveTextTertiary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                _Artwork(song: song),
+                const SizedBox(width: AppConstants.spacingMd),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: context.adaptiveTextPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        song.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.adaptiveTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  song.formattedDuration,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.adaptiveTextTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

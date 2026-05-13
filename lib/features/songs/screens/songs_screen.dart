@@ -55,6 +55,8 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   int _visibleFolderCount = _folderGridPageSize;
   int _totalFolderCount = 0;
   String _folderPaginationSignature = '';
+  bool _selectionMode = false;
+  final Set<String> _selectedIds = {};
 
   @override
   void initState() {
@@ -113,7 +115,10 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
             child: Column(
               children: [
                 // Header with sort option
-                _buildHeader(songsAsync),
+                if (_selectionMode)
+                  _buildSelectionHeader()
+                else
+                  _buildHeader(songsAsync),
 
                 // Search Bar (hidden when Search tab is in the nav bar)
                 if (!searchInNavBar) ...[
@@ -359,15 +364,22 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   Widget _buildOrbitView(List<Song> songs, bool swipeActionsEnabled) {
     return GestureDetector(
       onLongPress: () {
+        if (_selectionMode) return;
         if (songs.isNotEmpty && _selectedIndex < songs.length) {
-          SongActionsBottomSheet.show(context, songs[_selectedIndex]);
+          SongActionsBottomSheet.show(
+            context,
+            songs[_selectedIndex],
+            onSelect: () => _enterSelectionMode(songs[_selectedIndex].id),
+          );
         }
       },
       child: OrbitScroll(
         controller: _orbitScrollController,
         songs: songs,
         selectedIndex: _selectedIndex.clamp(0, songs.length - 1).toInt(),
-        swipeActionsEnabled: swipeActionsEnabled,
+        swipeActionsEnabled: swipeActionsEnabled && !_selectionMode,
+        isSelectionMode: _selectionMode,
+        selectedIds: _selectedIds,
         onSelectedIndexChanged: (index) {
           if (!mounted) return;
           _showFastIndexOverlay();
@@ -377,6 +389,10 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
           _syncSelectedTokenForIndex(songs, index);
         },
         onSongSelected: (index) async {
+          if (_selectionMode) {
+            _toggleSelection(songs[index].id);
+            return;
+          }
           await _playSongAndOpenPlayer(songs: songs, index: index);
         },
         onSongSwipedLeft: (index) async {
@@ -415,12 +431,13 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
         itemBuilder: (context, index) {
           final song = songs[index];
           final isSelected = index == _selectedIndex;
+          final isMultiSelected = _selectedIds.contains(song.id);
 
           return Padding(
             key: ValueKey(song.id),
             padding: const EdgeInsets.only(bottom: AppConstants.spacingSm),
             child: _QueueSwipeListItem(
-              swipeActionsEnabled: swipeActionsEnabled,
+              swipeActionsEnabled: swipeActionsEnabled && !_selectionMode,
               onQueued: () async {
                 await _queueSong(song);
               },
@@ -430,7 +447,13 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
               child: _SongListTile(
                 song: song,
                 isSelected: isSelected,
+                isSelectionMode: _selectionMode,
+                isMultiSelected: isMultiSelected,
                 onTap: () async {
+                  if (_selectionMode) {
+                    _toggleSelection(song.id);
+                    return;
+                  }
                   setState(() {
                     _selectedIndex = index;
                   });
@@ -438,7 +461,15 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   await _playSongAndOpenPlayer(songs: songs, index: index);
                 },
                 onLongPress: () {
-                  SongActionsBottomSheet.show(context, song);
+                  if (_selectionMode) {
+                    _toggleSelection(song.id);
+                  } else {
+                    SongActionsBottomSheet.show(
+                      context,
+                      song,
+                      onSelect: () => _enterSelectionMode(song.id),
+                    );
+                  }
                 },
               ),
             ),
@@ -898,6 +929,76 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     );
   }
 
+  void _enterSelectionMode(String? songId) {
+    setState(() {
+      _selectionMode = true;
+      if (songId != null) _selectedIds.add(songId);
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _selectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _toggleSelection(String songId) {
+    setState(() {
+      if (_selectedIds.contains(songId)) {
+        _selectedIds.remove(songId);
+        if (_selectedIds.isEmpty) _selectionMode = false;
+      } else {
+        _selectedIds.add(songId);
+      }
+    });
+  }
+
+  void _selectAll(List<Song> songs) {
+    setState(() {
+      _selectedIds.addAll(songs.map((s) => s.id));
+    });
+  }
+
+  Future<void> _queueSelected() async {
+    final toQueue = _cachedDisplaySongs
+        .where((s) => _selectedIds.contains(s.id))
+        .toList();
+    for (final song in toQueue) {
+      await ref.read(playerProvider.notifier).addToQueue(song);
+    }
+    if (mounted) {
+      _showSongActionSnackBar('Queued ${toQueue.length} songs');
+      _exitSelectionMode();
+    }
+  }
+
+  Future<void> _favoriteSelected() async {
+    final toFavorite = _cachedDisplaySongs
+        .where((s) => _selectedIds.contains(s.id))
+        .toList();
+    for (final song in toFavorite) {
+      try {
+        await ref.read(favoritesServiceProvider).addFavorite(song.id);
+      } catch (_) {}
+    }
+    ref.invalidate(favoritesProvider);
+    PlayerService().refreshNotificationState();
+    if (mounted) {
+      _showSongActionSnackBar(
+        'Added ${toFavorite.length} songs to favorites',
+        onUndo: () async {
+          for (final song in toFavorite) {
+            await ref.read(favoritesServiceProvider).removeFavorite(song.id);
+          }
+          ref.invalidate(favoritesProvider);
+          PlayerService().refreshNotificationState();
+        },
+      );
+      _exitSelectionMode();
+    }
+  }
+
   void _showSongActionSnackBar(String message, {VoidCallback? onUndo}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -1049,6 +1150,12 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
             children: [
               _buildHeaderIconButton(
                 context: context,
+                icon: LucideIcons.checkCheck,
+                onTap: () => _enterSelectionMode(null),
+              ),
+              const SizedBox(width: AppConstants.spacingSm),
+              _buildHeaderIconButton(
+                context: context,
                 icon: LucideIcons.shuffle,
                 onTap: () => _shufflePlayFromLibrary(songsAsync),
               ),
@@ -1106,6 +1213,62 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectionHeader() {
+    final count = _selectedIds.length;
+    final allSelected =
+        count == _cachedDisplaySongs.length && _cachedDisplaySongs.isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.spacingMd,
+        vertical: AppConstants.spacingMd,
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(LucideIcons.x),
+            color: context.adaptiveTextPrimary,
+            onPressed: _exitSelectionMode,
+          ),
+          const SizedBox(width: AppConstants.spacingSm),
+          Expanded(
+            child: Text(
+              '$count selected',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: context.adaptiveTextPrimary,
+                  ),
+            ),
+          ),
+          if (!allSelected)
+            TextButton(
+              onPressed: () => _selectAll(_cachedDisplaySongs),
+              child: Text(
+                'Select All',
+                style: TextStyle(color: context.adaptiveTextSecondary),
+              ),
+            ),
+          IconButton(
+            icon: Icon(
+              LucideIcons.listPlus,
+              color: AppColors.accent.withValues(alpha: 0.8),
+            ),
+            onPressed: count > 0 ? () => _queueSelected() : null,
+            tooltip: 'Queue selected',
+          ),
+          IconButton(
+            icon: Icon(
+              LucideIcons.heart,
+              color: Colors.red.withValues(alpha: 0.8),
+            ),
+            onPressed: count > 0 ? () => _favoriteSelected() : null,
+            tooltip: 'Favorite selected',
           ),
         ],
       ),
@@ -1195,12 +1358,16 @@ class _QueueSwipeListItem extends StatefulWidget {
 class _SongListTile extends StatelessWidget {
   final Song song;
   final bool isSelected;
+  final bool isSelectionMode;
+  final bool isMultiSelected;
   final Future<void> Function() onTap;
   final VoidCallback onLongPress;
 
   const _SongListTile({
     required this.song,
     required this.isSelected,
+    required this.isSelectionMode,
+    required this.isMultiSelected,
     required this.onTap,
     required this.onLongPress,
   });
@@ -1238,7 +1405,7 @@ class _SongListTile extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: isSelected
+              colors: (isSelected || isMultiSelected)
                   ? [
                       AppColors.surfaceLight.withValues(alpha: 0.9),
                       AppColors.surface.withValues(alpha: 0.95),
@@ -1249,13 +1416,25 @@ class _SongListTile extends StatelessWidget {
                     ],
             ),
             border: Border.all(
-              color: isSelected
+              color: (isSelected || isMultiSelected)
                   ? AppColors.accent.withValues(alpha: 0.45)
                   : AppColors.glassBorder,
             ),
           ),
           child: Row(
             children: [
+              if (isSelectionMode) ...[
+                Icon(
+                  isMultiSelected
+                      ? LucideIcons.check
+                      : LucideIcons.circle,
+                  color: isMultiSelected
+                      ? AppColors.accent
+                      : context.adaptiveTextTertiary,
+                  size: context.responsiveIcon(AppConstants.iconSizeMd),
+                ),
+                const SizedBox(width: AppConstants.spacingMd),
+              ],
               ClipRRect(
                 borderRadius: BorderRadius.circular(AppConstants.radiusMd),
                 child: SizedBox(

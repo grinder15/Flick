@@ -9,6 +9,7 @@ class AudioVisualizer extends StatefulWidget {
   final PlayerService playerService;
   final String animationStyle;
   final String frequencyMode;
+  final String movementMode;
   final Color? albumColor;
 
   const AudioVisualizer({
@@ -16,6 +17,7 @@ class AudioVisualizer extends StatefulWidget {
     required this.playerService,
     this.animationStyle = 'bars',
     this.frequencyMode = 'full',
+    this.movementMode = 'bouncy',
     this.albumColor,
   });
 
@@ -294,16 +296,26 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     _frameCount++;
 
     if (_useRealData) {
-      // Real data drives the display directly; no spring physics needed
-      // because the native capture already runs at ~33fps.
       return;
     }
 
     for (int i = 0; i < _barCount; i++) {
-      final diff = _targetHeights[i] - _currentHeights[i];
-      _velocities[i] = _velocities[i] * _damping + diff * _spring;
-      _currentHeights[i] =
-          (_currentHeights[i] + _velocities[i]).clamp(_minHeight, 1.0);
+      switch (widget.movementMode) {
+        case 'fluid':
+          _currentHeights[i] =
+              _currentHeights[i] * 0.94 + _targetHeights[i] * 0.06;
+        case 'snappy':
+          _currentHeights[i] =
+              _currentHeights[i] * 0.25 + _targetHeights[i] * 0.75;
+        default:
+          final diff = _targetHeights[i] - _currentHeights[i];
+          _velocities[i] = _velocities[i] * _damping + diff * _spring;
+          _currentHeights[i] =
+              (_currentHeights[i] + _velocities[i]).clamp(_minHeight, 1.0);
+      }
+      if (widget.movementMode != 'bouncy') {
+        _currentHeights[i] = _currentHeights[i].clamp(_minHeight, 1.0);
+      }
     }
 
     if (_isPlaying && _frameCount % 2 == 0) {

@@ -51,6 +51,7 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
   @override
   void initState() {
     super.initState();
+    _syncInitFromCache();
     _updateBlur(widget.song?.albumArt, widget.song?.filePath);
   }
 
@@ -60,7 +61,18 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
     final newPath = widget.song?.albumArt;
     final newSourcePath = widget.song?.filePath;
     if (newPath != old.song?.albumArt || newSourcePath != old.song?.filePath) {
+      _syncInitFromCache();
       _updateBlur(newPath, newSourcePath);
+    }
+  }
+
+  /// Seeded synchronously so [build] never starts with a null image
+  /// when the artwork is already cached.
+  void _syncInitFromCache() {
+    final albumArt = widget.song?.albumArt;
+    if (albumArt != null && albumArt.isNotEmpty && _blurCache.containsKey(albumArt)) {
+      _blurredImage = _blurCache[albumArt];
+      _currentPath = albumArt;
     }
   }
 

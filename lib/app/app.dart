@@ -123,7 +123,10 @@ class _MainShellState extends ConsumerState<MainShell>
     // Home-screen widget integration: keep widgets in sync with player and
     // route widget click intents back into the app.
     _widgetSyncSubscription = installWidgetSync(ref);
-    _widgetIntentHandler = WidgetIntentHandler(ref);
+    _widgetIntentHandler = WidgetIntentHandler(
+      ref,
+      onOpenQueue: () => NavigationHelper.navigateToQueue(context),
+    );
     unawaited(_widgetIntentHandler.attach());
 
     _navBarVisibilitySubscription = ref.listenManual<bool>(

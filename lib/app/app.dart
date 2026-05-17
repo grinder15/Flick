@@ -314,9 +314,11 @@ class _MainShellState extends ConsumerState<MainShell>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.detached) {
+      unawaited(ref.read(playerServiceProvider).persistLastPlayed());
+      unawaited(WidgetSyncService.instance.pushKilled());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
       unawaited(ref.read(playerServiceProvider).persistLastPlayed());
       unawaited(WidgetSyncService.instance.pushPaused());
 

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -380,26 +381,86 @@ class _LyricsEditorBottomSheetState extends State<LyricsEditorBottomSheet> {
       return;
     }
 
+    final lrcContent = widget.lyricsService.buildLrcContent(
+      lines: normalizedLines,
+      song: widget.song,
+      length: widget.song.duration,
+    );
+    final sidecarPath = widget.lyricsService.suggestSidecarLrcPath(widget.song);
+
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Save LRC File'),
+        content: const Text('Where should the .lrc file be saved?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'custom'),
+            child: const Text('Choose location\u2026'),
+          ),
+          if (sidecarPath != null)
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, 'beside'),
+              child: const Text('Beside the song'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, 'managed'),
+            child: const Text('Save in Flick'),
+          ),
+        ],
+      ),
+    );
+
+    if (choice == null) return;
+
     setState(() {
       _isSaving = true;
     });
 
     try {
-      final lrcContent = widget.lyricsService.buildLrcContent(
-        lines: normalizedLines,
-        song: widget.song,
-        length: widget.song.duration,
-      );
-      final result = await widget.lyricsService.saveLyricsForSong(
-        song: widget.song,
-        content: lrcContent,
-      );
+      late final LyricsSaveResult result;
+
+      if (choice == 'custom') {
+        final safeStem = widget.song.title.isNotEmpty
+            ? widget.song.title
+            : 'lyrics';
+        final savePath = await FilePicker.saveFile(
+          dialogTitle: 'Save LRC file',
+          fileName: '$safeStem.lrc',
+          type: FileType.custom,
+          allowedExtensions: const ['lrc'],
+          bytes: Uint8List.fromList(utf8.encode(lrcContent)),
+        );
+        if (savePath == null) {
+          if (mounted) setState(() => _isSaving = false);
+          return;
+        }
+        result = await widget.lyricsService.saveLyricsToPath(
+          song: widget.song,
+          content: lrcContent,
+          path: savePath,
+        );
+      } else if (choice == 'managed') {
+        result = await widget.lyricsService.saveLyricsToManaged(
+          song: widget.song,
+          content: lrcContent,
+        );
+      } else {
+        result = await widget.lyricsService.saveLyricsForSong(
+          song: widget.song,
+          content: lrcContent,
+        );
+      }
+
       if (!mounted) return;
+      final message = choice == 'custom'
+          ? 'Saved lyrics to the chosen location.'
+          : result.savedBesideSong
+              ? 'Saved lyrics beside the song as an `.lrc` file.'
+              : 'Saved lyrics and linked them to this song.';
       Navigator.of(context).pop(
         LyricsEditorResult(
-          message: result.savedBesideSong
-              ? 'Saved lyrics beside the song as an `.lrc` file.'
-              : 'Saved lyrics in Flick and linked them to this song.',
+          message: message,
           lyricsData: result.data,
         ),
       );

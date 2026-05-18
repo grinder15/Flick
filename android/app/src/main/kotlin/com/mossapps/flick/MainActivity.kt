@@ -1563,10 +1563,6 @@ class MainActivity: FlutterActivity() {
                 while (cursor.moveToNext()) {
                     val data = cursor.getString(dataCol) ?: continue
                     val extension = data.substringAfterLast('.', "").lowercase()
-                    if (extension !in setOf(
-                        "mp3", "flac", "wav", "aac", "m4a", "ogg", "oga",
-                        "ogx", "opus", "wma", "alac", "aif", "aiff"
-                    )) continue
 
                     val id = cursor.getLong(idCol)
                     val contentUri = ContentUris.withAppendedId(

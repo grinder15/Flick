@@ -138,26 +138,11 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
 
   void _openRootFolder(MusicFolder folder) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            FolderBrowserScreen(
-              folderUri: folder.uri,
-              displayName: folder.displayName,
-            ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          if (AppConstants.animationNormal == Duration.zero) return child;
-          const begin = Offset(0.12, 0.0);
-          const end = Offset.zero;
-          const curve = Curves.easeOutCubic;
-          final tween = Tween(begin: begin, end: end)
-              .chain(CurveTween(curve: curve));
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.animationNormal,
-        opaque: true,
+      MaterialPageRoute<void>(
+        builder: (_) => FolderBrowserScreen(
+          folderUri: folder.uri,
+          displayName: folder.displayName,
+        ),
       ),
     );
   }
@@ -943,27 +928,12 @@ class _FolderBrowserScreenState extends ConsumerState<FolderBrowserScreen> {
 
   void _openSubfolder(BuildContext context, FolderGroup folder) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            FolderBrowserScreen(
-              folderUri: widget.folderUri,
-              displayName: widget.displayName,
-              prefix: folder.key,
-            ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          if (AppConstants.animationNormal == Duration.zero) return child;
-          const begin = Offset(0.12, 0.0);
-          const end = Offset.zero;
-          const curve = Curves.easeOutCubic;
-          final tween = Tween(begin: begin, end: end)
-              .chain(CurveTween(curve: curve));
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.animationNormal,
-        opaque: true,
+      MaterialPageRoute<void>(
+        builder: (_) => FolderBrowserScreen(
+          folderUri: widget.folderUri,
+          displayName: widget.displayName,
+          prefix: folder.key,
+        ),
       ),
     );
   }

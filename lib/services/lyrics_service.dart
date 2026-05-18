@@ -186,6 +186,46 @@ class LyricsService {
     );
   }
 
+  Future<LyricsSaveResult> saveLyricsToPath({
+    required Song song,
+    required String content,
+    required String path,
+  }) async {
+    final file = File(path);
+    final alreadyExists = await file.exists();
+    if (!alreadyExists) {
+      await file.parent.create(recursive: true);
+      await file.writeAsString(content);
+    }
+    await _setManualLyricsPath(song, path);
+    final data = (await loadLyricsForSong(song, forceRefresh: true)) ??
+        _parseLyrics(content, source: path);
+    return LyricsSaveResult(
+      data: data,
+      path: path,
+      savedBesideSong: false,
+    );
+  }
+
+  Future<LyricsSaveResult> saveLyricsToManaged({
+    required Song song,
+    required String content,
+  }) async {
+    final path = await _writeManagedLyricsCopy(
+      song: song,
+      extension: 'lrc',
+      content: content,
+    );
+    await _setManualLyricsPath(song, path);
+    final data = (await loadLyricsForSong(song, forceRefresh: true)) ??
+        _parseLyrics(content, source: path);
+    return LyricsSaveResult(
+      data: data,
+      path: path,
+      savedBesideSong: false,
+    );
+  }
+
   int findCurrentLineIndex(LyricsData lyrics, Duration position) {
     if (!lyrics.isSynchronized || lyrics.lines.isEmpty) return -1;
 
@@ -610,7 +650,27 @@ class LyricsService {
     );
     await lyricsDirectory.create(recursive: true);
 
-    final safeStem = _safeLyricsStem(song);
+    final prefs = await SharedPreferences.getInstance();
+    final matchAudioFilename =
+        prefs.getBool('lyrics_match_audio_filename') ?? false;
+
+    final String safeStem;
+    if (matchAudioFilename) {
+      final filePath = song.filePath;
+      if (filePath != null && filePath.isNotEmpty) {
+        final localPath = _resolveLocalPath(filePath);
+        if (localPath != null && localPath.isNotEmpty) {
+          safeStem = _basenameWithoutExtension(localPath);
+        } else {
+          safeStem = _safeLyricsStem(song);
+        }
+      } else {
+        safeStem = _safeLyricsStem(song);
+      }
+    } else {
+      safeStem = _safeLyricsStem(song);
+    }
+
     final file = File(
       '${lyricsDirectory.path}${Platform.pathSeparator}$safeStem.$extension',
     );

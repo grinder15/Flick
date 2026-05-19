@@ -237,7 +237,7 @@ class SongRepository {
       albumMap.putIfAbsent(album, () => []).add(song);
     }
     for (final albumSongs in albumMap.values) {
-      albumSongs.sort(_compareAlbumSongs);
+      albumSongs.sort(SongRepository._compareAlbumSongs);
     }
     return albumMap;
   }
@@ -259,7 +259,7 @@ class SongRepository {
     }
 
     final groups = groupedSongs.entries.map((entry) {
-      final songs = List<Song>.from(entry.value)..sort(_compareAlbumSongs);
+      final songs = List<Song>.from(entry.value)..sort(SongRepository._compareAlbumSongs);
       return AlbumGroup(
         key: entry.key,
         albumName: albumNames[entry.key] ?? 'Unknown Album',
@@ -294,6 +294,9 @@ class SongRepository {
     final artistMap = <String, List<Song>>{};
     for (final song in songs) {
       artistMap.putIfAbsent(song.artist, () => []).add(song);
+    }
+    for (final entry in artistMap.entries) {
+      artistMap[entry.key] = SongRepository.sortSongsByAlbum(entry.value);
     }
     return artistMap;
   }
@@ -339,7 +342,31 @@ class SongRepository {
     );
   }
 
-  int _compareAlbumSongs(Song a, Song b) {
+  /// Sort songs by album grouping, with tracks sorted by disc/track number.
+  /// Albums are sorted alphabetically; within each album, tracks are sorted
+  /// by disc number, then track number, then title.
+  static List<Song> sortSongsByAlbum(List<Song> songs) {
+    final albumMap = <String, List<Song>>{};
+    for (final song in songs) {
+      final albumName = _albumNameFor(song);
+      albumMap.putIfAbsent(albumName, () => []).add(song);
+    }
+    final sorted = <Song>[];
+    final albumNames = albumMap.keys.toList()..sort();
+    for (final albumName in albumNames) {
+      final albumSongs = albumMap[albumName]!;
+      albumSongs.sort(SongRepository._compareAlbumSongs);
+      sorted.addAll(albumSongs);
+    }
+    return sorted;
+  }
+
+  static String _albumNameFor(Song song) {
+    final album = song.album?.trim() ?? '';
+    return album.isEmpty ? 'Unknown Album' : album;
+  }
+
+  static int _compareAlbumSongs(Song a, Song b) {
     final discA = (a.discNumber != null && a.discNumber! > 0)
         ? a.discNumber!
         : 1;

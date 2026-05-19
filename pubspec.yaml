@@ -61,6 +61,7 @@ dependencies:
     path: rust_builder
   shared_preferences: ^2.2.2
   in_app_update: ^4.2.0
+  share_plus: ^10.1.4
   skeletonizer: ^2.1.2
   url_launcher: ^6.3.2
 

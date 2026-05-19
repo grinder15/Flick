@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
@@ -63,6 +64,10 @@ import 'package:flick/widgets/common/display_mode_wrapper.dart';
   return (subfolders: sortedFolders, songs: directSongs);
 }
 
+enum FolderRootSortOption { name, songCount }
+
+enum FolderBrowserSortOption { name, songCount, title, artist, dateAdded }
+
 /// Top-level folders screen showing root music folders as a grid.
 class FoldersScreen extends ConsumerStatefulWidget {
   const FoldersScreen({super.key});
@@ -75,6 +80,7 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
   final MusicFolderService _folderService = MusicFolderService();
   List<MusicFolder> _folders = [];
   bool _isLoading = true;
+  FolderRootSortOption _sortOption = FolderRootSortOption.name;
 
   @override
   void initState() {
@@ -82,6 +88,7 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadFolders();
     });
+    _loadSortOption();
   }
 
   Future<void> _loadFolders() async {
@@ -94,28 +101,48 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
     }
   }
 
+  Future<void> _loadSortOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('folder_root_sort_option');
+    if (!mounted) return;
+    final option = FolderRootSortOption.values.firstWhere(
+      (v) => v.name == value,
+      orElse: () => FolderRootSortOption.name,
+    );
+    if (option != _sortOption) {
+      setState(() => _sortOption = option);
+    }
+  }
+
+  Future<void> _setSortOption(FolderRootSortOption option) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('folder_root_sort_option', option.name);
+    if (mounted) {
+      setState(() => _sortOption = option);
+    }
+  }
+
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _FolderRootSortSheet(
+        currentOption: _sortOption,
+        onSelected: (option) {
+          _setSortOption(option);
+          Navigator.of(context).pop();
+        },
+      ),
+    );
+  }
+
   void _openRootFolder(MusicFolder folder) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            FolderBrowserScreen(
-              folderUri: folder.uri,
-              displayName: folder.displayName,
-            ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          if (AppConstants.animationNormal == Duration.zero) return child;
-          const begin = Offset(0.12, 0.0);
-          const end = Offset.zero;
-          const curve = Curves.easeOutCubic;
-          final tween = Tween(begin: begin, end: end)
-              .chain(CurveTween(curve: curve));
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.animationNormal,
-        opaque: true,
+      MaterialPageRoute<void>(
+        builder: (_) => FolderBrowserScreen(
+          folderUri: folder.uri,
+          displayName: folder.displayName,
+        ),
       ),
     );
   }
@@ -195,6 +222,36 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
               ],
             ),
           ),
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  AppColors.surfaceLight.withValues(alpha: 0.75),
+                  AppColors.surface.withValues(alpha: 0.85),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+              border: Border.all(color: AppColors.glassBorder, width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: IconButton(
+              icon: Icon(
+                Icons.sort_rounded,
+                color: context.adaptiveTextSecondary,
+                size: context.responsiveIcon(AppConstants.iconSizeMd),
+              ),
+              onPressed: _showSortSheet,
+            ),
+          ),
         ],
       ),
     );
@@ -241,6 +298,17 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
           allSongs.where((s) => s.folderUri == folder.uri).toList();
       rootGroups.add(_RootFolderEntry(folder: folder, songs: folderSongs));
     }
+
+    rootGroups.sort((a, b) {
+      switch (_sortOption) {
+        case FolderRootSortOption.name:
+          return a.folder.displayName.compareTo(b.folder.displayName);
+        case FolderRootSortOption.songCount:
+          final countCompare = b.songs.length.compareTo(a.songs.length);
+          if (countCompare != 0) return countCompare;
+          return a.folder.displayName.compareTo(b.folder.displayName);
+      }
+    });
 
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(
@@ -290,6 +358,7 @@ class _RootFolderCardState extends State<_RootFolderCard>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _tiltAnimation;
+  List<_ArtEntry> _cachedArtworks = const [];
 
   @override
   void initState() {
@@ -302,6 +371,15 @@ class _RootFolderCardState extends State<_RootFolderCard>
         .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     _tiltAnimation = Tween<double>(begin: 0.0, end: 0.02)
         .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    _cachedArtworks = _computeArtworks(widget.entry.songs);
+  }
+
+  @override
+  void didUpdateWidget(covariant _RootFolderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.entry.songs, widget.entry.songs)) {
+      _cachedArtworks = _computeArtworks(widget.entry.songs);
+    }
   }
 
   @override
@@ -310,10 +388,10 @@ class _RootFolderCardState extends State<_RootFolderCard>
     super.dispose();
   }
 
-  List<_ArtEntry> _getUniqueArtworks() {
+  static List<_ArtEntry> _computeArtworks(List<Song> songs) {
     final seen = <String>{};
     final result = <_ArtEntry>[];
-    for (final song in widget.entry.songs) {
+    for (final song in songs) {
       final art = song.albumArt;
       if (art != null && art.isNotEmpty && seen.add(art)) {
         result.add(_ArtEntry(art, song.filePath));
@@ -325,7 +403,7 @@ class _RootFolderCardState extends State<_RootFolderCard>
 
   @override
   Widget build(BuildContext context) {
-    final artworks = _getUniqueArtworks();
+    final artworks = _cachedArtworks;
     final padded = List<_ArtEntry>.from(artworks);
     while (padded.length < 4) {
       padded.add(const _ArtEntry(null, null));
@@ -550,6 +628,7 @@ class FolderBrowserScreen extends ConsumerStatefulWidget {
 class _FolderBrowserScreenState extends ConsumerState<FolderBrowserScreen> {
   List<Song> _allSongs = [];
   bool _isLoading = true;
+  FolderBrowserSortOption _sortOption = FolderBrowserSortOption.name;
 
   @override
   void initState() {
@@ -557,6 +636,7 @@ class _FolderBrowserScreenState extends ConsumerState<FolderBrowserScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadSongs();
     });
+    _loadSortOption();
   }
 
   Future<void> _loadSongs() async {
@@ -568,6 +648,41 @@ class _FolderBrowserScreenState extends ConsumerState<FolderBrowserScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _loadSortOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('folder_browser_sort_option');
+    if (!mounted) return;
+    final option = FolderBrowserSortOption.values.firstWhere(
+      (v) => v.name == value,
+      orElse: () => FolderBrowserSortOption.name,
+    );
+    if (option != _sortOption) {
+      setState(() => _sortOption = option);
+    }
+  }
+
+  Future<void> _setSortOption(FolderBrowserSortOption option) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('folder_browser_sort_option', option.name);
+    if (mounted) {
+      setState(() => _sortOption = option);
+    }
+  }
+
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _FolderBrowserSortSheet(
+        currentOption: _sortOption,
+        onSelected: (option) {
+          _setSortOption(option);
+          Navigator.of(context).pop();
+        },
+      ),
+    );
   }
 
   @override
@@ -592,11 +707,36 @@ class _FolderBrowserScreenState extends ConsumerState<FolderBrowserScreen> {
       );
     }
 
-    final (:subfolders, :songs) = groupByImmediateFolder(
+    final grouped = groupByImmediateFolder(
       allSongs: _allSongs,
       folderUri: widget.folderUri,
       prefix: widget.prefix,
     );
+    var subfolders = grouped.subfolders;
+    var songs = grouped.songs;
+
+    switch (_sortOption) {
+      case FolderBrowserSortOption.name:
+        subfolders.sort((a, b) => a.key.compareTo(b.key));
+      case FolderBrowserSortOption.songCount:
+        subfolders.sort((a, b) {
+          final c = b.songs.length.compareTo(a.songs.length);
+          return c != 0 ? c : a.key.compareTo(b.key);
+        });
+      case FolderBrowserSortOption.title:
+        songs.sort((a, b) => a.title.compareTo(b.title));
+      case FolderBrowserSortOption.artist:
+        songs.sort((a, b) {
+          final c = a.artist.compareTo(b.artist);
+          return c != 0 ? c : a.title.compareTo(b.title);
+        });
+      case FolderBrowserSortOption.dateAdded:
+        songs.sort((a, b) {
+          final da = a.dateAdded ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final db = b.dateAdded ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return db.compareTo(da);
+        });
+    }
 
     final totalCount = subfolders.fold<int>(
           0,
@@ -688,20 +828,41 @@ class _FolderBrowserScreenState extends ConsumerState<FolderBrowserScreen> {
               ],
             ),
           ),
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.glassBackground,
-              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-              border: Border.all(color: AppColors.glassBorder),
-            ),
-            child: IconButton(
-              icon: Icon(
-                LucideIcons.shuffle,
-                color: context.adaptiveTextPrimary,
-                size: 20,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackground,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                  border: Border.all(color: AppColors.glassBorder),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    LucideIcons.shuffle,
+                    color: context.adaptiveTextPrimary,
+                    size: 20,
+                  ),
+                  onPressed: () => _shuffleAll(context),
+                ),
               ),
-              onPressed: () => _shuffleAll(context),
-            ),
+              const SizedBox(width: AppConstants.spacingSm),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackground,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                  border: Border.all(color: AppColors.glassBorder),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    Icons.sort_rounded,
+                    color: context.adaptiveTextPrimary,
+                    size: 20,
+                  ),
+                  onPressed: _showSortSheet,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -767,27 +928,12 @@ class _FolderBrowserScreenState extends ConsumerState<FolderBrowserScreen> {
 
   void _openSubfolder(BuildContext context, FolderGroup folder) {
     Navigator.of(context).push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            FolderBrowserScreen(
-              folderUri: widget.folderUri,
-              displayName: widget.displayName,
-              prefix: folder.key,
-            ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          if (AppConstants.animationNormal == Duration.zero) return child;
-          const begin = Offset(0.12, 0.0);
-          const end = Offset.zero;
-          const curve = Curves.easeOutCubic;
-          final tween = Tween(begin: begin, end: end)
-              .chain(CurveTween(curve: curve));
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-        transitionDuration: AppConstants.animationNormal,
-        opaque: true,
+      MaterialPageRoute<void>(
+        builder: (_) => FolderBrowserScreen(
+          folderUri: widget.folderUri,
+          displayName: widget.displayName,
+          prefix: folder.key,
+        ),
       ),
     );
   }
@@ -885,6 +1031,7 @@ class _SubfolderCardState extends State<_SubfolderCard>
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
   late Animation<double> _tiltAnimation;
+  List<_ArtEntry> _cachedArtworks = const [];
 
   @override
   void initState() {
@@ -897,6 +1044,15 @@ class _SubfolderCardState extends State<_SubfolderCard>
         .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
     _tiltAnimation = Tween<double>(begin: 0.0, end: 0.02)
         .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+    _cachedArtworks = _RootFolderCardState._computeArtworks(widget.folder.songs);
+  }
+
+  @override
+  void didUpdateWidget(covariant _SubfolderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.folder.songs, widget.folder.songs)) {
+      _cachedArtworks = _RootFolderCardState._computeArtworks(widget.folder.songs);
+    }
   }
 
   @override
@@ -905,22 +1061,9 @@ class _SubfolderCardState extends State<_SubfolderCard>
     super.dispose();
   }
 
-  List<_ArtEntry> _getUniqueArtworks() {
-    final seen = <String>{};
-    final result = <_ArtEntry>[];
-    for (final song in widget.folder.songs) {
-      final art = song.albumArt;
-      if (art != null && art.isNotEmpty && seen.add(art)) {
-        result.add(_ArtEntry(art, song.filePath));
-      }
-      if (result.length >= 4) break;
-    }
-    return result;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final artworks = _getUniqueArtworks();
+    final artworks = _cachedArtworks;
     final padded = List<_ArtEntry>.from(artworks);
     while (padded.length < 4) {
       padded.add(const _ArtEntry(null, null));
@@ -1221,4 +1364,306 @@ class _ArtEntry {
   final String? source;
 
   const _ArtEntry(this.art, this.source);
+}
+
+class _FolderRootSortSheet extends StatelessWidget {
+  final FolderRootSortOption currentOption;
+  final ValueChanged<FolderRootSortOption> onSelected;
+
+  const _FolderRootSortSheet({
+    required this.currentOption,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHandle(),
+              const SizedBox(height: 16),
+              _buildSectionHeader(context, 'SORT BY'),
+              const SizedBox(height: 8),
+              ...FolderRootSortOption.values.map(
+                (option) => _buildSortTile(context, option),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHandle() {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: AppColors.textTertiary,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: context.adaptiveTextTertiary,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortTile(BuildContext context, FolderRootSortOption option) {
+    final isSelected = currentOption == option;
+    final icon = _iconFor(option);
+    final label = _labelFor(option);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          onSelected(option);
+          Navigator.of(context).pop();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: isSelected
+                ? AppColors.accent.withValues(alpha: 0.12)
+                : Colors.transparent,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected
+                    ? AppColors.accent
+                    : context.adaptiveTextSecondary,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.accent
+                        : context.adaptiveTextPrimary,
+                  ),
+                ),
+              ),
+              if (isSelected)
+                const Icon(
+                  Icons.check_rounded,
+                  size: 20,
+                  color: AppColors.accent,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(FolderRootSortOption option) {
+    switch (option) {
+      case FolderRootSortOption.name:
+        return LucideIcons.type;
+      case FolderRootSortOption.songCount:
+        return LucideIcons.hash;
+    }
+  }
+
+  String _labelFor(FolderRootSortOption option) {
+    switch (option) {
+      case FolderRootSortOption.name:
+        return 'Name (A-Z)';
+      case FolderRootSortOption.songCount:
+        return 'Song Count';
+    }
+  }
+}
+
+class _FolderBrowserSortSheet extends StatelessWidget {
+  final FolderBrowserSortOption currentOption;
+  final ValueChanged<FolderBrowserSortOption> onSelected;
+
+  const _FolderBrowserSortSheet({
+    required this.currentOption,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHandle(),
+              const SizedBox(height: 16),
+              _buildSectionHeader(context, 'SORT BY'),
+              const SizedBox(height: 8),
+              ...FolderBrowserSortOption.values.map(
+                (option) => _buildSortTile(context, option),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHandle() {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: AppColors.textTertiary,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: context.adaptiveTextTertiary,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortTile(BuildContext context, FolderBrowserSortOption option) {
+    final isSelected = currentOption == option;
+    final icon = _iconFor(option);
+    final label = _labelFor(option);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          onSelected(option);
+          Navigator.of(context).pop();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: isSelected
+                ? AppColors.accent.withValues(alpha: 0.12)
+                : Colors.transparent,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected
+                    ? AppColors.accent
+                    : context.adaptiveTextSecondary,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.accent
+                        : context.adaptiveTextPrimary,
+                  ),
+                ),
+              ),
+              if (isSelected)
+                const Icon(
+                  Icons.check_rounded,
+                  size: 20,
+                  color: AppColors.accent,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(FolderBrowserSortOption option) {
+    switch (option) {
+      case FolderBrowserSortOption.name:
+        return LucideIcons.folder;
+      case FolderBrowserSortOption.songCount:
+        return LucideIcons.hash;
+      case FolderBrowserSortOption.title:
+        return LucideIcons.type;
+      case FolderBrowserSortOption.artist:
+        return LucideIcons.mic;
+      case FolderBrowserSortOption.dateAdded:
+        return LucideIcons.calendar;
+    }
+  }
+
+  String _labelFor(FolderBrowserSortOption option) {
+    switch (option) {
+      case FolderBrowserSortOption.name:
+        return 'Folder Name';
+      case FolderBrowserSortOption.songCount:
+        return 'Folder Song Count';
+      case FolderBrowserSortOption.title:
+        return 'Song Title';
+      case FolderBrowserSortOption.artist:
+        return 'Song Artist';
+      case FolderBrowserSortOption.dateAdded:
+        return 'Date Added';
+    }
+  }
 }

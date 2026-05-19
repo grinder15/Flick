@@ -93,12 +93,30 @@ class SongsState {
   final List<Song> songs;
   final SongSortOption sortOption;
   final SongFileTypeFilter fileTypeFilter;
+  final List<Song> sortedSongs;
+  final List<FolderGroup> folderGroups;
 
-  const SongsState({
-    this.songs = const [],
-    this.sortOption = SongSortOption.albumArtist,
-    this.fileTypeFilter = SongFileTypeFilter.all,
+  const SongsState._({
+    required this.songs,
+    required this.sortOption,
+    required this.fileTypeFilter,
+    required this.sortedSongs,
+    required this.folderGroups,
   });
+
+  factory SongsState({
+    List<Song> songs = const [],
+    SongSortOption sortOption = SongSortOption.albumArtist,
+    SongFileTypeFilter fileTypeFilter = SongFileTypeFilter.all,
+  }) {
+    return SongsState._(
+      songs: songs,
+      sortOption: sortOption,
+      fileTypeFilter: fileTypeFilter,
+      sortedSongs: _computeSortedSongs(songs, sortOption, fileTypeFilter),
+      folderGroups: _computeFolderGroups(songs, sortOption, fileTypeFilter),
+    );
+  }
 
   SongsState copyWith({
     List<Song>? songs,
@@ -112,8 +130,11 @@ class SongsState {
     );
   }
 
-  /// Get sorted and filtered songs based on current options.
-  List<Song> get sortedSongs {
+  static List<Song> _computeSortedSongs(
+    List<Song> songs,
+    SongSortOption sortOption,
+    SongFileTypeFilter fileTypeFilter,
+  ) {
     var result = List<Song>.from(songs);
 
     if (fileTypeFilter != SongFileTypeFilter.all) {
@@ -129,7 +150,6 @@ class SongsState {
           final artistB = b.albumArtist ?? b.artist;
           final artistCompare = artistA.compareTo(artistB);
           if (artistCompare != 0) return artistCompare;
-          // Secondary sort by album, then disc/track number, then title.
           final albumCompare = (a.album ?? '').compareTo(b.album ?? '');
           if (albumCompare != 0) return albumCompare;
 
@@ -183,124 +203,11 @@ class SongsState {
     return result;
   }
 
-  static String extractRelativeSubfolder(String? folderUri, String? filePath) {
-    if (filePath == null || filePath.isEmpty) return '';
-
-    String rootId = '';
-    if (folderUri != null && folderUri.isNotEmpty) {
-      final uri = Uri.tryParse(folderUri);
-      if (uri != null && uri.scheme == 'content') {
-        final segments = uri.pathSegments;
-        final treeIndex = segments.indexOf('tree');
-        if (treeIndex >= 0 && treeIndex + 1 < segments.length) {
-          rootId = Uri.decodeComponent(segments[treeIndex + 1])
-              .replaceAll('\\', '/')
-              .replaceAll(RegExp(r'/+$'), '');
-        }
-      } else {
-        rootId = folderUri.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
-      }
-    }
-
-    String fileDocPath = '';
-    final fileUri = Uri.tryParse(filePath);
-    if (fileUri != null && fileUri.scheme == 'content') {
-      final segments = fileUri.pathSegments;
-      final docIndex = segments.indexOf('document');
-      if (docIndex >= 0 && docIndex + 1 < segments.length) {
-        fileDocPath = Uri.decodeComponent(segments[docIndex + 1])
-            .replaceAll('\\', '/')
-            .replaceAll(RegExp(r'/+$'), '');
-      }
-    } else {
-      fileDocPath = filePath.replaceAll('\\', '/').replaceAll(RegExp(r'/+$'), '');
-    }
-
-    if (fileDocPath.isEmpty) return '';
-
-    if (rootId.isNotEmpty && fileDocPath.startsWith(rootId)) {
-      var relative = fileDocPath.substring(rootId.length);
-      if (relative.startsWith('/')) relative = relative.substring(1);
-      final lastSlash = relative.lastIndexOf('/');
-      if (lastSlash > 0) {
-        return relative.substring(0, lastSlash);
-      }
-      return '';
-    }
-
-    // When rootId is in Android's "storage:path" format (e.g. "primary:Music")
-    // and fileDocPath is a filesystem path (e.g. "/storage/emulated/0/Music/..."),
-    // resolve the tree ID to a filesystem prefix and try matching again.
-    if (rootId.isNotEmpty && fileDocPath.startsWith('/')) {
-      final fsRoot = _treeIdToFilesystemPath(rootId);
-      if (fsRoot != null && fileDocPath.startsWith(fsRoot)) {
-        var relative = fileDocPath.substring(fsRoot.length);
-        if (relative.startsWith('/')) relative = relative.substring(1);
-        final lastSlash = relative.lastIndexOf('/');
-        if (lastSlash > 0) {
-          return relative.substring(0, lastSlash);
-        }
-        return '';
-      }
-    }
-
-    final lastSlash = fileDocPath.lastIndexOf('/');
-    if (lastSlash > 0) {
-      return fileDocPath.substring(0, lastSlash);
-    }
-    return '';
-  }
-
-  /// Convert an Android SAF tree ID (e.g. "primary:Music", "1A2B-3C4D:FLAC")
-  /// to a filesystem path prefix (e.g. "/storage/emulated/0/Music",
-  /// "/storage/1A2B-3C4D/FLAC").
-  static String? _treeIdToFilesystemPath(String treeId) {
-    final colonIdx = treeId.indexOf(':');
-    if (colonIdx < 0) return null;
-
-    final storage = treeId.substring(0, colonIdx);
-    final subPath = treeId.substring(colonIdx + 1);
-
-    String storageRoot;
-    if (storage.toLowerCase() == 'primary') {
-      storageRoot = '/storage/emulated/0';
-    } else {
-      // External SD card or USB — volume ID is the directory name
-      storageRoot = '/storage/$storage';
-    }
-
-    if (subPath.isEmpty) return storageRoot;
-    return '$storageRoot/$subPath';
-  }
-
-  static String folderDisplayName(String? folderUri, String? filePath) {
-    final subfolder = extractRelativeSubfolder(folderUri, filePath);
-    if (subfolder.isNotEmpty) {
-      final parts = subfolder.split('/').where((p) => p.isNotEmpty).toList();
-      return parts.isNotEmpty ? parts.last : subfolder;
-    }
-    if (folderUri != null && folderUri.isNotEmpty) {
-      final uri = Uri.tryParse(folderUri);
-      if (uri != null && uri.scheme == 'content') {
-        final segments = uri.pathSegments;
-        final treeIndex = segments.indexOf('tree');
-        if (treeIndex >= 0 && treeIndex + 1 < segments.length) {
-          final decoded = Uri.decodeComponent(segments[treeIndex + 1]);
-          final normalized = decoded.replaceAll('\\', '/').replaceAll(RegExp(r'/+'), '/');
-          final parts = normalized.split('/');
-          final nonEmpty = parts.where((p) => p.isNotEmpty).toList();
-          if (nonEmpty.isNotEmpty) return nonEmpty.last;
-        }
-      }
-      final normalized = folderUri.replaceAll('\\', '/').replaceAll(RegExp(r'/+'), '/');
-      final parts = normalized.split('/');
-      final nonEmpty = parts.where((p) => p.isNotEmpty).toList();
-      return nonEmpty.isNotEmpty ? nonEmpty.last : normalized;
-    }
-    return 'Unknown';
-  }
-
-  List<FolderGroup> get folderGroups {
+  static List<FolderGroup> _computeFolderGroups(
+    List<Song> songs,
+    SongSortOption sortOption,
+    SongFileTypeFilter fileTypeFilter,
+  ) {
     if (sortOption != SongSortOption.folder) return [];
 
     var result = List<Song>.from(songs);
@@ -333,6 +240,50 @@ class SongsState {
     final sorted = groups.values.toList()
       ..sort((a, b) => a.name.compareTo(b.name));
     return sorted;
+  }
+
+  static String extractRelativeSubfolder(
+    String? folderUri,
+    String? filePath,
+  ) {
+    if (folderUri == null || folderUri.isEmpty) return '';
+    if (filePath == null || filePath.isEmpty) return '';
+    final base = folderUri.endsWith('/')
+        ? folderUri.substring(0, folderUri.length - 1)
+        : folderUri;
+    final uriBase = Uri.tryParse('$base/');
+    if (uriBase == null) return '';
+    final fileUri = Uri.tryParse(filePath);
+    if (fileUri == null) return '';
+    final relative = uriBase.path.isNotEmpty
+        ? fileUri.path.replaceFirst(uriBase.path, '')
+        : fileUri.path;
+    final withoutRoot = relative.startsWith('/') ? relative.substring(1) : relative;
+    final parts = withoutRoot.split('/');
+    if (parts.length >= 2) return parts.sublist(0, parts.length - 1).join('/');
+    return '';
+  }
+
+  static String folderDisplayName(
+    String? folderUri,
+    String? filePath,
+  ) {
+    if (folderUri == null || folderUri.isEmpty) {
+      if (filePath == null) return '';
+      final uri = Uri.tryParse(filePath);
+      if (uri == null) return filePath;
+      final segments =
+          uri.pathSegments.where((s) => s.isNotEmpty).toList();
+      if (segments.length >= 2) {
+        return segments[segments.length - 2];
+      }
+      return filePath;
+    }
+    final uri = Uri.tryParse(folderUri);
+    if (uri == null) return folderUri;
+    final segments =
+        uri.pathSegments.where((s) => s.isNotEmpty).toList();
+    return segments.isNotEmpty ? segments.last : folderUri;
   }
 }
 

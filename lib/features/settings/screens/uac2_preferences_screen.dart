@@ -245,6 +245,11 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
     AsyncValue<bool> killIsochronousUsbOnQuitAsync,
     AudioOutputDiagnostics? diagnostics,
   ) {
+    final isBitPerfectBlocked = audioEngineAsync.when(
+      data: (e) => e != AudioEnginePreference.isochronousUsb,
+      loading: () => false,
+      error: (_, _) => false,
+    );
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface.withValues(alpha: 0.6),
@@ -297,6 +302,8 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
               subtitle:
                   'Use the verified direct USB path and disable software DSP controls that would break bit-perfect playback on an external USB DAC.',
               value: enabled,
+              enabled: !isBitPerfectBlocked,
+              disabledSubtitle: 'Requires the Isochronous USB playback engine.',
               onChanged: (value) async {
                 final changed = value != enabled;
                 final applied = await ref
@@ -399,8 +406,12 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
     required String subtitle,
     required bool value,
     required ValueChanged<bool> onChanged,
+    bool enabled = true,
+    String? disabledSubtitle,
   }) {
-    return Padding(
+    final effectiveSubtitle =
+        !enabled && disabledSubtitle != null ? disabledSubtitle : subtitle;
+    final tile = Padding(
       padding: const EdgeInsets.all(AppConstants.spacingMd),
       child: Row(
         children: [
@@ -426,7 +437,7 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  subtitle,
+                  effectiveSubtitle,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.adaptiveTextTertiary,
                   ),
@@ -435,13 +446,17 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
             ),
           ),
           Switch(
-            value: value,
-            onChanged: onChanged,
+            value: enabled ? value : false,
+            onChanged: enabled ? onChanged : null,
             activeThumbColor: AppColors.accent,
           ),
         ],
       ),
     );
+    if (!enabled) {
+      return Opacity(opacity: 0.55, child: tile);
+    }
+    return tile;
   }
 
   String _audioEnginePreferenceSubtitle(AudioEnginePreference engine) {
@@ -499,16 +514,27 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                 onTap: dapBothOff
                     ? null
                     : () async {
-                        final changed =
+                        final engineChanged =
                             current != AudioEnginePreference.exoPlayer;
+                        final wasBitPerfectEnabled =
+                            await service.getBitPerfectEnabled();
                         await service.setAudioEnginePreference(
                           AudioEnginePreference.exoPlayer,
                         );
+                        if (wasBitPerfectEnabled) {
+                          await ref
+                              .read(uac2ServiceProvider)
+                              .setBitPerfectEnabled(false);
+                          ref.invalidate(uac2BitPerfectEnabledProvider);
+                          ref.invalidate(uac2ExclusiveDacModeProvider);
+                          ref.invalidate(killIsochronousUsbOnQuitProvider);
+                        }
                         ref.invalidate(audioEnginePreferenceProvider);
                         if (dialogContext.mounted) {
                           Navigator.of(dialogContext).pop();
                         }
-                        if (changed && context.mounted) {
+                        if ((engineChanged || wasBitPerfectEnabled) &&
+                            context.mounted) {
                           _showRestartRequiredToast(context);
                         }
                       },
@@ -523,15 +549,26 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                 selected: effective == AudioEnginePreference.rustOboe,
                 badgeText: dapBothOff ? 'Active' : null,
                 onTap: () async {
-                  final changed = current != AudioEnginePreference.rustOboe;
+                  final engineChanged = current != AudioEnginePreference.rustOboe;
+                  final wasBitPerfectEnabled =
+                      await service.getBitPerfectEnabled();
                   await service.setAudioEnginePreference(
                     AudioEnginePreference.rustOboe,
                   );
+                  if (wasBitPerfectEnabled) {
+                    await ref
+                        .read(uac2ServiceProvider)
+                        .setBitPerfectEnabled(false);
+                    ref.invalidate(uac2BitPerfectEnabledProvider);
+                    ref.invalidate(uac2ExclusiveDacModeProvider);
+                    ref.invalidate(killIsochronousUsbOnQuitProvider);
+                  }
                   ref.invalidate(audioEnginePreferenceProvider);
                   if (dialogContext.mounted) {
                     Navigator.of(dialogContext).pop();
                   }
-                  if (changed && context.mounted) {
+                  if ((engineChanged || wasBitPerfectEnabled) &&
+                      context.mounted) {
                     _showRestartRequiredToast(context);
                   }
                 },

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
@@ -10,6 +11,8 @@ import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
+
+enum AlbumSortOption { name, artist, tracks }
 
 /// Albums screen with masonry grid of album artwork.
 class AlbumsScreen extends StatefulWidget {
@@ -23,16 +26,42 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
   final SongRepository _songRepository = SongRepository();
   final PlayerService _playerService = PlayerService();
   List<AlbumGroup> _albums = [];
+  List<AlbumGroup> _sortedAlbums = [];
   bool _isLoading = true;
   bool _isGlanceMinimized = false;
+  AlbumSortOption _sortOption = AlbumSortOption.artist;
 
   @override
   void initState() {
     super.initState();
-    // Defer data loading to avoid jank during navigation
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadSortOption();
       _loadAlbums();
     });
+  }
+
+  Future<void> _loadSortOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('albums_sort_option');
+    if (!mounted) return;
+    final option = AlbumSortOption.values.firstWhere(
+      (v) => v.name == value,
+      orElse: () => AlbumSortOption.artist,
+    );
+    if (option != _sortOption) {
+      setState(() => _sortOption = option);
+    }
+  }
+
+  Future<void> _setSortOption(AlbumSortOption option) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('albums_sort_option', option.name);
+    if (mounted) {
+      setState(() {
+        _sortOption = option;
+        _applySorting();
+      });
+    }
   }
 
   Future<void> _loadAlbums() async {
@@ -40,9 +69,40 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
     if (mounted) {
       setState(() {
         _albums = albums;
+        _sortedAlbums = List.from(albums);
+        _applySorting();
         _isLoading = false;
       });
     }
+  }
+
+  void _applySorting() {
+    switch (_sortOption) {
+      case AlbumSortOption.name:
+        _sortedAlbums.sort((a, b) => a.albumName.compareTo(b.albumName));
+      case AlbumSortOption.artist:
+        _sortedAlbums.sort((a, b) {
+          final artistCompare = a.albumArtist.compareTo(b.albumArtist);
+          if (artistCompare != 0) return artistCompare;
+          return a.albumName.compareTo(b.albumName);
+        });
+      case AlbumSortOption.tracks:
+        _sortedAlbums.sort((a, b) => b.songs.length.compareTo(a.songs.length));
+    }
+  }
+
+  void _showSortSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _AlbumSortSheet(
+        currentOption: _sortOption,
+        onSelected: (option) {
+          _setSortOption(option);
+          Navigator.of(context).pop();
+        },
+      ),
+    );
   }
 
   String? _getAlbumArt(List<Song> songs) {
@@ -122,7 +182,7 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
                   Expanded(
                     child: _isLoading
                         ? _buildLoadingState()
-                        : _albums.isEmpty
+                        : _sortedAlbums.isEmpty
                         ? _buildEmptyState()
                         : _buildAlbumsGrid(),
                   ),
@@ -226,6 +286,21 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
                       ),
                     ),
                   ],
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackground,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                  border: Border.all(color: AppColors.glassBorder),
+                ),
+                child: IconButton(
+                  icon: Icon(
+                    Icons.sort_rounded,
+                    color: context.adaptiveTextPrimary,
+                    size: context.responsiveIcon(AppConstants.iconSizeMd),
+                  ),
+                  onPressed: _showSortSheet,
                 ),
               ),
             ],
@@ -450,9 +525,9 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
               crossAxisSpacing: AppConstants.spacingMd,
               mainAxisSpacing: AppConstants.spacingLg,
             ),
-            itemCount: _albums.length,
+            itemCount: _sortedAlbums.length,
             itemBuilder: (context, index) {
-              final album = _albums[index];
+              final album = _sortedAlbums[index];
               return _AlbumCard(
                 albumName: album.albumName,
                 albumArtist: album.albumArtist,
@@ -940,5 +1015,154 @@ class _SongTile extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _AlbumSortSheet extends StatelessWidget {
+  final AlbumSortOption currentOption;
+  final ValueChanged<AlbumSortOption> onSelected;
+
+  const _AlbumSortSheet({
+    required this.currentOption,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHandle(),
+              const SizedBox(height: 16),
+              _buildSectionHeader(context, 'SORT BY'),
+              const SizedBox(height: 8),
+              ...AlbumSortOption.values.map(
+                (option) => _buildSortTile(context, option),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHandle() {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: AppColors.textTertiary,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: context.adaptiveTextTertiary,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortTile(BuildContext context, AlbumSortOption option) {
+    final isSelected = currentOption == option;
+    final icon = _iconFor(option);
+    final label = _labelFor(option);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          onSelected(option);
+          Navigator.of(context).pop();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: isSelected
+                ? AppColors.accent.withValues(alpha: 0.12)
+                : Colors.transparent,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected
+                    ? AppColors.accent
+                    : context.adaptiveTextSecondary,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.accent
+                        : context.adaptiveTextPrimary,
+                  ),
+                ),
+              ),
+              if (isSelected)
+                const Icon(
+                  Icons.check_rounded,
+                  size: 20,
+                  color: AppColors.accent,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _iconFor(AlbumSortOption option) {
+    switch (option) {
+      case AlbumSortOption.name:
+        return LucideIcons.type;
+      case AlbumSortOption.artist:
+        return LucideIcons.mic;
+      case AlbumSortOption.tracks:
+        return LucideIcons.hash;
+    }
+  }
+
+  String _labelFor(AlbumSortOption option) {
+    switch (option) {
+      case AlbumSortOption.name:
+        return 'Album Name';
+      case AlbumSortOption.artist:
+        return 'Artist';
+      case AlbumSortOption.tracks:
+        return 'Track Count';
+    }
   }
 }

@@ -1,5 +1,21 @@
 package com.mossapps.flick
 
+// Audio capability mapping:
+//   Kotlin "usbDac"      → Rust AudioCapability::UsbDac      / BackendType::UsbDirect
+//   Kotlin "hiResInternal" → Rust AudioCapability::HiResInternal / BackendType::DapNative or MixerBitPerfect
+//   Kotlin "standard"    → Rust AudioCapability::Standard     / BackendType::ResampledFallback
+//
+// Route type mapping:
+//   Kotlin "usb"       → USB DAC/AMP (direct or Android-managed)
+//   Kotlin "internal"  → Built-in audio (could be DAP internal DAC or phone)
+//   Kotlin "wired"     → Wired headphones/line out
+//   Kotlin "bluetooth" → Bluetooth audio
+//   Kotlin "dock"      → Dock audio
+//   Kotlin "unknown"   → Unidentified route
+//
+// DAP brand detection happens in Rust (audio/device.rs DAP_REGISTRY) and Dart
+// (android_audio_device_service.dart isLikelyDap). Kotlin does NOT detect DAP brands.
+
 import android.Manifest
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
@@ -543,7 +559,14 @@ class MainActivity: FlutterActivity() {
                     }
                     val isShuffle = call.argument<Boolean>("isShuffle") ?: false
                     val isFavorite = call.argument<Boolean>("isFavorite") ?: false
-                    
+                    val color = call.argument<Any>("color")?.let { c ->
+                        when (c) {
+                            is Int -> c
+                            is Long -> c.toInt()
+                            else -> null
+                        }
+                    }
+
                     val intent = Intent(this, MusicNotificationService::class.java).apply {
                         putExtra("title", title)
                         putExtra("artist", artist)
@@ -553,6 +576,7 @@ class MainActivity: FlutterActivity() {
                         putExtra("position", position)
                         putExtra("isShuffle", isShuffle)
                         putExtra("isFavorite", isFavorite)
+                        color?.let { putExtra("color", it) }
                     }
                     
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -584,7 +608,14 @@ class MainActivity: FlutterActivity() {
                     }
                     val isShuffle = call.argument<Boolean>("isShuffle")
                     val isFavorite = call.argument<Boolean>("isFavorite")
-                    
+                    val color = call.argument<Any>("color")?.let { c ->
+                        when (c) {
+                            is Int -> c
+                            is Long -> c.toInt()
+                            else -> null
+                        }
+                    }
+
                     val intent = Intent(this, MusicNotificationService::class.java).apply {
                         title?.let { putExtra("title", it) }
                         artist?.let { putExtra("artist", it) }
@@ -594,6 +625,7 @@ class MainActivity: FlutterActivity() {
                         position?.let { putExtra("position", it) }
                         isShuffle?.let { putExtra("isShuffle", it) }
                         isFavorite?.let { putExtra("isFavorite", it) }
+                        color?.let { putExtra("color", it) }
                     }
                     startService(intent)
                     result.success(null)
@@ -1563,10 +1595,6 @@ class MainActivity: FlutterActivity() {
                 while (cursor.moveToNext()) {
                     val data = cursor.getString(dataCol) ?: continue
                     val extension = data.substringAfterLast('.', "").lowercase()
-                    if (extension !in setOf(
-                        "mp3", "flac", "wav", "aac", "m4a", "ogg", "oga",
-                        "ogx", "opus", "wma", "alac", "aif", "aiff"
-                    )) continue
 
                     val id = cursor.getLong(idCol)
                     val contentUri = ContentUris.withAppendedId(

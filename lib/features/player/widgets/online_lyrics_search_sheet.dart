@@ -1000,221 +1000,202 @@ class _OnlineLyricsSearchSheetState extends State<OnlineLyricsSearchSheet>
     final lyrics = result.bestLyrics;
     final isSynced = result.hasSyncedLyrics;
 
-    return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 350),
-      switchInCurve: Curves.easeOutCubic,
-      switchOutCurve: Curves.easeInCubic,
-      transitionBuilder: (child, animation) {
-        final isPreview = child.key == const ValueKey('preview-panel');
-        return FadeTransition(
-          opacity: animation,
-          child: SizeTransition(
-            sizeFactor: animation,
-            axisAlignment: isPreview ? -1.0 : 1.0,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: isPreview ? const Offset(0, 0.08) : const Offset(0, -0.04),
-                end: Offset.zero,
-              ).animate(
-                CurvedAnimation(
-                  parent: animation,
-                  curve: Curves.easeOutCubic,
-                ),
-              ),
-              child: child,
-            ),
-          ),
-        );
-      },
-      child: Container(
-        key: const ValueKey('preview-panel'),
-        margin: const EdgeInsets.only(bottom: 12),
-        decoration: BoxDecoration(
-          color: AppColors.glassBackgroundStrong,
-          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-          border: Border.all(
-            color: AppColors.accent.withValues(alpha: 0.2),
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _buildHandle(),
+        const SizedBox(height: 8),
+        Row(
           children: [
-            // Preview header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildMarqueeText(
-                          result.trackName ?? 'Unknown Track',
-                          style: TextStyle(
-                            fontFamily: 'ProductSans',
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        _buildMarqueeText(
-                          '${result.artistName ?? ''}${result.albumName != null && result.albumName!.isNotEmpty ? ' · ${result.albumName}' : ''}',
-                          style: TextStyle(
-                            fontFamily: 'ProductSans',
-                            fontSize: 12,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: _closePreview,
-                    icon: Icon(LucideIcons.x,
-                        size: 18, color: AppColors.textSecondary),
-                    padding: EdgeInsets.zero,
-                    constraints:
-                        const BoxConstraints(minWidth: 32, minHeight: 32),
-                    style: IconButton.styleFrom(
-                      backgroundColor: AppColors.glassBackground,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Format info chips
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  _buildTypeChip(result.formatLabel,
-                      isSynced ? LucideIcons.clock3 : LucideIcons.fileText),
-                  if (result.lineCount > 0)
-                    _buildTypeChip(
-                        '${result.lineCount} lines', Icons.format_align_left),
-                  if (result.duration != null)
-                    _buildTypeChip(
-                      _formatDuration(
-                          Duration(seconds: result.duration!.round())),
-                      LucideIcons.timer,
-                    ),
-                  if (_isDurationMatch(result))
-                    _buildTypeChip(
-                        'Duration Match', Icons.check_circle_outline),
-                ],
-              ),
-            ),
-            // Lyrics preview
-            Flexible(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.03),
-                    borderRadius:
-                        BorderRadius.circular(AppConstants.radiusMd),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.06),
-                    ),
-                  ),
-                  child: ClipRRect(
-                    borderRadius:
-                        BorderRadius.circular(AppConstants.radiusMd),
-                    child: Scrollbar(
-                      controller: _previewScrollController,
-                      thumbVisibility: true,
-                      child: SingleChildScrollView(
-                        controller: _previewScrollController,
-                        padding: const EdgeInsets.all(12),
-                        child: Text(
-                          lyrics,
-                          style: TextStyle(
-                            fontFamily: 'ProductSans',
-                            fontSize: 13,
-                            height: 1.7,
-                            color:
-                                AppColors.textSecondary.withValues(alpha: 0.9),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+            Icon(LucideIcons.eye, size: 18, color: AppColors.accent),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Lyrics Preview',
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ),
-            // Action buttons
-            Padding(
-              padding: const EdgeInsets.all(14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _closePreview,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.textSecondary,
-                        side: BorderSide(color: AppColors.glassBorder),
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(AppConstants.radiusMd),
-                        ),
-                      ),
-                      child: Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontFamily: 'ProductSans',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed:
-                          _isSaving ? null : () => _saveResult(result),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.accent,
-                        foregroundColor: AppColors.background,
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(AppConstants.radiusMd),
-                        ),
-                        disabledBackgroundColor:
-                            AppColors.accent.withValues(alpha: 0.4),
-                      ),
-                      child: _isSaving
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.background,
-                              ),
-                            )
-                          : Text(
-                              'Save Lyrics',
-                              style: TextStyle(
-                                fontFamily: 'ProductSans',
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.background,
-                              ),
-                            ),
-                    ),
-                  ),
-                ],
+            IconButton(
+              onPressed: _closePreview,
+              icon: Icon(LucideIcons.x,
+                  size: 18, color: AppColors.textSecondary),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              style: IconButton.styleFrom(
+                backgroundColor: AppColors.glassBackgroundStrong,
               ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.glassBackgroundStrong,
+            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+            border: Border.all(
+              color: AppColors.accent.withValues(alpha: 0.2),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      result.trackName ?? 'Unknown Track',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${result.artistName ?? ''}${result.albumName != null && result.albumName!.isNotEmpty ? ' · ${result.albumName}' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _buildTypeChip(result.formatLabel,
+                        isSynced ? LucideIcons.clock3 : LucideIcons.fileText),
+                    if (result.lineCount > 0)
+                      _buildTypeChip(
+                          '${result.lineCount} lines', Icons.format_align_left),
+                    if (result.duration != null)
+                      _buildTypeChip(
+                        _formatDuration(
+                            Duration(seconds: result.duration!.round())),
+                        LucideIcons.timer,
+                      ),
+                    if (_isDurationMatch(result))
+                      _buildTypeChip(
+                          'Duration Match', Icons.check_circle_outline),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.03),
+              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.06),
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+              child: Scrollbar(
+                controller: _previewScrollController,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _previewScrollController,
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    lyrics,
+                    style: TextStyle(
+                      fontFamily: 'ProductSans',
+                      fontSize: 13,
+                      height: 1.7,
+                      color: AppColors.textSecondary.withValues(alpha: 0.9),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _closePreview,
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textSecondary,
+                  side: BorderSide(color: AppColors.glassBorder),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(AppConstants.radiusMd),
+                  ),
+                ),
+                child: Text(
+                  'Cancel',
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _isSaving ? null : () => _saveResult(result),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: AppColors.background,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius:
+                        BorderRadius.circular(AppConstants.radiusMd),
+                  ),
+                  disabledBackgroundColor:
+                      AppColors.accent.withValues(alpha: 0.4),
+                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.background,
+                        ),
+                      )
+                    : Text(
+                        'Save Lyrics',
+                        style: TextStyle(
+                          fontFamily: 'ProductSans',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.background,
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1224,34 +1205,18 @@ class _OnlineLyricsSearchSheetState extends State<OnlineLyricsSearchSheet>
     return '${minutes}m ${seconds.toString().padLeft(2, '0')}s';
   }
 
-  // Marquee text widget that scrolls horizontally if text overflows
-  Widget _buildMarqueeText(String text, {required TextStyle style}) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final textPainter = TextPainter(
-          text: TextSpan(text: text, style: style),
-          textDirection: TextDirection.ltr,
-          maxLines: 1,
-        )..layout(maxWidth: constraints.maxWidth);
-
-        final overflows = textPainter.width > constraints.maxWidth;
-
-        if (!overflows) {
-          return Text(text, style: style, maxLines: 1, overflow: TextOverflow.ellipsis);
-        }
-
-        return _MarqueeText(
-          text: text,
-          style: style,
-          gap: 40,
-          velocity: 28,
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    if (_previewResult != null) {
+      return SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: _buildPreviewPanel(),
+        ),
+      );
+    }
+
     return SafeArea(
       top: false,
       child: Padding(
@@ -1290,101 +1255,10 @@ class _OnlineLyricsSearchSheetState extends State<OnlineLyricsSearchSheet>
                     ),
                   );
                 },
-                child: _previewResult != null
-                    ? _buildPreviewPanel()
-                    : _buildResultsList(),
+                child: _buildResultsList(),
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// Simple marquee widget that scrolls text horizontally
-class _MarqueeText extends StatefulWidget {
-  final String text;
-  final TextStyle style;
-  final double gap;
-  final double velocity;
-
-  const _MarqueeText({
-    required this.text,
-    required this.style,
-    this.gap = 40,
-    this.velocity = 28,
-  });
-
-  @override
-  State<_MarqueeText> createState() => _MarqueeTextState();
-}
-
-class _MarqueeTextState extends State<_MarqueeText>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  double _textWidth = 0;
-  final _textKey = GlobalKey();
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this);
-    _startAfterLayout();
-  }
-
-  void _startAfterLayout() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final renderBox =
-          _textKey.currentContext?.findRenderObject() as RenderBox?;
-      if (renderBox == null) return;
-
-      _textWidth = renderBox.size.width;
-      final containerWidth = context.size?.width ?? _textWidth;
-      if (_textWidth <= containerWidth) return;
-
-      final distance = _textWidth + widget.gap;
-      final duration = distance / widget.velocity;
-
-      _controller.duration = Duration(milliseconds: (duration * 1000).round());
-
-      _controller
-        ..reset()
-        ..repeat();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRect(
-      child: SizedBox(
-        height: widget.style.fontSize != null
-            ? widget.style.fontSize! * 1.4
-            : 22,
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            final offset = -_controller.value * (_textWidth + widget.gap);
-            return Transform.translate(
-              offset: Offset(offset, 0),
-              child: child,
-            );
-          },
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(widget.text, key: _textKey, style: widget.style),
-              SizedBox(width: widget.gap),
-              Text(widget.text, style: widget.style),
-            ],
-          ),
         ),
       ),
     );

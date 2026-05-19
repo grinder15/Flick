@@ -1,0 +1,91 @@
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter/material.dart';
+
+enum PlayerActionButton {
+  lyrics,
+  favorites,
+  visualizer,
+  ratings,
+  queue,
+  sleepTimer,
+  share,
+}
+
+extension PlayerActionButtonX on PlayerActionButton {
+  String get storageValue {
+    switch (this) {
+      case PlayerActionButton.lyrics:
+        return 'lyrics';
+      case PlayerActionButton.favorites:
+        return 'favorites';
+      case PlayerActionButton.visualizer:
+        return 'visualizer';
+      case PlayerActionButton.ratings:
+        return 'ratings';
+      case PlayerActionButton.queue:
+        return 'queue';
+      case PlayerActionButton.sleepTimer:
+        return 'sleep_timer';
+      case PlayerActionButton.share:
+        return 'share';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case PlayerActionButton.lyrics:
+        return 'Lyrics';
+      case PlayerActionButton.favorites:
+        return 'Favorites';
+      case PlayerActionButton.visualizer:
+        return 'Visualizer';
+      case PlayerActionButton.ratings:
+        return 'Rating';
+      case PlayerActionButton.queue:
+        return 'Queue';
+      case PlayerActionButton.sleepTimer:
+        return 'Sleep Timer';
+      case PlayerActionButton.share:
+        return 'Share';
+    }
+  }
+
+  IconData get icon {
+    switch (this) {
+      case PlayerActionButton.lyrics:
+        return LucideIcons.fileText;
+      case PlayerActionButton.favorites:
+        return Icons.favorite_border;
+      case PlayerActionButton.visualizer:
+        return Icons.graphic_eq_rounded;
+      case PlayerActionButton.ratings:
+        return LucideIcons.star;
+      case PlayerActionButton.queue:
+        return LucideIcons.listMusic;
+      case PlayerActionButton.sleepTimer:
+        return LucideIcons.moonStar;
+      case PlayerActionButton.share:
+        return LucideIcons.share2;
+    }
+  }
+
+  static PlayerActionButton fromStorageValue(String? value) {
+    switch (value) {
+      case 'favorites':
+        return PlayerActionButton.favorites;
+      case 'visualizer':
+        return PlayerActionButton.visualizer;
+      case 'ratings':
+        return PlayerActionButton.ratings;
+      case 'queue':
+        return PlayerActionButton.queue;
+      case 'sleep_timer':
+        return PlayerActionButton.sleepTimer;
+      case 'share':
+        return PlayerActionButton.share;
+      case 'lyrics':
+      default:
+        return PlayerActionButton.lyrics;
+    }
+  }
+}

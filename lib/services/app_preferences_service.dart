@@ -38,6 +38,8 @@ class AppPreferences {
   final bool widgetShowArtist;
   final String widgetAccentColor;
   final bool lyricsMatchAudioFilename;
+  final String leftActionButton;
+  final String rightActionButton;
 
   const AppPreferences({
     this.animationsEnabled = true,
@@ -77,6 +79,8 @@ class AppPreferences {
     this.widgetShowArtist = true,
     this.widgetAccentColor = 'white',
     this.lyricsMatchAudioFilename = false,
+    this.leftActionButton = 'lyrics',
+    this.rightActionButton = 'favorites',
   });
 
   AppPreferences copyWith({
@@ -117,6 +121,8 @@ class AppPreferences {
     bool? widgetShowArtist,
     String? widgetAccentColor,
     bool? lyricsMatchAudioFilename,
+    String? leftActionButton,
+    String? rightActionButton,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
@@ -169,6 +175,8 @@ class AppPreferences {
       widgetAccentColor: widgetAccentColor ?? this.widgetAccentColor,
       lyricsMatchAudioFilename:
           lyricsMatchAudioFilename ?? this.lyricsMatchAudioFilename,
+      leftActionButton: leftActionButton ?? this.leftActionButton,
+      rightActionButton: rightActionButton ?? this.rightActionButton,
     );
   }
 }
@@ -211,6 +219,8 @@ class AppPreferencesService {
   static const _widgetShowArtistKey = 'widget_show_artist';
   static const _widgetAccentColorKey = 'widget_accent_color';
   static const _lyricsMatchAudioFilenameKey = 'lyrics_match_audio_filename';
+  static const _leftActionButtonKey = 'left_action_button';
+  static const _rightActionButtonKey = 'right_action_button';
 
   Future<AppPreferences> getPreferences() async {
     final prefs = await SharedPreferences.getInstance();
@@ -265,6 +275,10 @@ class AppPreferencesService {
           prefs.getString(_widgetAccentColorKey) ?? 'white',
       lyricsMatchAudioFilename:
           prefs.getBool(_lyricsMatchAudioFilenameKey) ?? false,
+      leftActionButton:
+          prefs.getString(_leftActionButtonKey) ?? 'lyrics',
+      rightActionButton:
+          prefs.getString(_rightActionButtonKey) ?? 'favorites',
     );
   }
 
@@ -586,5 +600,25 @@ class AppPreferencesService {
   Future<void> setLyricsMatchAudioFilename(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_lyricsMatchAudioFilenameKey, value);
+  }
+
+  Future<String> getLeftActionButton() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_leftActionButtonKey) ?? 'lyrics';
+  }
+
+  Future<void> setLeftActionButton(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_leftActionButtonKey, value);
+  }
+
+  Future<String> getRightActionButton() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_rightActionButtonKey) ?? 'favorites';
+  }
+
+  Future<void> setRightActionButton(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_rightActionButtonKey, value);
   }
 }

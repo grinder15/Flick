@@ -288,6 +288,18 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
         .read(appPreferencesServiceProvider)
         .setLyricsMatchAudioFilename(value);
   }
+
+  Future<void> setLeftActionButton(String value) async {
+    if (state.leftActionButton == value) return;
+    state = state.copyWith(leftActionButton: value);
+    await ref.read(appPreferencesServiceProvider).setLeftActionButton(value);
+  }
+
+  Future<void> setRightActionButton(String value) async {
+    if (state.rightActionButton == value) return;
+    state = state.copyWith(rightActionButton: value);
+    await ref.read(appPreferencesServiceProvider).setRightActionButton(value);
+  }
 }
 
 final appPreferencesProvider =

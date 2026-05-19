@@ -26,7 +26,6 @@ import 'package:flick/providers/providers.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/models/song.dart';
-import 'package:flick/models/album_color_mode.dart';
 import 'package:flick/services/library_scanner_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/widget_sync_service.dart';
@@ -254,23 +253,6 @@ class _MainShellState extends ConsumerState<MainShell>
     _playerService.playbackDesyncedNotifier.addListener(
       _onPlaybackDesyncChanged,
     );
-
-    _applySystemUIOverlayStyle(
-      colorMode: ref.read(albumColorModeProvider),
-      dominantColor: ref.read(albumDominantColorSyncProvider),
-    );
-    ref.listenManual<AlbumColorMode>(albumColorModeProvider, (prev, next) {
-      _applySystemUIOverlayStyle(
-        colorMode: next,
-        dominantColor: ref.read(albumDominantColorSyncProvider),
-      );
-    });
-    ref.listenManual<Color?>(albumDominantColorSyncProvider, (prev, next) {
-      _applySystemUIOverlayStyle(
-        colorMode: ref.read(albumColorModeProvider),
-        dominantColor: next,
-      );
-    });
   }
 
   void _refreshLibraryDeletions() {
@@ -309,36 +291,6 @@ class _MainShellState extends ConsumerState<MainShell>
             _playerService.syncNow();
           },
         ),
-      ),
-    );
-  }
-
-  void _applySystemUIOverlayStyle({
-    required AlbumColorMode colorMode,
-    required Color? dominantColor,
-  }) {
-    final Color statusBarColor;
-    final Color navBarColor;
-    final Brightness iconBrightness;
-
-    if (colorMode == AlbumColorMode.off || dominantColor == null) {
-      statusBarColor = Colors.transparent;
-      navBarColor = AppColors.background;
-      iconBrightness = Brightness.light;
-    } else {
-      statusBarColor = dominantColor;
-      navBarColor = dominantColor;
-      iconBrightness = dominantColor.computeLuminance() > 0.5
-          ? Brightness.dark
-          : Brightness.light;
-    }
-
-    SystemChrome.setSystemUIOverlayStyle(
-      SystemUiOverlayStyle(
-        statusBarColor: statusBarColor,
-        statusBarIconBrightness: iconBrightness,
-        systemNavigationBarColor: navBarColor,
-        systemNavigationBarIconBrightness: iconBrightness,
       ),
     );
   }

@@ -1029,97 +1029,116 @@ class _AlbumSortSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            AppColors.surfaceLight,
-            AppColors.surface,
-          ],
+    return SafeArea(
+      top: false,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(AppConstants.radiusXl),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.7,
         ),
-        border: const Border(
-          top: BorderSide(color: AppColors.glassBorder, width: 1),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
-            blurRadius: 20,
-            spreadRadius: 2,
-            offset: const Offset(0, -4),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHandle(),
+              const SizedBox(height: 16),
+              _buildSectionHeader(context, 'SORT BY'),
+              const SizedBox(height: 8),
+              ...AlbumSortOption.values.map(
+                (option) => _buildSortTile(context, option),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: AppConstants.spacingSm),
-            Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.textTertiary.withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(2),
+    );
+  }
+
+  Widget _buildHandle() {
+    return Center(
+      child: Container(
+        width: 40,
+        height: 4,
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: AppColors.textTertiary,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: context.adaptiveTextTertiary,
+          letterSpacing: 1.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortTile(BuildContext context, AlbumSortOption option) {
+    final isSelected = currentOption == option;
+    final icon = _iconFor(option);
+    final label = _labelFor(option);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          onSelected(option);
+          Navigator.of(context).pop();
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: isSelected
+                ? AppColors.accent.withValues(alpha: 0.12)
+                : Colors.transparent,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected
+                    ? AppColors.accent
+                    : context.adaptiveTextSecondary,
               ),
-            ),
-            const SizedBox(height: AppConstants.spacingMd),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingLg,
-              ),
-              child: Row(
-                children: [
-                  Text(
-                    'Sort Albums',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: context.adaptiveTextPrimary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: Icon(
-                      Icons.close,
-                      color: context.adaptiveTextSecondary,
-                      size: context.responsiveIcon(AppConstants.iconSizeMd),
-                    ),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: AppConstants.spacingSm),
-            ...AlbumSortOption.values.map((option) {
-              final isSelected = option == currentOption;
-              return ListTile(
-                leading: Icon(
-                  _iconFor(option),
-                  color: isSelected
-                      ? AppColors.accent
-                      : context.adaptiveTextSecondary,
-                ),
-                title: Text(
-                  _labelFor(option),
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                     color: isSelected
                         ? AppColors.accent
                         : context.adaptiveTextPrimary,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
-                trailing: isSelected
-                    ? const Icon(Icons.check_rounded, color: AppColors.accent)
-                    : null,
-                onTap: () => onSelected(option),
-              );
-            }),
-            const SizedBox(height: AppConstants.spacingMd),
-          ],
+              ),
+              if (isSelected)
+                const Icon(
+                  Icons.check_rounded,
+                  size: 20,
+                  color: AppColors.accent,
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1128,11 +1147,11 @@ class _AlbumSortSheet extends StatelessWidget {
   IconData _iconFor(AlbumSortOption option) {
     switch (option) {
       case AlbumSortOption.name:
-        return Icons.sort_by_alpha_rounded;
+        return LucideIcons.type;
       case AlbumSortOption.artist:
-        return Icons.person_rounded;
+        return LucideIcons.mic;
       case AlbumSortOption.tracks:
-        return Icons.numbers_rounded;
+        return LucideIcons.hash;
     }
   }
 

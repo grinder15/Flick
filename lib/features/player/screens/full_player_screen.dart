@@ -1414,9 +1414,9 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
             _buildMetadataRow(
               sheetContext,
               'Format',
-              song.fileType.toUpperCase(),
+              song.isDsd ? '${song.fileType.toUpperCase()} (${song.dsdRateLabel})' : song.fileType.toUpperCase(),
             ),
-            if (song.resolution != null)
+            if (song.resolution != null && !song.isDsd)
               _buildMetadataRow(sheetContext, 'Resolution', song.resolution!),
             if (song.albumArtist != null)
               _buildMetadataRow(sheetContext, 'Album Artist', song.albumArtist!),
@@ -1549,8 +1549,9 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
   }
 
   String _getSongQuality(Song song) {
+    if (song.isDsd) return 'HQ';
     final fileType = song.fileType.toUpperCase();
-    const lossless = {'FLAC', 'WAV', 'ALAC', 'AIFF', 'DSD', 'APE', 'WV', 'WV-DSD', 'DSF', 'DFF'};
+    const lossless = {'FLAC', 'WAV', 'ALAC', 'AIFF', 'APE', 'WV'};
     if (lossless.contains(fileType)) return 'HQ';
     if ((song.bitDepth ?? 0) >= 24) return 'HQ';
     if ((song.sampleRate ?? 0) >= 88200) return 'HQ';
@@ -1667,7 +1668,21 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildPlayerBadge(context, song.fileType.toUpperCase()),
-              if (song.resolution != null) ...[
+              if (song.isDsd && song.dsdRateLabel.isNotEmpty) ...[
+                SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
+                Flexible(
+                  child: Text(
+                    song.dsdRateLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'ProductSans',
+                      fontSize: context.responsive(9.0, 10.0, 11.0),
+                      color: Colors.white.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ),
+              ] else if (song.resolution != null) ...[
                 SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
                 Flexible(
                   child: Text(

@@ -6,6 +6,9 @@
 use crate::audio::commands::{AudioCommand, AudioEvent, PlaybackProgress, PlaybackState};
 use crate::audio::crossfader::Crossfader;
 use crate::audio::decoder::DecoderThread;
+use crate::audio::decoder_handle::{DecoderHandle, FileType, detect_file_type};
+use crate::audio::dsd_engine::{DsdDecoderThread, DsdOutputMode, FilterQuality};
+use crate::audio::wavpack_thread::WavpackDecoderThread;
 #[cfg(target_os = "android")]
 use crate::audio::device::current_device_profile;
 use crate::audio::dynamics::DynamicsChain;
@@ -67,6 +70,7 @@ pub struct AudioOutputRuntimeState {
 pub(crate) enum PipelineMode {
     Passthrough = 0,
     Dsp = 1,
+    Dop = 2,
 }
 
 /// Audio callback data shared between engine and audio thread.
@@ -233,7 +237,7 @@ pub struct AudioEngineHandle {
     output_runtime: AudioOutputRuntimeState,
     /// Active decoder threads (kept alive for the duration of playback)
     #[allow(dead_code)]
-    decoders: Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: Arc<Mutex<Vec<DecoderHandle>>>,
     /// Shutdown flag
     shutdown: Arc<AtomicBool>,
     /// Audio thread handle, joined on shutdown to ensure the
@@ -262,11 +266,11 @@ impl AudioEngineHandle {
     pub fn play_prepared(
         &self,
         source: AudioSource,
-        decoder_thread: DecoderThread,
+        decoder_handle: DecoderHandle,
     ) -> Result<(), String> {
         self.send_command(AudioCommand::PlayPrepared {
             source,
-            decoder_thread,
+            decoder_handle,
         })
     }
 
@@ -275,15 +279,15 @@ impl AudioEngineHandle {
         self.send_command(AudioCommand::QueueNext { path })
     }
 
-    /// Queue the next track using a pre-created source and decoder thread.
+    /// Queue the next track using a pre-created source and decoder handle.
     pub fn queue_next_prepared(
         &self,
         source: AudioSource,
-        decoder_thread: DecoderThread,
+        decoder_handle: DecoderHandle,
     ) -> Result<(), String> {
         self.send_command(AudioCommand::QueueNextPrepared {
             source,
-            decoder_thread,
+            decoder_handle,
         })
     }
 
@@ -575,7 +579,7 @@ pub fn create_audio_engine(
     let state_clone = Arc::clone(&state);
 
     // Decoders
-    let decoders = Arc::new(Mutex::new(Vec::<DecoderThread>::new()));
+    let decoders = Arc::new(Mutex::new(Vec::<DecoderHandle>::new()));
     let decoders_clone = Arc::clone(&decoders);
 
     // Shutdown flag
@@ -723,6 +727,12 @@ fn android_output_signature_for_strategy(
                 requested_sample_rate
             )
         }
+        OutputStrategy::DsdNative => {
+            format!("android-shared:dsd-native:{}", requested_sample_rate)
+        }
+        OutputStrategy::DsdDoP => {
+            format!("android-uac2:dsd-dop:{}", requested_sample_rate)
+        }
     }
 }
 
@@ -804,17 +814,12 @@ pub fn create_audio_engine(
         OutputStrategy::UsbDirect
     } else {
         select_strategy(
-            TrackInfo {
-                sample_rate: requested_sample_rate,
-                channels: ANDROID_DIRECT_CHANNELS,
-            },
+            TrackInfo::pcm(requested_sample_rate, ANDROID_DIRECT_CHANNELS),
             &DeviceCaps {
                 api_level: None,
                 confirmed_dap_native,
-                supports_mixer_bit_perfect: false,
                 supports_requested_rate: shared_supports_requested_rate,
-                direct_usb_available: false,
-                direct_usb_verified: false,
+                ..DeviceCaps::default()
             },
         )
     };
@@ -899,7 +904,7 @@ pub fn create_audio_engine(
     let state_clone = Arc::clone(&state);
 
     // Decoders
-    let decoders = Arc::new(Mutex::new(Vec::<DecoderThread>::new()));
+    let decoders = Arc::new(Mutex::new(Vec::<DecoderHandle>::new()));
     let decoders_clone = Arc::clone(&decoders);
 
     // Shutdown flag
@@ -1474,6 +1479,25 @@ pub(crate) fn audio_callback(
     }
 
     // Passthrough path: raw samples from decoder straight to output.
+    if data.pipeline_mode.load(Ordering::Relaxed) == PipelineMode::Dop as u8 {
+        let mut sources = match data.sources.try_lock() {
+            Some(s) => s,
+            None => {
+                output.fill(0.0);
+                return;
+            }
+        };
+        let (read, old_source) = sources.read(output);
+        if let Some(source) = old_source {
+            eprintln!("[dop] gapless transition (old={})", source.info.path.display());
+            let _ = data.finished_tracks.try_send(source);
+        }
+        if read < output.len() {
+            output[read..].fill(0.0);
+        }
+        return;
+    }
+
     // No EQ, no dynamics, no speed, no crossfade. Gain is applied for
     // volume control (a no-op when DAC hardware volume is available).
     if data.is_passthrough() {
@@ -1692,7 +1716,7 @@ fn command_processing_loop(
     event_tx: Sender<AudioEvent>,
     callback_data: Arc<AudioCallbackData>,
     state: Arc<AtomicU8>,
-    decoders: Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: Arc<Mutex<Vec<DecoderHandle>>>,
     sample_rate: u32,
     shutdown: Arc<AtomicBool>,
 ) {
@@ -1741,11 +1765,11 @@ fn command_processing_loop(
                     }
                     AudioCommand::PlayPrepared {
                         source,
-                        decoder_thread,
+                        decoder_handle,
                     } => {
                         handle_play_prepared(
                             source,
-                            decoder_thread,
+                            decoder_handle,
                             &callback_data,
                             &state,
                             &decoders,
@@ -1757,11 +1781,11 @@ fn command_processing_loop(
                     }
                     AudioCommand::QueueNextPrepared {
                         source,
-                        decoder_thread,
+                        decoder_handle,
                     } => {
                         handle_queue_next_prepared(
                             source,
-                            decoder_thread,
+                            decoder_handle,
                             &callback_data,
                             &decoders,
                             &event_tx,
@@ -1966,32 +1990,65 @@ fn command_processing_loop(
     }
 }
 
+fn spawn_decoder(
+    path: PathBuf,
+    sample_rate: u32,
+    channels: usize,
+    seek_secs: Option<f64>,
+) -> anyhow::Result<(AudioSource, DecoderHandle)> {
+    let file_type = detect_file_type(&path);
+    match file_type {
+        FileType::Dsd => {
+            let output_mode = DsdOutputMode::PcmDecimation;
+            let quality = FilterQuality::Normal;
+            let (source, thread) = if let Some(seek) = seek_secs {
+                DsdDecoderThread::spawn_with_seek(
+                    path, output_mode, sample_rate, quality, channels, Some(seek),
+                )
+            } else {
+                DsdDecoderThread::spawn(path, output_mode, sample_rate, quality, channels)
+            }?;
+            Ok((source, DecoderHandle::Dsd(thread)))
+        }
+        FileType::WavPack => {
+            let (source, handle) = if let Some(seek) = seek_secs {
+                WavpackDecoderThread::spawn_with_seek(
+                    path, sample_rate, channels, Some(seek),
+                )
+            } else {
+                WavpackDecoderThread::spawn(path, sample_rate, channels)
+            }?;
+            Ok((source, handle))
+        }
+        FileType::Standard => {
+            let (source, thread) = if let Some(seek) = seek_secs {
+                DecoderThread::spawn_with_seek(path, sample_rate, channels, Some(seek))
+            } else {
+                DecoderThread::spawn(path, sample_rate, channels)
+            }?;
+            Ok((source, DecoderHandle::Symphonia(thread)))
+        }
+    }
+}
+
 fn handle_play(
     path: PathBuf,
     callback_data: &AudioCallbackData,
     state: &Arc<AtomicU8>,
-    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: &Arc<Mutex<Vec<DecoderHandle>>>,
     event_tx: &Sender<AudioEvent>,
     sample_rate: u32,
 ) {
-    // Set buffering state
     state.store(PlaybackState::Buffering as u8, Ordering::Relaxed);
     let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Buffering));
 
-    // Stop current playback
     callback_data.sources.lock().stop();
     callback_data.crossfader.lock().reset();
 
-    // Spawn decoder
-    match DecoderThread::spawn(path.clone(), sample_rate, callback_data.channels()) {
-        Ok((source, decoder_thread)) => {
+    match spawn_decoder(path.clone(), sample_rate, callback_data.channels(), None) {
+        Ok((source, handle)) => {
             start_playback_source(
-                source,
-                decoder_thread,
-                callback_data,
-                state,
-                decoders,
-                event_tx,
+                source, handle, callback_data, state, decoders, event_tx,
             );
         }
         Err(e) => {
@@ -2005,10 +2062,10 @@ fn handle_play(
 
 fn handle_play_prepared(
     source: AudioSource,
-    decoder_thread: DecoderThread,
+    decoder_handle: DecoderHandle,
     callback_data: &AudioCallbackData,
     state: &Arc<AtomicU8>,
-    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: &Arc<Mutex<Vec<DecoderHandle>>>,
     event_tx: &Sender<AudioEvent>,
 ) {
     state.store(PlaybackState::Buffering as u8, Ordering::Relaxed);
@@ -2018,26 +2075,20 @@ fn handle_play_prepared(
     callback_data.crossfader.lock().reset();
 
     start_playback_source(
-        source,
-        decoder_thread,
-        callback_data,
-        state,
-        decoders,
-        event_tx,
+        source, decoder_handle, callback_data, state, decoders, event_tx,
     );
 }
 
 fn handle_queue_next(
     path: PathBuf,
     callback_data: &AudioCallbackData,
-    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: &Arc<Mutex<Vec<DecoderHandle>>>,
     event_tx: &Sender<AudioEvent>,
     sample_rate: u32,
 ) {
-    // Spawn decoder for next track
-    match DecoderThread::spawn(path.clone(), sample_rate, callback_data.channels()) {
-        Ok((source, decoder_thread)) => {
-            queue_playback_source(source, decoder_thread, callback_data, decoders, event_tx);
+    match spawn_decoder(path.clone(), sample_rate, callback_data.channels(), None) {
+        Ok((source, handle)) => {
+            queue_playback_source(source, handle, callback_data, decoders, event_tx);
         }
         Err(e) => {
             let _ = event_tx.try_send(AudioEvent::Error {
@@ -2049,20 +2100,20 @@ fn handle_queue_next(
 
 fn handle_queue_next_prepared(
     source: AudioSource,
-    decoder_thread: DecoderThread,
+    decoder_handle: DecoderHandle,
     callback_data: &AudioCallbackData,
-    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: &Arc<Mutex<Vec<DecoderHandle>>>,
     event_tx: &Sender<AudioEvent>,
 ) {
-    queue_playback_source(source, decoder_thread, callback_data, decoders, event_tx);
+    queue_playback_source(source, decoder_handle, callback_data, decoders, event_tx);
 }
 
 fn start_playback_source(
     mut source: AudioSource,
-    decoder_thread: DecoderThread,
+    decoder_handle: DecoderHandle,
     callback_data: &AudioCallbackData,
     state: &Arc<AtomicU8>,
-    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: &Arc<Mutex<Vec<DecoderHandle>>>,
     event_tx: &Sender<AudioEvent>,
 ) {
     source.set_ready();
@@ -2070,7 +2121,7 @@ fn start_playback_source(
 
     callback_data.sources.lock().set_current(source);
     callback_data.set_paused(false);
-    decoders.lock().push(decoder_thread);
+    decoders.lock().push(decoder_handle);
 
     state.store(PlaybackState::Playing as u8, Ordering::Relaxed);
     let _ = event_tx.try_send(AudioEvent::StateChanged(PlaybackState::Playing));
@@ -2078,16 +2129,16 @@ fn start_playback_source(
 
 fn queue_playback_source(
     mut source: AudioSource,
-    decoder_thread: DecoderThread,
+    decoder_handle: DecoderHandle,
     callback_data: &AudioCallbackData,
-    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: &Arc<Mutex<Vec<DecoderHandle>>>,
     event_tx: &Sender<AudioEvent>,
 ) {
     let queued_path = source.info.path.to_string_lossy().to_string();
     source.set_ready();
 
     callback_data.sources.lock().queue_next(source);
-    decoders.lock().push(decoder_thread);
+    decoders.lock().push(decoder_handle);
 
     let _ = event_tx.try_send(AudioEvent::NextTrackReady { path: queued_path });
 }
@@ -2130,7 +2181,7 @@ fn handle_seek(
     position_secs: f64,
     callback_data: &AudioCallbackData,
     state: &Arc<AtomicU8>,
-    decoders: &Arc<Mutex<Vec<DecoderThread>>>,
+    decoders: &Arc<Mutex<Vec<DecoderHandle>>>,
     event_tx: &Sender<AudioEvent>,
     sample_rate: u32,
 ) {
@@ -2164,13 +2215,8 @@ fn handle_seek(
         }
     }
 
-    match DecoderThread::spawn_with_seek(
-        path.clone(),
-        sample_rate,
-        callback_data.channels(),
-        Some(target_secs),
-    ) {
-        Ok((mut source, decoder_thread)) => {
+    match spawn_decoder(path.clone(), sample_rate, callback_data.channels(), Some(target_secs)) {
+        Ok((mut source, handle)) => {
             source.set_ready();
             if !was_paused {
                 source.set_playing();
@@ -2178,7 +2224,7 @@ fn handle_seek(
 
             callback_data.sources.lock().set_current(source);
             callback_data.set_paused(was_paused);
-            decoders.lock().push(decoder_thread);
+            decoders.lock().push(handle);
 
             let next_state = if was_paused {
                 PlaybackState::Paused

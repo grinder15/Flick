@@ -299,6 +299,10 @@ class PlayerService {
   Duration _restoredPosition = Duration.zero;
   double _currentVolume = 1.0;
 
+  /// Default volume for bit-perfect mode (-40 dB safety level).
+  /// Mapped to ~0.01 linear gain by Rust's volume_to_gain curve.
+  static const double _bitPerfectDefaultVolume = 1.0 / 3.0;
+
   double get currentVolume => _currentVolume;
 
   HwVolumeCapability _hwVolumeCap = HwVolumeCapability.unknown;
@@ -498,7 +502,7 @@ class PlayerService {
       } else {
         final player = _justAudioPlayer;
         if (player != null) {
-          await player.setVolume(1.0);
+          await player.setVolume(_bitPerfectDefaultVolume);
           await player.setSpeed(1.0);
         }
       }
@@ -924,7 +928,7 @@ class PlayerService {
     await _configureAndroidAudioSession();
     final player = just_audio.AudioPlayer();
     _justAudioPlayer = player;
-    await player.setVolume(isBitPerfectModeEnabled ? 1.0 : _currentVolume);
+    await player.setVolume(isBitPerfectModeEnabled ? _bitPerfectDefaultVolume : _currentVolume);
     await player.setSpeed(
       isBitPerfectModeEnabled ? 1.0 : playbackSpeedNotifier.value,
     );
@@ -946,7 +950,7 @@ class PlayerService {
       }
     }
 
-    await player.setVolume(isBitPerfectModeEnabled ? 1.0 : _currentVolume);
+    await player.setVolume(isBitPerfectModeEnabled ? _bitPerfectDefaultVolume : _currentVolume);
     await player.setSpeed(
       isBitPerfectModeEnabled ? 1.0 : playbackSpeedNotifier.value,
     );
@@ -1156,13 +1160,13 @@ class PlayerService {
     if (!_rustAudioService.isInitialized) return;
     switch (tier) {
       case VolumeTier.hardware:
-        await _rustAudioService.setVolume(1.0);
+        await _rustAudioService.setVolume(_bitPerfectDefaultVolume);
         break;
       case VolumeTier.software:
         await _rustAudioService.setVolume(_currentVolume);
         break;
       case VolumeTier.system:
-        await _rustAudioService.setVolume(1.0);
+        await _rustAudioService.setVolume(_bitPerfectDefaultVolume);
         break;
     }
   }

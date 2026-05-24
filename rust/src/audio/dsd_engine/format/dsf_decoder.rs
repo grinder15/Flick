@@ -4,7 +4,8 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-const DSF_SAMPLE_DATA_OFFSET: u64 = 92;
+const DSF_DATA_CHUNK_HEADER_SIZE: u64 = 20;
+const DSF_FALLBACK_SAMPLE_DATA_OFFSET: u64 = 100;
 
 pub struct DsfDecoder {
     file: File,
@@ -20,8 +21,6 @@ pub struct DsfDecoder {
 
 impl DsfDecoder {
     pub fn open(path: &Path) -> Result<Self> {
-        let mut file = File::open(path).map_err(|e| anyhow!("Failed to open DSF: {}", e))?;
-
         let dsf = dsf_meta::DsfFile::open(path)
             .map_err(|e| anyhow!("Failed to parse DSF header: {}", e))?;
 
@@ -32,23 +31,41 @@ impl DsfDecoder {
         let block_size = fmt.block_size_per_channel();
 
         let data = dsf.data_chunk();
-        let data_size = data.chunk_size().saturating_sub(12);
+        let data_size = data.chunk_size().saturating_sub(DSF_DATA_CHUNK_HEADER_SIZE);
 
+        let mut file = dsf.file().try_clone().map_err(|e| {
+            anyhow!("Failed to clone DSF file handle: {}", e)
+        })?;
         drop(dsf);
 
-        file.seek(SeekFrom::Start(DSF_SAMPLE_DATA_OFFSET))?;
+        let data_offset =
+            Self::read_sample_data_offset(&mut file).unwrap_or(DSF_FALLBACK_SAMPLE_DATA_OFFSET);
+
+        file.seek(SeekFrom::Start(data_offset))?;
 
         Ok(Self {
             file,
             sample_rate,
             channels,
             total_samples,
-            data_offset: DSF_SAMPLE_DATA_OFFSET,
+            data_offset,
             data_size,
             block_size,
             current_position: 0,
             finished: false,
         })
+    }
+
+    fn read_sample_data_offset(file: &mut File) -> Option<u64> {
+        file.seek(SeekFrom::Start(92)).ok()?;
+        let mut buf = [0u8; 8];
+        file.read_exact(&mut buf).ok()?;
+        let offset = u64::from_le_bytes(buf);
+        if offset >= DSF_FALLBACK_SAMPLE_DATA_OFFSET && offset < (1 << 40) {
+            Some(offset)
+        } else {
+            None
+        }
     }
 
     pub fn block_size_per_channel(&self) -> u32 {

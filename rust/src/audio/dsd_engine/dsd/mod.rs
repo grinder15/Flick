@@ -89,8 +89,10 @@ pub struct DsdDecimationPipeline {
     target_pcm_rate: u32,
     channels: usize,
     cic_decimation: usize,
-    cic_integrators: Vec<f64>,
-    cic_combs: Vec<f64>,
+    cic_int_c: Vec<i64>,
+    cic_int_f: Vec<f64>,
+    cic_comb_c: Vec<i64>,
+    cic_comb_f: Vec<f64>,
     fir_state: Vec<Vec<f64>>,
     stage2_coeffs: OnceLock<Vec<f64>>,
 }
@@ -110,8 +112,10 @@ impl DsdDecimationPipeline {
             target_pcm_rate,
             channels,
             cic_decimation,
-            cic_integrators: vec![0.0; channels * Self::CIC_ORDER],
-            cic_combs: vec![0.0; channels * Self::CIC_ORDER],
+            cic_int_c: vec![0; channels * Self::CIC_ORDER],
+            cic_int_f: vec![0.0; channels * Self::CIC_ORDER],
+            cic_comb_c: vec![0; channels * Self::CIC_ORDER],
+            cic_comb_f: vec![0.0; channels * Self::CIC_ORDER],
             fir_state: vec![vec![0.0; Self::FIXED_FIR_TAPS]; channels],
             stage2_coeffs: OnceLock::new(),
         }
@@ -237,10 +241,37 @@ impl DsdDecimationPipeline {
         }
     }
 
+    #[inline]
+    fn add_f64(c: &mut i64, f: &mut f64, rhs: f64) {
+        let full = *f + rhs;
+        let carry = full.trunc();
+        *c += carry as i64;
+        *f = full - carry;
+    }
+
+    #[inline]
+    fn add_pair(c: &mut i64, f: &mut f64, rhs_c: i64, rhs_f: f64) {
+        *c += rhs_c;
+        let full = *f + rhs_f;
+        let carry = full.trunc();
+        *c += carry as i64;
+        *f = full - carry;
+    }
+
+    #[inline]
+    fn sub_pair(c: &mut i64, f: &mut f64, rhs_c: i64, rhs_f: f64) {
+        *c -= rhs_c;
+        let full = *f - rhs_f;
+        let carry = full.trunc();
+        *c += carry as i64;
+        *f = full - carry;
+    }
+
     fn run_cic_stage(&mut self, channel: usize, bytes: &[u8], output: &mut [f64]) {
         let order = Self::CIC_ORDER;
         let integ_base = channel * order;
         let comb_base = channel * order;
+        let dec = self.cic_decimation;
         let mut bit_idx = 0usize;
 
         for &byte in bytes.iter() {
@@ -251,23 +282,42 @@ impl DsdDecimationPipeline {
                     -1.0f64
                 };
 
-                self.cic_integrators[integ_base] += bit_val;
+                Self::add_f64(
+                    &mut self.cic_int_c[integ_base],
+                    &mut self.cic_int_f[integ_base],
+                    bit_val,
+                );
+
                 for stage in 1..order {
-                    self.cic_integrators[integ_base + stage] +=
-                        self.cic_integrators[integ_base + stage - 1];
+                    let prev_c = self.cic_int_c[integ_base + stage - 1];
+                    let prev_f = self.cic_int_f[integ_base + stage - 1];
+                    Self::add_pair(
+                        &mut self.cic_int_c[integ_base + stage],
+                        &mut self.cic_int_f[integ_base + stage],
+                        prev_c,
+                        prev_f,
+                    );
                 }
 
                 bit_idx += 1;
-                if bit_idx % self.cic_decimation == 0 {
-                    let out_idx = bit_idx / self.cic_decimation - 1;
+                if bit_idx % dec == 0 {
+                    let out_idx = bit_idx / dec - 1;
                     if out_idx < output.len() {
-                        let mut val = self.cic_integrators[integ_base + order - 1];
+                        let mut val_c = self.cic_int_c[integ_base + order - 1];
+                        let mut val_f = self.cic_int_f[integ_base + order - 1];
+
                         for stage in 0..order {
-                            let prev = self.cic_combs[comb_base + stage];
-                            self.cic_combs[comb_base + stage] = val;
-                            val -= prev;
+                            let idx = comb_base + stage;
+                            let old_c = self.cic_comb_c[idx];
+                            let old_f = self.cic_comb_f[idx];
+
+                            self.cic_comb_c[idx] = val_c;
+                            self.cic_comb_f[idx] = val_f;
+
+                            Self::sub_pair(&mut val_c, &mut val_f, old_c, old_f);
                         }
-                        output[out_idx] = val;
+
+                        output[out_idx] = val_c as f64 + val_f;
                     }
                 }
             }
@@ -275,8 +325,10 @@ impl DsdDecimationPipeline {
     }
 
     pub fn reset(&mut self) {
-        self.cic_integrators.fill(0.0);
-        self.cic_combs.fill(0.0);
+        self.cic_int_c.fill(0);
+        self.cic_int_f.fill(0.0);
+        self.cic_comb_c.fill(0);
+        self.cic_comb_f.fill(0.0);
         for state in &mut self.fir_state {
             state.fill(0.0);
         }

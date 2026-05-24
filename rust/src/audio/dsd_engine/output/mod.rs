@@ -1,6 +1,6 @@
 use super::dsd::dop::DopPacker;
-use super::dsd::{DsdOutputMode, DsdRate, FilterQuality};
 use super::dsd::DsdDecimationPipeline;
+use super::dsd::{DsdOutputMode, DsdRate};
 use anyhow::Result;
 
 pub struct DsdOutputRouter {
@@ -14,19 +14,18 @@ impl DsdOutputRouter {
         mode: DsdOutputMode,
         dsd_rate: DsdRate,
         target_rate: u32,
-        quality: FilterQuality,
         channels: usize,
     ) -> Self {
         let pcm_pipeline = match mode {
             DsdOutputMode::PcmDecimation => {
-                Some(DsdDecimationPipeline::new(dsd_rate, target_rate, quality, channels))
+                Some(DsdDecimationPipeline::new(dsd_rate, target_rate, channels))
             }
-            DsdOutputMode::Dop => None,
+            DsdOutputMode::Dop | DsdOutputMode::Native => None,
         };
 
         let dop_packer = match mode {
             DsdOutputMode::Dop => Some(DopPacker::new(dsd_rate, channels)),
-            DsdOutputMode::PcmDecimation => None,
+            DsdOutputMode::PcmDecimation | DsdOutputMode::Native => None,
         };
 
         Self {
@@ -44,6 +43,7 @@ impl DsdOutputRouter {
                 .map(|p| p.target_pcm_rate())
                 .unwrap_or(dsd_rate.dop_carrier_rate()),
             DsdOutputMode::Dop => dsd_rate.dop_carrier_rate(),
+            DsdOutputMode::Native => dsd_rate.sample_rate(),
         }
     }
 
@@ -68,6 +68,9 @@ impl DsdOutputRouter {
                     packer.pack_to_f32(dsd_bytes, channel_offsets, output);
                 }
             }
+            DsdOutputMode::Native => {
+                pack_native_dsd_f32(dsd_bytes, channel_offsets, output);
+            }
         }
         Ok(())
     }
@@ -78,6 +81,34 @@ impl DsdOutputRouter {
         }
         if let Some(ref mut packer) = self.dop_packer {
             packer.reset();
+        }
+    }
+}
+
+fn pack_native_dsd_f32(
+    dsd_bytes: &[u8],
+    channel_offsets: &[usize],
+    output: &mut Vec<f32>,
+) {
+    let channels = channel_offsets.len().max(1);
+    let bytes_per_ch = dsd_bytes.len() / channels;
+    output.clear();
+
+    if channels == 1 {
+        output.reserve(dsd_bytes.len());
+        for &b in dsd_bytes {
+            output.push(f32::from_bits(b as u32));
+        }
+        return;
+    }
+
+    let frames = bytes_per_ch;
+    output.reserve(frames * channels);
+    for i in 0..frames {
+        for ch in 0..channels {
+            let ch_offset = channel_offsets.get(ch).copied().unwrap_or(ch * bytes_per_ch);
+            let b = dsd_bytes[ch_offset + i];
+            output.push(f32::from_bits(b as u32));
         }
     }
 }

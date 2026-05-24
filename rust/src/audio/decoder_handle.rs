@@ -33,6 +33,10 @@ impl DecoderHandle {
             DecoderHandle::WavpackPcm(d) => d.join(),
         }
     }
+
+    pub fn is_dsd(&self) -> bool {
+        matches!(self, DecoderHandle::Dsd(_))
+    }
 }
 
 #[derive(Debug)]
@@ -51,7 +55,13 @@ pub fn detect_file_type(path: &std::path::Path) -> FileType {
 
     match ext.as_str() {
         "dsf" | "dff" => FileType::Dsd,
-        "wv" => FileType::WavPack,
+        "wv" => {
+            if crate::audio::wavpack_thread::is_wavpack_dsd(path) {
+                FileType::Dsd
+            } else {
+                FileType::WavPack
+            }
+        }
         _ => FileType::Standard,
     }
 }

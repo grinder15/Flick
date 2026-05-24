@@ -758,6 +758,10 @@ class PlayerService {
           _uac2Service.isDapBitPerfectEnabledSync);
   bool get isBitPerfectProcessingLocked =>
       bitPerfectProcessingLockedNotifier.value;
+  bool get isCurrentTrackDoP =>
+      (Uac2PreferencesService.dsdOutputModeSync == DsdOutputMode.forceDop ||
+          Uac2PreferencesService.dsdOutputModeSync == DsdOutputMode.native) &&
+      currentSongNotifier.value?.isDsd == true;
 
   void _updateBitPerfectProcessingLocked() {
     final locked = switch (currentEngineType) {
@@ -846,6 +850,7 @@ class PlayerService {
       await Future.wait<void>([
         _preferencesService.initializeDeveloperModeCache(),
         _preferencesService.initializeKillIsochronousUsbOnQuitCache(),
+        _preferencesService.getDsdOutputMode(),
         _sessionManager.initialize(),
         _uac2Service.isBitPerfectEnabled(),
       ]);
@@ -1048,14 +1053,36 @@ class PlayerService {
     if (song == null) return null;
 
     if (song.isDsd) {
-      final dopRate = Song.dsdToDopRate(song.sampleRate) ?? 176400;
-      final dopBitDepth = (song.sampleRate ?? 0) >= 22579200 ? 32 : 24;
-      return Uac2AudioFormat(
-        sampleRate: dopRate,
-        bitDepth: dopBitDepth,
-        channels: 2,
-        isDop: true,
-      );
+      final dsdMode = Uac2PreferencesService.dsdOutputModeSync;
+      if (dsdMode == DsdOutputMode.native) {
+        final rawRate = song.sampleRate ?? 2822400;
+        return Uac2AudioFormat(
+          sampleRate: rawRate,
+          bitDepth: 24,
+          channels: 2,
+          isDop: false,
+          isNativeDsd: true,
+        );
+      }
+      final useDop = dsdMode == DsdOutputMode.forceDop;
+      if (useDop) {
+        final dopRate = Song.dsdToDopRate(song.sampleRate) ?? 176400;
+        final dopBitDepth = (song.sampleRate ?? 0) >= 22579200 ? 32 : 24;
+        return Uac2AudioFormat(
+          sampleRate: dopRate,
+          bitDepth: dopBitDepth,
+          channels: 2,
+          isDop: true,
+        );
+      } else {
+        final pcmRate = Song.dsdToPcmRate(song.sampleRate) ?? 88200;
+        final bitDepth = (song.sampleRate ?? 0) >= 22579200 ? 32 : 24;
+        return Uac2AudioFormat(
+          sampleRate: pcmRate,
+          bitDepth: bitDepth,
+          channels: 2,
+        );
+      }
     }
 
     final structuredSampleRate = song.sampleRate;
@@ -1101,7 +1128,8 @@ class PlayerService {
     return a.sampleRate == b.sampleRate &&
         a.bitDepth == b.bitDepth &&
         a.channels == b.channels &&
-        a.isDop == b.isDop;
+        a.isDop == b.isDop &&
+        a.isNativeDsd == b.isNativeDsd;
   }
 
   bool _shouldAttemptHardwareVolume() {
@@ -1137,6 +1165,13 @@ class PlayerService {
   }
 
   VolumeTier _determineCurrentTier() {
+    // DoP requires hardware volume; software gain corrupts DoP markers
+    // and produces silence at any level other than 100 %.
+    if (isCurrentTrackDoP && _isDirectUsbPath) {
+      return _hwVolumeCap == HwVolumeCapability.unsupported
+          ? VolumeTier.software
+          : VolumeTier.hardware;
+    }
     if (!isBitPerfectModeEnabled || !_isDirectUsbPath) {
       return _usingRustBackend ? VolumeTier.software : VolumeTier.system;
     }
@@ -1160,7 +1195,10 @@ class PlayerService {
     if (!_rustAudioService.isInitialized) return;
     switch (tier) {
       case VolumeTier.hardware:
-        await _rustAudioService.setVolume(_bitPerfectDefaultVolume);
+        // DoP callback ignores engine volume — keep at 1.0.
+        await _rustAudioService.setVolume(
+          isCurrentTrackDoP ? 1.0 : _bitPerfectDefaultVolume,
+        );
         break;
       case VolumeTier.software:
         await _rustAudioService.setVolume(_currentVolume);
@@ -3600,6 +3638,34 @@ class PlayerService {
     final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
     _currentVolume = clampedVolume;
     unawaited(_preferencesService.setUsbSoftwareVolume(clampedVolume));
+
+    // DoP: software gain corrupts DoP markers (0x05/0xFA).
+    // Volume must go through DAC hardware exclusively.
+    if (isCurrentTrackDoP && _isDirectUsbPath) {
+      if (_shouldAttemptHardwareVolume()) {
+        debugPrint('[VolFlow] DoP HW path: uac2 setVolume($clampedVolume)');
+        final hwOk = await _uac2Service.setVolume(clampedVolume);
+        _onHwVolumeResult(hwOk);
+      } else {
+        debugPrint(
+          '[VolFlow] DoP: no hardware volume available — volume unchanged',
+        );
+      }
+
+      // Auto-switch to PCM for software volume control.
+      // Pure DoP cannot apply software gain: it corrupts DoP markers
+      // and produces silence/hiss at any level other than 100 %.
+      // The only correct path is to restart the decoder in PCM decimation
+      // mode, where volume works via the normal audio-callback gain loop.
+      if (Uac2PreferencesService.autoSwitchDsdForVolumeSync &&
+          clampedVolume < 1.0 &&
+          _usingRustBackend &&
+          _rustAudioService.isInitialized) {
+        await _switchDoPForVolumeTrack(clampedVolume);
+      }
+      return;
+    }
+
     final tier = _determineCurrentTier();
     _activeTier = tier;
     switch (tier) {
@@ -3623,6 +3689,34 @@ class PlayerService {
         }
         break;
     }
+  }
+
+  /// Switch from pure DoP to PCM decimation so software volume works.
+  ///
+  /// Pure DoP cannot apply software gain (it corrupts DoP markers).
+  /// This restarts the active DSD track's decoder in PCM decimation mode,
+  /// where the normal audio-callback gain-loop handles volume cleanly.
+  Future<void> _switchDoPForVolumeTrack(double volume) async {
+    debugPrint('[VolFlow] DoP → PCM auto-switch for volume=$volume');
+
+    // Persist the mode change so new DSD tracks also use PCM.
+    await Uac2PreferencesService().setDsdOutputMode(DsdOutputMode.forcePcm);
+
+    // Sync the Rust global so the next decoder spawn picks up PCM mode.
+    rust_audio.audioSetDsdOutputMode(mode: 0);
+
+    // Get current position for gapless restart.
+    final progress = rust_audio.audioGetProgress();
+    final posSecs = progress?.positionSecs ?? 0.0;
+
+    // Seek restarts the decoder in the new (PCM) mode.
+    await _rustAudioService.seek(
+      Duration(milliseconds: (posSecs * 1000).round()),
+    );
+
+    // Volume now works via normal callback gain.
+    await _rustAudioService.setVolume(volume);
+    debugPrint('[VolFlow] DoP → PCM switch complete');
   }
 
   Future<int> addToQueue(Song song) async {

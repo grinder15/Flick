@@ -7,7 +7,7 @@ use crate::audio::commands::{AudioCommand, AudioEvent, PlaybackProgress, Playbac
 use crate::audio::crossfader::Crossfader;
 use crate::audio::decoder::DecoderThread;
 use crate::audio::decoder_handle::{DecoderHandle, FileType, detect_file_type};
-use crate::audio::dsd_engine::{DsdDecoderThread, DsdOutputMode, FilterQuality};
+use crate::audio::dsd_engine::DsdDecoderThread;
 use crate::audio::wavpack_thread::WavpackDecoderThread;
 #[cfg(target_os = "android")]
 use crate::audio::device::current_device_profile;
@@ -87,6 +87,8 @@ pub struct AudioCallbackData {
     /// Pipeline mode (Passthrough or Dsp) — immutable after creation.
     /// Stored as AtomicU8 for lock-free reads from the audio callback.
     pipeline_mode: AtomicU8,
+    /// Base pipeline mode saved before Dop override. Restored when DoP track ends.
+    base_pipeline_mode: AtomicU8,
     /// Output channel count
     channels: usize,
     /// Crossfader state
@@ -129,6 +131,7 @@ impl AudioCallbackData {
             playback_speed: std::sync::atomic::AtomicU32::new(1.0f32.to_bits()),
             paused: AtomicBool::new(false),
             pipeline_mode: AtomicU8::new(pipeline_mode as u8),
+            base_pipeline_mode: AtomicU8::new(pipeline_mode as u8),
             channels,
             crossfader: Mutex::new(Crossfader::disabled(sample_rate)),
             sources: Mutex::new(SourceProvider::new(sample_rate, channels)),
@@ -193,6 +196,11 @@ impl AudioCallbackData {
     #[inline]
     pub fn is_passthrough(&self) -> bool {
         self.pipeline_mode.load(Ordering::Relaxed) == PipelineMode::Passthrough as u8
+    }
+
+    #[inline]
+    pub fn is_dop(&self) -> bool {
+        self.pipeline_mode.load(Ordering::Relaxed) == PipelineMode::Dop as u8
     }
 
     #[inline]
@@ -337,6 +345,11 @@ impl AudioEngineHandle {
         self.callback_data.is_passthrough()
     }
 
+    /// Check if the engine is currently in DoP (DSD over PCM) mode.
+    pub fn is_dop(&self) -> bool {
+        self.callback_data.is_dop()
+    }
+
     /// Skip to next track with crossfade.
     pub fn skip_to_next(&self) -> Result<(), String> {
         self.send_command(AudioCommand::SkipToNext)
@@ -350,6 +363,10 @@ impl AudioEngineHandle {
     /// Switch pipeline mode at runtime (used when Bit-perfect (DAP Internal) is toggled).
     pub fn set_pipeline_mode_passthrough(&self, passthrough: bool) -> Result<(), String> {
         self.send_command(AudioCommand::SetPipelineMode { passthrough })
+    }
+
+    pub fn set_dop_override(&self, is_dop: bool) -> Result<(), String> {
+        self.send_command(AudioCommand::SetDopOverride { is_dop })
     }
 
     /// Set graphic EQ: enabled and 10 band gains in dB (order matches EqualizerState.defaultGraphicFrequenciesHz).
@@ -810,15 +827,28 @@ pub fn create_audio_engine(
             })
         });
 
+    let dsd_rate = crate::audio::dsd_engine::dsd::DsdRate::from_sample_rate(requested_sample_rate);
+    let supports_native_dsd = device_profile
+        .as_ref()
+        .is_some_and(|p| p.supports_native_dsd);
+
     let desired_strategy = if will_attempt_usb {
         OutputStrategy::UsbDirect
     } else {
+        let track_info = if let Some(rate) = dsd_rate {
+            TrackInfo::dsd(rate.sample_rate(), ANDROID_DIRECT_CHANNELS)
+        } else {
+            TrackInfo::pcm(requested_sample_rate, ANDROID_DIRECT_CHANNELS)
+        };
         select_strategy(
-            TrackInfo::pcm(requested_sample_rate, ANDROID_DIRECT_CHANNELS),
+            track_info,
             &DeviceCaps {
                 api_level: None,
                 confirmed_dap_native,
                 supports_requested_rate: shared_supports_requested_rate,
+                supports_native_dsd,
+                supports_dop: supports_native_dsd,
+                max_dsd_carrier_rate: if supports_native_dsd { 705_600 } else { 0 },
                 ..DeviceCaps::default()
             },
         )
@@ -881,7 +911,9 @@ pub fn create_audio_engine(
     // - UsbDirect / DapNative → Passthrough (verified below; downgraded on failure)
     // - All other strategies   → Dsp (full processing chain)
     let initial_pipeline_mode = match desired_strategy {
-        OutputStrategy::UsbDirect | OutputStrategy::DapNative => PipelineMode::Passthrough,
+        OutputStrategy::UsbDirect | OutputStrategy::DapNative | OutputStrategy::DsdNative => {
+            PipelineMode::Passthrough
+        }
         _ => PipelineMode::Dsp,
     };
     let callback_data = Arc::new(AudioCallbackData::new(
@@ -1871,11 +1903,25 @@ fn command_processing_loop(
                         );
                     }
                     AudioCommand::SetPipelineMode { passthrough } => {
-                        callback_data.set_pipeline_mode(if passthrough {
+                        let mode = if passthrough {
                             PipelineMode::Passthrough
                         } else {
                             PipelineMode::Dsp
-                        });
+                        };
+                        callback_data.set_pipeline_mode(mode);
+                        callback_data
+                            .base_pipeline_mode
+                            .store(mode as u8, Ordering::Relaxed);
+                    }
+                    AudioCommand::SetDopOverride { is_dop } => {
+                        if is_dop {
+                            callback_data
+                                .pipeline_mode
+                                .store(PipelineMode::Dop as u8, Ordering::Relaxed);
+                        } else {
+                            let base = callback_data.base_pipeline_mode.load(Ordering::Relaxed);
+                            callback_data.pipeline_mode.store(base, Ordering::Relaxed);
+                        }
                     }
                     AudioCommand::SetFx {
                         enabled,
@@ -1999,14 +2045,13 @@ fn spawn_decoder(
     let file_type = detect_file_type(&path);
     match file_type {
         FileType::Dsd => {
-            let output_mode = DsdOutputMode::PcmDecimation;
-            let quality = FilterQuality::Normal;
+            let output_mode = crate::api::audio_api::current_dsd_output_mode();
             let (source, thread) = if let Some(seek) = seek_secs {
                 DsdDecoderThread::spawn_with_seek(
-                    path, output_mode, sample_rate, quality, channels, Some(seek),
+                    path, output_mode, sample_rate, channels, Some(seek),
                 )
             } else {
-                DsdDecoderThread::spawn(path, output_mode, sample_rate, quality, channels)
+                DsdDecoderThread::spawn(path, output_mode, sample_rate, channels)
             }?;
             Ok((source, DecoderHandle::Dsd(thread)))
         }

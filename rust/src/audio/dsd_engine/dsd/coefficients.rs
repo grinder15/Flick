@@ -17,12 +17,12 @@ pub fn generate_sinc_filter(
     for i in 0..num_taps {
         let x = i as f64 - center;
         let sinc = if x.abs() < 1e-10 {
-            1.0
+            2.0 * normalized_cutoff
         } else {
-            (PI * normalized_cutoff * x).sin() / (PI * x)
+            (2.0 * PI * normalized_cutoff * x).sin() / (PI * x)
         };
         let w = apply_window(i, num_taps, &window);
-        coeffs.push(normalized_cutoff * sinc * w);
+        coeffs.push(sinc * w);
     }
 
     let sum: f64 = coeffs.iter().sum();
@@ -95,5 +95,51 @@ mod tests {
         assert!((val - 1.0).abs() < 1e-10);
         let val = bessel_i0(5.0);
         assert!(val > 1.0, "I0(5) should be > 1, got {}", val);
+    }
+
+    #[test]
+    fn test_filter_frequency_response() {
+        let taps = 256;
+        let fc = 0.25; // normalized cutoff
+        let coeffs = generate_sinc_filter(taps, fc, WindowFunction::Kaiser { beta: 8.0 });
+
+        let h_mag = |f: f64| -> f64 {
+            let (re, im): (f64, f64) = coeffs
+                .iter()
+                .enumerate()
+                .map(|(n, &c)| {
+                    let phase = -2.0 * PI * f * n as f64;
+                    (c * phase.cos(), c * phase.sin())
+                })
+                .fold((0.0, 0.0), |(a, b), (c, d)| (a + c, b + d));
+            (re * re + im * im).sqrt()
+        };
+
+        let dc = h_mag(0.0);
+        assert!((dc - 1.0).abs() < 0.01, "DC gain should be ~1.0, got {}", dc);
+
+        let mag_at_fc = h_mag(fc);
+        assert!(
+            (mag_at_fc - 0.5).abs() < 0.1,
+            "Cutoff magnitude should be ~0.5 (-6 dB) at f={}, got {}",
+            fc,
+            mag_at_fc
+        );
+
+        let mag_at_half = h_mag(fc / 2.0);
+        assert!(
+            mag_at_half > 0.85,
+            "Passband at f={} should be > 0.85, got {}",
+            fc / 2.0,
+            mag_at_half
+        );
+
+        let mag_at_2fc = h_mag(fc * 2.0);
+        assert!(
+            mag_at_2fc < 0.1,
+            "Stopband at f={} should be < 0.1, got {}",
+            fc * 2.0,
+            mag_at_2fc
+        );
     }
 }

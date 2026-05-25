@@ -2686,8 +2686,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 13)
-      throw Exception('unexpected arr length: expect 13 but see ${arr.length}');
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
     return AudioRuntimeDebugJsonState(
       managerEngine: dco_decode_String(arr[0]),
       rustInitialized: dco_decode_bool(arr[1]),
@@ -2702,6 +2702,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       verificationReason: dco_decode_opt_String(arr[10]),
       directUsbActive: dco_decode_opt_box_autoadd_bool(arr[11]),
       directUsbVerified: dco_decode_opt_box_autoadd_bool(arr[12]),
+      dsdSourceRate: dco_decode_opt_box_autoadd_u_32(arr[13]),
+      dsdEffectiveMode: dco_decode_opt_String(arr[14]),
     );
   }
 
@@ -3377,6 +3379,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_verificationReason = sse_decode_opt_String(deserializer);
     var var_directUsbActive = sse_decode_opt_box_autoadd_bool(deserializer);
     var var_directUsbVerified = sse_decode_opt_box_autoadd_bool(deserializer);
+    var var_dsdSourceRate = sse_decode_opt_box_autoadd_u_32(deserializer);
+    var var_dsdEffectiveMode = sse_decode_opt_String(deserializer);
     return AudioRuntimeDebugJsonState(
       managerEngine: var_managerEngine,
       rustInitialized: var_rustInitialized,
@@ -3391,6 +3395,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       verificationReason: var_verificationReason,
       directUsbActive: var_directUsbActive,
       directUsbVerified: var_directUsbVerified,
+      dsdSourceRate: var_dsdSourceRate,
+      dsdEffectiveMode: var_dsdEffectiveMode,
     );
   }
 
@@ -4189,6 +4195,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_opt_String(self.verificationReason, serializer);
     sse_encode_opt_box_autoadd_bool(self.directUsbActive, serializer);
     sse_encode_opt_box_autoadd_bool(self.directUsbVerified, serializer);
+    sse_encode_opt_box_autoadd_u_32(self.dsdSourceRate, serializer);
+    sse_encode_opt_String(self.dsdEffectiveMode, serializer);
   }
 
   @protected

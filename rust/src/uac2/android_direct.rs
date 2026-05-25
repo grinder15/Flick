@@ -3741,8 +3741,13 @@ fn create_android_usb_backend_inner(
         }
     };
 
+    let dsd_transport_label = match playback_format.dsd_transport {
+        DsdTransportMode::Native => "Native",
+        DsdTransportMode::DoP => "DoP",
+        DsdTransportMode::None => "None",
+    };
     eprintln!(
-        "[USB] Streaming started device='{}' preferred={}Hz effective={}Hz requested={}Hz endpoint=0x{:02x} interface={} alt={}",
+        "[USB] Streaming started device='{}' preferred={}Hz effective={}Hz requested={}Hz endpoint=0x{:02x} interface={} alt={} sample_rate={}Hz dsd_transport={}",
         backend_product_name,
         preferred_sample_rate,
         playback_format.sample_rate,
@@ -3750,6 +3755,8 @@ fn create_android_usb_backend_inner(
         backend_endpoint_address,
         backend_interface_number,
         backend_alt_setting,
+        playback_format.sample_rate,
+        dsd_transport_label,
     );
     set_android_usb_engine_state(AndroidDirectUsbEngineState::Streaming, None);
     Ok(Some(AndroidDirectUsbBackend {

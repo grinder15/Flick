@@ -2801,6 +2801,10 @@ impl SseDecode for crate::api::audio_api::AudioRuntimeDebugJsonState {
         let mut var_verificationReason = <Option<String>>::sse_decode(deserializer);
         let mut var_directUsbActive = <Option<bool>>::sse_decode(deserializer);
         let mut var_directUsbVerified = <Option<bool>>::sse_decode(deserializer);
+        let mut var_dsdSourceRate = <Option<u32>>::sse_decode(deserializer);
+        let mut var_dsdEffectiveMode = <Option<String>>::sse_decode(deserializer);
+        let mut var_dsdWireRate = <Option<u32>>::sse_decode(deserializer);
+        let mut var_dsdTransport = <Option<String>>::sse_decode(deserializer);
         return crate::api::audio_api::AudioRuntimeDebugJsonState {
             manager_engine: var_managerEngine,
             rust_initialized: var_rustInitialized,
@@ -2815,6 +2819,10 @@ impl SseDecode for crate::api::audio_api::AudioRuntimeDebugJsonState {
             verification_reason: var_verificationReason,
             direct_usb_active: var_directUsbActive,
             direct_usb_verified: var_directUsbVerified,
+            dsd_source_rate: var_dsdSourceRate,
+            dsd_effective_mode: var_dsdEffectiveMode,
+            dsd_wire_rate: var_dsdWireRate,
+            dsd_transport: var_dsdTransport,
         };
     }
 }
@@ -2866,6 +2874,7 @@ impl SseDecode for crate::audio::dsd_engine::dsd::DsdOutputMode {
             0 => crate::audio::dsd_engine::dsd::DsdOutputMode::PcmDecimation,
             1 => crate::audio::dsd_engine::dsd::DsdOutputMode::Dop,
             2 => crate::audio::dsd_engine::dsd::DsdOutputMode::Native,
+            3 => crate::audio::dsd_engine::dsd::DsdOutputMode::Auto,
             _ => unreachable!("Invalid variant for DsdOutputMode: {}", inner),
         };
     }
@@ -4358,6 +4367,10 @@ impl SseEncode for crate::api::audio_api::AudioRuntimeDebugJsonState {
         <Option<String>>::sse_encode(self.verification_reason, serializer);
         <Option<bool>>::sse_encode(self.direct_usb_active, serializer);
         <Option<bool>>::sse_encode(self.direct_usb_verified, serializer);
+        <Option<u32>>::sse_encode(self.dsd_source_rate, serializer);
+        <Option<String>>::sse_encode(self.dsd_effective_mode, serializer);
+        <Option<u32>>::sse_encode(self.dsd_wire_rate, serializer);
+        <Option<String>>::sse_encode(self.dsd_transport, serializer);
     }
 }
 
@@ -4405,6 +4418,7 @@ impl SseEncode for crate::audio::dsd_engine::dsd::DsdOutputMode {
                 crate::audio::dsd_engine::dsd::DsdOutputMode::PcmDecimation => 0,
                 crate::audio::dsd_engine::dsd::DsdOutputMode::Dop => 1,
                 crate::audio::dsd_engine::dsd::DsdOutputMode::Native => 2,
+                crate::audio::dsd_engine::dsd::DsdOutputMode::Auto => 3,
                 _ => {
                     unimplemented!("");
                 }

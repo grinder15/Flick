@@ -17,7 +17,7 @@ impl DsdOutputRouter {
         channels: usize,
     ) -> Self {
         let pcm_pipeline = match mode {
-            DsdOutputMode::PcmDecimation => {
+            DsdOutputMode::PcmDecimation | DsdOutputMode::Auto => {
                 Some(DsdDecimationPipeline::new(dsd_rate, target_rate, channels))
             }
             DsdOutputMode::Dop | DsdOutputMode::Native => None,
@@ -25,7 +25,7 @@ impl DsdOutputRouter {
 
         let dop_packer = match mode {
             DsdOutputMode::Dop => Some(DopPacker::new(dsd_rate, channels)),
-            DsdOutputMode::PcmDecimation | DsdOutputMode::Native => None,
+            DsdOutputMode::PcmDecimation | DsdOutputMode::Native | DsdOutputMode::Auto => None,
         };
 
         Self {
@@ -37,13 +37,13 @@ impl DsdOutputRouter {
 
     pub fn output_sample_rate(&self, dsd_rate: DsdRate) -> u32 {
         match self.mode {
-            DsdOutputMode::PcmDecimation => self
+            DsdOutputMode::PcmDecimation | DsdOutputMode::Auto => self
                 .pcm_pipeline
                 .as_ref()
                 .map(|p| p.target_pcm_rate())
                 .unwrap_or(dsd_rate.dop_carrier_rate()),
             DsdOutputMode::Dop => dsd_rate.dop_carrier_rate(),
-            DsdOutputMode::Native => dsd_rate.sample_rate(),
+            DsdOutputMode::Native => dsd_rate.byte_rate(),
         }
     }
 
@@ -58,7 +58,7 @@ impl DsdOutputRouter {
         output: &mut Vec<f32>,
     ) -> Result<()> {
         match self.mode {
-            DsdOutputMode::PcmDecimation => {
+            DsdOutputMode::PcmDecimation | DsdOutputMode::Auto => {
                 if let Some(ref mut pipeline) = self.pcm_pipeline {
                     pipeline.process_bytes(dsd_bytes, channel_offsets, output);
                 }

@@ -64,7 +64,8 @@ class _Uac2PreferencesScreenState extends ConsumerState<Uac2PreferencesScreen> {
                         audioFormatAsync,
                       ),
                       const SizedBox(height: AppConstants.spacingLg),
-                      _buildSectionHeader(context, 'DSD Playback'),
+                      _buildSectionHeader(context, 'Experimental'),
+                      _buildExperimentalWarning(context),
                       _buildDsdOptions(
                         context,
                         preferencesService,
@@ -1381,16 +1382,52 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
     );
   }
 
+  Widget _buildExperimentalWarning(BuildContext context) {
+    const warnColor = Colors.amber;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppConstants.spacingSm),
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingMd,
+          vertical: AppConstants.spacingSm,
+        ),
+        decoration: BoxDecoration(
+          color: warnColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+          border: Border.all(
+            color: warnColor.withValues(alpha: 0.35),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, size: 16, color: warnColor),
+            const SizedBox(width: AppConstants.spacingSm),
+            Expanded(
+              child: Text(
+                'Not recommended for normal usage. DSD playback is unstable and may cause audio glitches.',
+                style: TextStyle(
+                  color: warnColor.withValues(alpha: 0.9),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _dsdOutputModeSubtitle(DsdOutputMode mode) {
     switch (mode) {
       case DsdOutputMode.auto:
-        return 'Auto — Choose best path based on device';
+        return 'Auto — Native DSD on DAPs, DoP for USB DACs, PCM otherwise';
       case DsdOutputMode.forcePcm:
         return 'Force PCM — Always convert DSD to PCM';
       case DsdOutputMode.forceDop:
         return 'Force DoP — Always use DSD over PCM (USB DAC)';
       case DsdOutputMode.native:
-        return 'Native DSD — Raw DSD stream (requires DAC support)';
+        return 'Native DSD — Experimental (may be buggy)';
     }
   }
 
@@ -1417,43 +1454,34 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
             _buildDsdOptionTile(
               dialogContext,
               title: 'Auto',
-              subtitle: 'Automatically select DoP for USB DACs and PCM for speakers.',
-              selected: current == DsdOutputMode.auto,
-              onTap: () async {
-                await service.setDsdOutputMode(DsdOutputMode.auto);
-                ref.invalidate(dsdOutputModeProvider);
-                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-              },
+              subtitle: 'Coming Soon',
+              enabled: false,
+              selected: false,
+              onTap: () {},
             ),
             const SizedBox(height: AppConstants.spacingSm),
             _buildDsdOptionTile(
               dialogContext,
               title: 'Force PCM',
-              subtitle: 'Always convert DSD to PCM. Works on all devices.',
-              selected: current == DsdOutputMode.forcePcm,
-              onTap: () async {
-                await service.setDsdOutputMode(DsdOutputMode.forcePcm);
-                ref.invalidate(dsdOutputModeProvider);
-                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-              },
+              subtitle: 'Coming Soon',
+              enabled: false,
+              selected: false,
+              onTap: () {},
             ),
             const SizedBox(height: AppConstants.spacingSm),
             _buildDsdOptionTile(
               dialogContext,
               title: 'Force DoP',
-              subtitle: 'Always use DSD over PCM. Requires a USB DAC that supports DoP.',
-              selected: current == DsdOutputMode.forceDop,
-              onTap: () async {
-                await service.setDsdOutputMode(DsdOutputMode.forceDop);
-                ref.invalidate(dsdOutputModeProvider);
-                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
-              },
+              subtitle: 'Coming Soon',
+              enabled: false,
+              selected: false,
+              onTap: () {},
             ),
             const SizedBox(height: AppConstants.spacingSm),
             _buildDsdOptionTile(
               dialogContext,
-              title: 'Native DSD',
-              subtitle: 'Raw DSD stream to DAC (requires native DSD DAC support).',
+              title: 'Native DSD (Experimental)',
+              subtitle: 'Raw DSD stream to DAC. May be buggy — not recommended for normal use.',
               selected: current == DsdOutputMode.native,
               onTap: () async {
                 await service.setDsdOutputMode(DsdOutputMode.native);
@@ -1479,20 +1507,27 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
     required String subtitle,
     required bool selected,
     required VoidCallback onTap,
+    bool enabled = true,
   }) {
     return InkWell(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(AppConstants.radiusMd),
       child: Container(
         padding: const EdgeInsets.all(AppConstants.spacingMd),
         decoration: BoxDecoration(
-          color: selected
-              ? AppColors.accent.withValues(alpha: 0.15)
-              : Colors.transparent,
+          color: enabled
+              ? (selected
+                  ? AppColors.accent.withValues(alpha: 0.15)
+                  : Colors.transparent)
+              : AppColors.surface.withValues(alpha: 0.3),
           borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-          border: selected
-              ? Border.all(color: AppColors.accent.withValues(alpha: 0.4))
-              : Border.all(color: AppColors.glassBorder),
+          border: Border.all(
+            color: enabled
+                ? (selected
+                    ? AppColors.accent.withValues(alpha: 0.4)
+                    : AppColors.glassBorder)
+                : AppColors.glassBorder.withValues(alpha: 0.3),
+          ),
         ),
         child: Row(
           children: [
@@ -1503,7 +1538,9 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                   Text(
                     title,
                     style: TextStyle(
-                      color: selected ? AppColors.accent : context.adaptiveTextPrimary,
+                      color: enabled
+                          ? (selected ? AppColors.accent : context.adaptiveTextPrimary)
+                          : context.adaptiveTextSecondary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1511,7 +1548,9 @@ ref.invalidate(uac2ExclusiveDacModeProvider);
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: context.adaptiveTextSecondary,
+                      color: enabled
+                          ? context.adaptiveTextSecondary
+                          : context.adaptiveTextSecondary.withValues(alpha: 0.5),
                       fontSize: 12,
                     ),
                   ),

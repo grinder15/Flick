@@ -885,6 +885,17 @@ class PlayerService {
     }
   }
 
+  Future<void> _activateAudioSessionForRustEngine() async {
+    if (!Platform.isAndroid) return;
+    await _configureAndroidAudioSession();
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+    } catch (e) {
+      debugPrint('[AudioFocus] Failed to activate audio session for Rust engine: $e');
+    }
+  }
+
   Future<void> _releaseAndroidManagedAudioResources({
     required String reason,
   }) async {
@@ -2223,6 +2234,7 @@ class PlayerService {
   }
 
   bool _shouldConvertToWav(Song song) {
+    if (currentEngineType == AudioEngineType.normalAndroid) return false;
     final normalized = _playbackFileType(song);
     return normalized == 'm4a' || normalized == 'aiff';
   }
@@ -2753,6 +2765,9 @@ class PlayerService {
         },
       );
       _usingRustBackend = true;
+      if (to != AudioEngineType.usbDacExperimental) {
+        await _activateAudioSessionForRustEngine();
+      }
       await _reconcileVolumeForTier(_determineCurrentTier());
     } else {
       await _playbackManager.ensureEngine(

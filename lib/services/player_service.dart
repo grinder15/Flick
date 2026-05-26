@@ -2234,6 +2234,7 @@ class PlayerService {
   }
 
   bool _shouldConvertToWav(Song song) {
+    if (currentEngineType == AudioEngineType.normalAndroid) return false;
     final normalized = _playbackFileType(song);
     return normalized == 'm4a' || normalized == 'aiff';
   }

@@ -11,6 +11,7 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/features/songs/screens/songs_screen.dart';
 import 'package:flick/features/menu/screens/menu_screen.dart';
 import 'package:flick/features/settings/screens/settings_screen.dart';
+import 'package:flick/features/settings/screens/support_flick_screen.dart';
 import 'package:flick/features/albums/screens/albums_screen.dart';
 import 'package:flick/features/artists/screens/artists_screen.dart';
 import 'package:flick/features/folders/screens/folders_screen.dart';
@@ -25,9 +26,11 @@ import 'package:flick/widgets/navigation/flick_nav_bar.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
+import 'package:flick/widgets/common/glass_dialog.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/library_scanner_service.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/services/milestone_service.dart';
 import 'package:flick/services/widget_sync_service.dart';
 import 'package:flick/services/widget_intent_handler.dart';
 import 'package:flick/models/nav_bar_config.dart';
@@ -170,6 +173,8 @@ class _MainShellState extends ConsumerState<MainShell>
       _previousSong = nextSong;
     });
 
+    _playerService.pendingMilestoneNotifier.addListener(_handleMilestone);
+
     ref.listenManual<NavBarConfig>(navBarConfigProvider, (previous, next) {
       if (previous == null || !mounted) return;
       final currentPageIndex = ref.read(navigationIndexProvider);
@@ -278,6 +283,63 @@ class _MainShellState extends ConsumerState<MainShell>
     }
   }
 
+  void _handleMilestone() {
+    final milestone = _playerService.pendingMilestoneNotifier.value;
+    if (milestone == null || !mounted) return;
+
+    _playerService.pendingMilestoneNotifier.value = null;
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Milestone',
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, anim1, anim2) => const SizedBox.shrink(),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: CurvedAnimation(
+            parent: anim1,
+            curve: Curves.easeOutCubic,
+          ),
+          child: ScaleTransition(
+            scale: Tween<double>(
+              begin: 0.9,
+              end: 1.0,
+            ).animate(
+              CurvedAnimation(
+                parent: anim1,
+                curve: Curves.easeOutBack,
+              ),
+            ),
+            child: GlassDialog(
+              title: milestone.title,
+              content: Text(milestone.message),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Dismiss'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const SupportFlickScreen(),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    'Support Flick',
+                    style: TextStyle(color: AppColors.accent),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _onPlaybackDesyncChanged() {
     if (!mounted) return;
     final desynced = _playerService.playbackDesyncedNotifier.value;
@@ -306,6 +368,7 @@ class _MainShellState extends ConsumerState<MainShell>
     _playerService.playbackDesyncedNotifier.removeListener(
       _onPlaybackDesyncChanged,
     );
+    _playerService.pendingMilestoneNotifier.removeListener(_handleMilestone);
     WidgetsBinding.instance.removeObserver(this);
     _navBarVisibilitySubscription.close();
     _navBarAlwaysVisibleSubscription.close();

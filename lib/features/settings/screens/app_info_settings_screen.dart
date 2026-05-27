@@ -12,6 +12,7 @@ import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/features/settings/screens/privacy_policy_screen.dart';
+import 'package:flick/features/settings/screens/support_flick_screen.dart';
 import 'package:flick/features/settings/widgets/settings_widgets.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
@@ -623,10 +624,15 @@ SOFTWARE.
                 children: [
                   NavigationSetting(
                     icon: LucideIcons.heart,
-                    title: 'Buy me a coffee',
-                    subtitle: 'Support development on Ko-fi',
-                    onTap: () =>
-                        _launchUrl('https://ko-fi.com/ultraelectronica'),
+                    title: 'Support Flick',
+                    subtitle: 'Donate, fund features, and keep the app alive',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const SupportFlickScreen(),
+                        ),
+                      );
+                    },
                   ),
                 ],
               );

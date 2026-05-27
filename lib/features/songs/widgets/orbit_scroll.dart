@@ -79,17 +79,18 @@ class _OrbitScrollState extends State<OrbitScroll>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
-  // The physics state
-  double _scrollOffset = 0.0;
+  // The physics state — notifier drives only the song items rebuild
+  final ValueNotifier<double> _scrollOffset = ValueNotifier<double>(0.0);
 
   // Track if we're actively scrolling to reduce visible range when idle
   bool _isScrolling = false;
   DateTime _lastScrollTime = DateTime.now();
   int _lastReportedIndex = 0;
 
-  // Cache for transform calculations
+  // Cache for transform calculations (bounded)
   final Map<int, _Position> _positionCache = {};
   final Map<int, _ItemTransform> _transformCache = {};
+  static const int _maxCacheSize = 120;
 
   static final List<int> _orderedIndices = (() {
     final visibleRange = AppConstants.orbitVisibleItems ~/ 2;
@@ -103,7 +104,7 @@ class _OrbitScrollState extends State<OrbitScroll>
   @override
   void initState() {
     super.initState();
-    _scrollOffset = widget.selectedIndex.toDouble();
+    _scrollOffset.value = widget.selectedIndex.toDouble();
     _lastReportedIndex = widget.selectedIndex;
     _controller = AnimationController.unbounded(
       vsync: this,
@@ -123,7 +124,7 @@ class _OrbitScrollState extends State<OrbitScroll>
     if (widget.selectedIndex != oldWidget.selectedIndex) {
       _lastReportedIndex = widget.selectedIndex;
       // If the index changed externally, snap/spring to it
-      if ((widget.selectedIndex.toDouble() - _scrollOffset).abs() > 0.05) {
+      if ((widget.selectedIndex.toDouble() - _scrollOffset.value).abs() > 0.05) {
         _animateTo(widget.selectedIndex.toDouble());
       }
     }
@@ -133,6 +134,7 @@ class _OrbitScrollState extends State<OrbitScroll>
   void dispose() {
     widget.controller?._detach();
     _controller.dispose();
+    _scrollOffset.dispose();
     super.dispose();
   }
 
@@ -146,8 +148,8 @@ class _OrbitScrollState extends State<OrbitScroll>
     }
 
     _controller.stop();
+    _scrollOffset.value = clampedIndex.toDouble();
     setState(() {
-      _scrollOffset = clampedIndex.toDouble();
       _isScrolling = false;
       _lastScrollTime = DateTime.now();
     });
@@ -160,12 +162,16 @@ class _OrbitScrollState extends State<OrbitScroll>
   void _onPhysicsTick() {
     if (_controller.isAnimating) {
       final newOffset = _controller.value;
-      if ((newOffset - _scrollOffset).abs() > 0.001) {
-        setState(() {
-          _scrollOffset = newOffset;
-          _isScrolling = true;
+      if ((newOffset - _scrollOffset.value).abs() > 0.001) {
+        _scrollOffset.value = newOffset;
+        if (!_isScrolling) {
+          setState(() {
+            _isScrolling = true;
+            _lastScrollTime = DateTime.now();
+          });
+        } else {
           _lastScrollTime = DateTime.now();
-        });
+        }
       }
     } else if (_isScrolling) {
       final now = DateTime.now();
@@ -195,7 +201,7 @@ class _OrbitScrollState extends State<OrbitScroll>
       metrics: FixedScrollMetrics(
         minScrollExtent: 0,
         maxScrollExtent: widget.songs.length.toDouble(),
-        pixels: _scrollOffset,
+        pixels: _scrollOffset.value,
         viewportDimension: 100,
         axisDirection: AxisDirection.down,
         devicePixelRatio: 1.0,
@@ -207,23 +213,26 @@ class _OrbitScrollState extends State<OrbitScroll>
     const itemHeight = 90.0;
     var itemDelta = -(delta / itemHeight);
 
-    double newOffset = _scrollOffset + itemDelta;
+    double newOffset = _scrollOffset.value + itemDelta;
     if (newOffset < -0.5 || newOffset > widget.songs.length - 0.5) {
       itemDelta = itemDelta * 0.4;
-      newOffset = _scrollOffset + itemDelta;
+      newOffset = _scrollOffset.value + itemDelta;
     }
 
-    if ((newOffset - _scrollOffset).abs() > 0.001) {
-      setState(() {
-        _scrollOffset = newOffset;
-        _isScrolling = true;
+    if ((newOffset - _scrollOffset.value).abs() > 0.001) {
+      _scrollOffset.value = newOffset;
+      if (!_isScrolling) {
+        setState(() {
+          _isScrolling = true;
+          _lastScrollTime = DateTime.now();
+        });
+      } else {
         _lastScrollTime = DateTime.now();
-      });
+      }
     }
   }
 
   void _onVerticalDragEnd(DragEndDetails details) {
-    // _dragStart = null; // This variable is not defined in the provided context. Removing it.
     final velocity = details.primaryVelocity ?? 0.0;
 
     // Dispatch end notification (idle)
@@ -231,7 +240,7 @@ class _OrbitScrollState extends State<OrbitScroll>
       metrics: FixedScrollMetrics(
         minScrollExtent: 0,
         maxScrollExtent: widget.songs.length.toDouble(),
-        pixels: _scrollOffset,
+        pixels: _scrollOffset.value,
         viewportDimension: 100,
         axisDirection: AxisDirection.down,
         devicePixelRatio: 1.0,
@@ -249,7 +258,7 @@ class _OrbitScrollState extends State<OrbitScroll>
     // We use a FrictionSimulation to see where it WOULD land.
     final simulation = FrictionSimulation(
       0.15, // Drag coefficient (higher = stops faster)
-      _scrollOffset,
+      _scrollOffset.value,
       velocityItemsPerSec,
     );
 
@@ -276,18 +285,25 @@ class _OrbitScrollState extends State<OrbitScroll>
 
     final simulation = SpringSimulation(
       description,
-      _scrollOffset,
+      _scrollOffset.value,
       target,
       velocity,
     );
 
     _controller.animateWith(simulation).whenComplete(() {
       // Ensure we explicitly set the final state to avoid micro-drifts
+      _scrollOffset.value = target;
       setState(() {
-        _scrollOffset = target;
         _isScrolling = false;
         _lastScrollTime = DateTime.now();
       });
+      // Clear caches after animation completes to prevent unbounded growth
+      if (_transformCache.length > _maxCacheSize) {
+        _transformCache.clear();
+      }
+      if (_positionCache.length > _maxCacheSize) {
+        _positionCache.clear();
+      }
       final finalIndex = target.round();
       if (finalIndex >= 0 && finalIndex < widget.songs.length) {
         if (_lastReportedIndex != finalIndex) {
@@ -327,8 +343,18 @@ class _OrbitScrollState extends State<OrbitScroll>
             // Path
             _buildOrbitPath(orbitCenterX, orbitCenterY, orbitRadius),
 
-            // Songs
-            ..._buildSongItems(orbitCenterX, orbitCenterY, orbitRadius),
+            // Songs — only rebuilds when scroll offset changes
+            ValueListenableBuilder<double>(
+              valueListenable: _scrollOffset,
+              builder: (context, _, __) {
+                return SizedBox.expand(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: _buildSongItems(orbitCenterX, orbitCenterY, orbitRadius),
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -376,14 +402,14 @@ class _OrbitScrollState extends State<OrbitScroll>
   List<Widget> _buildSongItems(double centerX, double centerY, double radius) {
     final List<Widget> items = [];
 
-    final centerIndex = _scrollOffset.round();
+    final centerIndex = _scrollOffset.value.round();
 
     for (final relativeIndex in _orderedIndices) {
       final actualIndex = centerIndex + relativeIndex;
 
       if (actualIndex < 0 || actualIndex >= widget.songs.length) continue;
 
-      final diff = actualIndex.toDouble() - _scrollOffset;
+      final diff = actualIndex.toDouble() - _scrollOffset.value;
 
       final cacheKey = (diff * 100).toInt();
       _ItemTransform? transform = _transformCache[cacheKey];
@@ -428,23 +454,21 @@ class _OrbitScrollState extends State<OrbitScroll>
           top: transform.position.y,
           child: FractionalTranslation(
             translation: const Offset(-0.5, -0.5),
-            child: RepaintBoundary(
-              child: SongCard(
-                song: widget.songs[actualIndex],
-                scale: transform.scale,
-                opacity: transform.opacity,
-                isSelected: transform.isSelected,
-                swipeActionsEnabled: widget.swipeActionsEnabled,
-                isSelectionMode: widget.isSelectionMode,
-                isMultiSelected: widget.selectedIds.contains(widget.songs[actualIndex].id),
-                onTap: () {
-                  AppHaptics.tap();
-                  _animateTo(actualIndex.toDouble());
-                  widget.onSongSelected?.call(actualIndex);
-                },
-                onSwipeLeft: () => widget.onSongSwipedLeft?.call(actualIndex),
-                onSwipeRight: () => widget.onSongSwipedRight?.call(actualIndex),
-              ),
+            child: SongCard(
+              song: widget.songs[actualIndex],
+              scale: transform.scale,
+              opacity: transform.opacity,
+              isSelected: transform.isSelected,
+              swipeActionsEnabled: widget.swipeActionsEnabled,
+              isSelectionMode: widget.isSelectionMode,
+              isMultiSelected: widget.selectedIds.contains(widget.songs[actualIndex].id),
+              onTap: () {
+                AppHaptics.tap();
+                _animateTo(actualIndex.toDouble());
+                widget.onSongSelected?.call(actualIndex);
+              },
+              onSwipeLeft: () => widget.onSongSwipedLeft?.call(actualIndex),
+              onSwipeRight: () => widget.onSongSwipedRight?.call(actualIndex),
             ),
           ),
         ),

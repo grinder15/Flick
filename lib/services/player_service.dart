@@ -19,6 +19,7 @@ import 'package:flick/services/last_played_service.dart';
 import 'package:flick/services/favorites_service.dart';
 import 'package:flick/data/repositories/recently_played_repository.dart';
 import 'package:flick/services/replay_play_tracker.dart';
+import 'package:flick/services/milestone_service.dart';
 import 'package:flick/services/android_audio_engine.dart';
 import 'package:flick/services/rust_audio_engine.dart';
 import 'package:flick/services/rust_audio_service.dart';
@@ -275,6 +276,9 @@ class PlayerService {
     false,
   );
   final ValueNotifier<bool> gaplessPlaybackEnabledNotifier = ValueNotifier(true);
+  final ValueNotifier<MilestoneType?> pendingMilestoneNotifier =
+      ValueNotifier(null);
+  final MilestoneService _milestoneService = MilestoneService();
   bool get _usingRustBackend => usingRustBackendNotifier.value;
   set _usingRustBackend(bool value) => usingRustBackendNotifier.value = value;
   bool _rustBackendAvailable = false;
@@ -1702,6 +1706,15 @@ class PlayerService {
     _replayPlayTracker.clear();
   }
 
+  Future<void> _trackMilestones(Song song) async {
+    await _milestoneService.addListenSeconds(song.duration.inSeconds);
+    final milestone = await _milestoneService.checkMilestones();
+    if (milestone != null) {
+      await _milestoneService.markMilestoneShown(milestone);
+      pendingMilestoneNotifier.value = milestone;
+    }
+  }
+
   void _trackReplayProgress(Duration position) {
     final song = currentSongNotifier.value;
     if (song == null) {
@@ -1720,6 +1733,7 @@ class PlayerService {
     );
     if (counted && _shouldPersistSong(song)) {
       unawaited(_recentlyPlayedRepository.recordPlay(song.id));
+      unawaited(_trackMilestones(song));
     }
   }
 

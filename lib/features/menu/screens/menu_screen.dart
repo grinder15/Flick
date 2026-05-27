@@ -40,7 +40,8 @@ class MenuScreen extends ConsumerStatefulWidget {
   ConsumerState<MenuScreen> createState() => _MenuScreenState();
 }
 
-class _MenuScreenState extends ConsumerState<MenuScreen> {
+class _MenuScreenState extends ConsumerState<MenuScreen>
+    with SingleTickerProviderStateMixin {
   final RecentlyPlayedRepository _recentlyPlayedRepository =
       RecentlyPlayedRepository();
   final PlayerService _playerService = PlayerService();
@@ -50,10 +51,31 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
   Map<ListeningRecapPeriod, ListeningRecap> _recaps = const {};
   bool _isHistoryLoading = true;
   bool _showEngineCard = true;
+  late final AnimationController _welcomeCardController;
+  late final Animation<double> _welcomeCardFade;
+  late final Animation<Offset> _welcomeCardSlide;
 
   @override
   void initState() {
     super.initState();
+    _welcomeCardController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _welcomeCardFade = CurvedAnimation(
+      parent: _welcomeCardController,
+      curve: Curves.easeOutCubic,
+    );
+    _welcomeCardSlide = Tween<Offset>(
+      begin: const Offset(0, -0.15),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _welcomeCardController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    _welcomeCardController.forward();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadHistoryData();
       _watchHistory();
@@ -62,6 +84,7 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
 
   @override
   void dispose() {
+    _welcomeCardController.dispose();
     _historySubscription?.cancel();
     super.dispose();
   }
@@ -210,6 +233,106 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
     if (hour < 12) return 'Good morning';
     if (hour < 18) return 'Good afternoon';
     return 'Good evening';
+  }
+
+  Widget _buildWelcomeCard(BuildContext context, WidgetRef ref) {
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.spacingLg),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.accent.withValues(alpha: 0.08),
+            AppColors.accent.withValues(alpha: 0.03),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome to Flick!',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: AppConstants.spacingSm),
+                    Text(
+                      'This app is built by a solo developer with zero budget. If you love high-fidelity audio, consider supporting its development on Ko-fi.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.adaptiveTextSecondary,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: () {
+                  _welcomeCardController.reverse().then((_) {
+                    if (mounted) {
+                      ref
+                          .read(appPreferencesProvider.notifier)
+                          .setWelcomeCardDismissed(true);
+                    }
+                  });
+                },
+                child: Padding(
+                  padding: const EdgeInsets.only(left: AppConstants.spacingSm),
+                  child: Icon(
+                    LucideIcons.x,
+                    size: 18,
+                    color: context.adaptiveTextTertiary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.spacingMd),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: () {
+                try {
+                  launchUrl(
+                    Uri.parse('https://ko-fi.com/ultraelectronica'),
+                    mode: LaunchMode.externalApplication,
+                  );
+                } catch (_) {}
+              },
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: AppColors.glassBorder),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppConstants.spacingMd,
+                  vertical: AppConstants.spacingSm,
+                ),
+                backgroundColor: AppColors.glassBackgroundStrong,
+              ),
+              child: Text(
+                'Support Flick',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: context.adaptiveTextPrimary,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildEngineSelector(
@@ -624,6 +747,30 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
                         child: _MenuLoadingState(),
                       )
                     else ...[
+                      SliverToBoxAdapter(
+                        child: AnimatedSize(
+                          duration: const Duration(milliseconds: 400),
+                          curve: Curves.easeOutCubic,
+                          child:
+                              !appPreferences.welcomeCardDismissed
+                                  ? FadeTransition(
+                                      opacity: _welcomeCardFade,
+                                      child: SlideTransition(
+                                        position: _welcomeCardSlide,
+                                        child: Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            AppConstants.spacingLg,
+                                            0,
+                                            AppConstants.spacingLg,
+                                            AppConstants.spacingMd,
+                                          ),
+                                          child: _buildWelcomeCard(context, ref),
+                                        ),
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
+                        ),
+                      ),
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(

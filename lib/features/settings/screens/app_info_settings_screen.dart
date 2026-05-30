@@ -607,6 +607,16 @@ SOFTWARE.
                   );
                 },
               ),
+              const SettingsDivider(),
+              NavigationSetting(
+                icon: LucideIcons.graduationCap,
+                title: 'Interactive Tutorial',
+                subtitle: 'Step-by-step walkthrough of the app',
+                onTap: () {
+                  ref.read(tutorialProvider.notifier).start();
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                },
+              ),
             ],
           ),
           const SizedBox(height: AppConstants.spacingLg),

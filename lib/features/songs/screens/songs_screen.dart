@@ -37,7 +37,7 @@ class SongsScreen extends ConsumerStatefulWidget {
 
 class _SongsScreenState extends ConsumerState<SongsScreen> {
   static const double _listItemExtent = 80;
-  static const double _folderGridLoadMoreThreshold = 320;
+
   static const int _defaultFolderGridPageSize = 8;
   static const int _minFolderGridPageSize = 1;
   static const int _maxFolderGridPageSize = 30;
@@ -894,19 +894,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     }
   }
 
-  void _onFolderGridScroll() {
-    if (!_folderGridScrollController.hasClients) return;
-
-    final position = _folderGridScrollController.position;
-    if (position.pixels <= 0 ||
-        position.extentAfter > _folderGridLoadMoreThreshold) {
-      return;
-    }
-
-    if (_visibleFolderCount < _totalFolderCount) {
-      _loadMoreFolders();
-    }
-  }
+  void _onFolderGridScroll() {}
 
   void _loadMoreFolders() {
     if (!mounted || _visibleFolderCount >= _totalFolderCount) {

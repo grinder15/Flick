@@ -3327,6 +3327,18 @@ class _AnimatedSongScene extends StatelessWidget {
                                         context.responsive(4.0, 5.0, 6.0),
                                     fontSize:
                                         context.responsive(11.0, 12.0, 13.0),
+                                    onTap: () {
+                                      final deviceStatus =
+                                          ProviderScope.containerOf(context)
+                                              .read(uac2DeviceStatusProvider);
+                                      BitPerfectIndicator.showInfoSheet(
+                                        context,
+                                        song: song,
+                                        diagnostics: diagnostics,
+                                        deviceStatus: deviceStatus,
+                                        playerService: playerService,
+                                      );
+                                    },
                                   ),
                                 ),
                               ],
@@ -3802,6 +3814,17 @@ class _AnimatedSongScene extends StatelessWidget {
               horizontalPadding: albumHorizontalPadding,
               verticalPadding: albumVerticalPadding,
               fontSize: albumFontSize,
+              onTap: () {
+                final deviceStatus =
+                    ProviderScope.containerOf(context).read(uac2DeviceStatusProvider);
+                BitPerfectIndicator.showInfoSheet(
+                  context,
+                  song: song,
+                  diagnostics: diagnostics,
+                  deviceStatus: deviceStatus,
+                  playerService: playerService,
+                );
+              },
             )
           else
             Container(

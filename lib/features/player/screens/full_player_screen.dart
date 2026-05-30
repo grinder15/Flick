@@ -32,6 +32,8 @@ import 'package:flick/providers/album_color_provider.dart';
 import 'package:flick/providers/app_preferences_provider.dart';
 import 'package:flick/providers/playlist_provider.dart';
 import 'package:flick/features/player/widgets/audio_visualizer.dart';
+import 'package:flick/features/player/widgets/bit_perfect_capsule.dart';
+import 'package:flick/features/player/widgets/bit_perfect_indicator.dart';
 import 'package:flick/features/player/widgets/lyrics_editor_bottom_sheet.dart';
 import 'package:flick/features/player/widgets/online_lyrics_search_sheet.dart';
 import 'package:flick/features/player/widgets/line_seek_bar.dart';
@@ -1779,19 +1781,6 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
     return null;
   }
 
-  String _getSongQuality(Song song) {
-    if (song.isDsd) return 'HQ';
-    final fileType = song.fileType.toUpperCase();
-    const lossless = {'FLAC', 'WAV', 'ALAC', 'AIFF', 'APE', 'WV'};
-    if (lossless.contains(fileType)) return 'HQ';
-    if ((song.bitDepth ?? 0) >= 24) return 'HQ';
-    if ((song.sampleRate ?? 0) >= 88200) return 'HQ';
-    final res = song.resolution?.toLowerCase() ?? '';
-    final m = RegExp(r'(\d+)\s*kbps').firstMatch(res);
-    if (m != null && (int.tryParse(m.group(1)!) ?? 0) >= 320) return 'HQ';
-    return 'SD';
-  }
-
   Widget _buildPlayerBadge(BuildContext context, String label) {
     return Container(
       padding: EdgeInsets.symmetric(
@@ -1809,34 +1798,6 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
           fontSize: context.responsive(9.0, 10.0, 11.0),
           fontWeight: FontWeight.w600,
           color: Colors.white,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQualityBadge(BuildContext context, Song song) {
-    final isHQ = _getSongQuality(song) == 'HQ';
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: context.responsive(4.0, 5.0, 6.0),
-        vertical: 2,
-      ),
-      decoration: BoxDecoration(
-        color: isHQ
-            ? Colors.green.withValues(alpha: 0.22)
-            : Colors.white.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(3),
-        border: isHQ
-            ? Border.all(color: Colors.green.withValues(alpha: 0.4))
-            : null,
-      ),
-      child: Text(
-        isHQ ? 'HQ' : 'SD',
-        style: TextStyle(
-          fontFamily: 'ProductSans',
-          fontSize: context.responsive(9.0, 10.0, 11.0),
-          fontWeight: FontWeight.w600,
-          color: isHQ ? Colors.green.shade400 : Colors.white,
         ),
       ),
     );
@@ -1929,7 +1890,21 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                 ),
               ],
               SizedBox(width: context.responsive(5.0, 6.0, 7.0)),
-              _buildQualityBadge(context, song),
+              BitPerfectIndicator(
+                song: song,
+                playerService: _playerService,
+                onTap: () {
+                  final diagnostics = ref.read(audioOutputDiagnosticsProvider);
+                  final deviceStatus = ref.read(uac2DeviceStatusProvider);
+                  BitPerfectIndicator.showInfoSheet(
+                    context,
+                    song: song,
+                    diagnostics: diagnostics,
+                    deviceStatus: deviceStatus,
+                    playerService: _playerService,
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -3321,17 +3296,56 @@ class _AnimatedSongScene extends StatelessWidget {
                         child: _buildImmersiveSongHeader(context),
                       ),
                       if (immersiveShowFileInfo) ...[
-                        SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
-                        Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: context.responsive(12.0, 16.0, 20.0),
-                          ),
-                          child: buildFileInfoRow(
-                            song,
-                            lyricsMode,
-                            playerScreenMode,
-                          ),
-                        ),
+                        Builder(builder: (context) {
+                          final diagnostics =
+                              ProviderScope.containerOf(context)
+                                  .read(audioOutputDiagnosticsProvider);
+                          final appPrefs = ProviderScope.containerOf(context)
+                              .read(appPreferencesProvider);
+                          final showCapsule =
+                              appPrefs.replaceAlbumWithBitPerfectCapsule &&
+                                  diagnostics != null &&
+                                  diagnostics
+                                      .capabilityFlags
+                                      .supportsVerifiedBitPerfect ==
+                                      true;
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (showCapsule) ...[
+                                SizedBox(
+                                    height: context.responsive(6.0, 8.0, 10.0)),
+                                Padding(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: context.responsive(
+                                          12.0, 16.0, 20.0)),
+                                  child: BitPerfectCapsule(
+                                    diagnostics: diagnostics,
+                                    horizontalPadding:
+                                        context.responsive(12.0, 14.0, 16.0),
+                                    verticalPadding:
+                                        context.responsive(4.0, 5.0, 6.0),
+                                    fontSize:
+                                        context.responsive(11.0, 12.0, 13.0),
+                                  ),
+                                ),
+                              ],
+                              SizedBox(
+                                  height: context.responsive(10.0, 12.0, 14.0)),
+                              Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal:
+                                      context.responsive(12.0, 16.0, 20.0),
+                                ),
+                                child: buildFileInfoRow(
+                                  song,
+                                  lyricsMode,
+                                  playerScreenMode,
+                                ),
+                              ),
+                            ],
+                          );
+                        }),
                       ],
                     ],
                   ),
@@ -3734,6 +3748,19 @@ class _AnimatedSongScene extends StatelessWidget {
             : context.responsive(11.0, 12.0, 13.0)) *
         artworkCardTextScale;
 
+    final diagnostics =
+        ProviderScope.containerOf(context).read(audioOutputDiagnosticsProvider);
+    final appPrefs =
+        ProviderScope.containerOf(context).read(appPreferencesProvider);
+    final isBitPerfectVerified =
+        diagnostics?.capabilityFlags.supportsVerifiedBitPerfect == true;
+    final showBitPerfectCapsule =
+        appPrefs.replaceAlbumWithBitPerfectCapsule &&
+            diagnostics != null &&
+            isBitPerfectVerified;
+    final hasAlbum =
+        song.album != null && song.album!.trim().isNotEmpty;
+
     return Column(
       children: [
         if (artworkCardShowTitle)
@@ -3767,30 +3794,38 @@ class _AnimatedSongScene extends StatelessWidget {
           ),
         if (artworkCardShowAlbum &&
             (artworkCardShowTitle || artworkCardShowArtist) &&
-            song.album != null &&
-            song.album!.trim().isNotEmpty) ...[
+            (hasAlbum || showBitPerfectCapsule)) ...[
           SizedBox(height: artistToAlbumSpacing),
-          Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: albumHorizontalPadding,
-              vertical: albumVerticalPadding,
-            ),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-            ),
-            child: Text(
-              song.album!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: 'ProductSans',
-                fontSize: context.responsiveText(albumFontSize),
-                color: Colors.white.withValues(alpha: 0.68),
+          if (showBitPerfectCapsule)
+            BitPerfectCapsule(
+              diagnostics: diagnostics,
+              horizontalPadding: albumHorizontalPadding,
+              verticalPadding: albumVerticalPadding,
+              fontSize: albumFontSize,
+            )
+          else
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: albumHorizontalPadding,
+                vertical: albumVerticalPadding,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(999),
+                border:
+                    Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              ),
+              child: Text(
+                song.album!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: context.responsiveText(albumFontSize),
+                  color: Colors.white.withValues(alpha: 0.68),
+                ),
               ),
             ),
-          ),
         ],
       ],
     );

@@ -296,7 +296,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   duration: AppConstants.animationNormal,
                   curve: Curves.easeOutCubic,
                   height: shouldReserveOrbitBottomSpace
-                      ? AppConstants.navBarHeight + 90
+                      ? AppConstants.navBarHeight + AppConstants.spacingLg
                       : 0,
                 ),
               ],
@@ -443,17 +443,24 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       duration: AppConstants.animationNormal,
       curve: Curves.easeOutCubic,
       padding: EdgeInsets.only(right: rightPadding),
-      child: ListView.builder(
-        controller: _listScrollController,
-        itemExtent: _listItemExtent,
-        addAutomaticKeepAlives: false,
-        padding: const EdgeInsets.fromLTRB(
-          AppConstants.spacingLg,
-          0,
-          0,
-          AppConstants.navBarHeight + 120,
-        ),
-        itemCount: _visibleListCount,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final totalItemHeight = songs.length * _listItemExtent;
+          final needsScroll = totalItemHeight > constraints.maxHeight;
+          final bottomPadding = needsScroll
+              ? AppConstants.navBarHeight + 120
+              : AppConstants.navBarHeight + AppConstants.spacingLg;
+          return ListView.builder(
+            controller: _listScrollController,
+            itemExtent: _listItemExtent,
+            addAutomaticKeepAlives: false,
+            padding: EdgeInsets.fromLTRB(
+              AppConstants.spacingLg,
+              0,
+              0,
+              bottomPadding,
+            ),
+            itemCount: _visibleListCount,
         itemBuilder: (context, index) {
           if (index >= songs.length) return const SizedBox.shrink();
           final song = songs[index];
@@ -502,7 +509,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
             ),
           );
         },
-      ),
+      );
+    },
+  ),
     );
   }
 
@@ -544,26 +553,25 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
           ),
         ),
         SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppConstants.spacingLg,
-              0,
-              AppConstants.spacingLg,
-              AppConstants.navBarHeight + 120,
-            ),
-            child: hasMore
-                ? _FolderLoadMoreIndicator(
+          child: hasMore || visibleCount > _folderGridPageSize
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppConstants.spacingLg,
+                    0,
+                    AppConstants.spacingLg,
+                    AppConstants.navBarHeight + 120,
+                  ),
+                  child: _FolderLoadMoreIndicator(
                     visibleCount: visibleCount,
                     totalCount: folders.length,
-                  )
-                : visibleCount > _folderGridPageSize
-                ? _FolderLoadMoreIndicator(
-                    visibleCount: visibleCount,
-                    totalCount: folders.length,
-                    isComplete: true,
-                  )
-                : const SizedBox.shrink(),
-          ),
+                    isComplete: !hasMore &&
+                        visibleCount > _folderGridPageSize,
+                  ),
+                )
+              : const SizedBox(
+                  height:
+                      AppConstants.navBarHeight + AppConstants.spacingLg,
+                ),
         ),
       ],
     );
@@ -926,8 +934,11 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   }
 
   void _resetListPagination() {
-    if (_visibleListCount != _listPageSize) {
-      _visibleListCount = _listPageSize;
+    final target = _listPageSize;
+    if (_visibleListCount != target || _visibleListCount > _cachedDisplaySongs.length) {
+      _visibleListCount = _cachedDisplaySongs.length < target
+          ? _cachedDisplaySongs.length
+          : target;
     }
   }
 
@@ -2284,8 +2295,10 @@ class _FolderDetailScreenState extends ConsumerState<_FolderDetailScreen> {
             ),
           ),
           SliverPadding(
-            padding: const EdgeInsets.only(
-              bottom: AppConstants.navBarHeight + 120,
+            padding: EdgeInsets.only(
+              bottom: f.songs.length <= 6
+                  ? AppConstants.navBarHeight + AppConstants.spacingLg
+                  : AppConstants.navBarHeight + 120,
             ),
             sliver: SliverList(
                delegate: SliverChildBuilderDelegate((context, index) {

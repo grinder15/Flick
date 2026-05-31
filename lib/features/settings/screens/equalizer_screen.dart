@@ -1632,7 +1632,7 @@ class _GraphicEqView extends ConsumerWidget {
           children: [
             const _StatPill(
               icon: LucideIcons.slidersVertical,
-              label: '10 fixed bands',
+              label: '31 fixed bands',
             ),
             _StatPill(
               icon: adjustedBands == 0

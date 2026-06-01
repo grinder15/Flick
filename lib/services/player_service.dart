@@ -811,6 +811,7 @@ class PlayerService {
     if (Platform.isAndroid && !_sessionManager.selectedMode.usesRustBackend) {
       await _ensureAndroidPlayer();
     }
+    await reapplyEqualizer();
   }
 
   Future<void> setHiFiModeEnabled(bool enabled) async {

@@ -24,6 +24,7 @@ import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/widgets/navigation/flick_nav_bar.dart';
+import 'package:flick/providers/equalizer_provider.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/features/onboarding/widgets/tutorial_overlay.dart';
@@ -104,6 +105,7 @@ class _MainShellState extends ConsumerState<MainShell>
     // listener doesn't treat the restored song as "new" on cold start.
     _previousSong = ref.read(currentSongProvider);
     _playerService = ref.read(playerServiceProvider);
+    ref.read(equalizerProvider);
     ref.read(updateCheckProvider.notifier);
     final initialConfig = ref.read(navBarConfigProvider);
     final defaultPage =

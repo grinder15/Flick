@@ -851,9 +851,13 @@ class PlayerService {
       _uac2Service.dapBitPerfectEnabledNotifier.value = dapBitPerfect;
       rust_audio.audioSetDapBitPerfectEnabled(enabled: dapBitPerfect);
 
-      final savedVolume = await _preferencesService.getUsbSoftwareVolume();
-      if (savedVolume != 1.0) {
-        _currentVolume = savedVolume;
+      final engineType = _sessionManager.selectedMode;
+      if (engineType == AudioEngineType.usbDacExperimental ||
+          engineType == AudioEngineType.dapInternalHighRes) {
+        final savedVolume = await _preferencesService.getUsbSoftwareVolume();
+        if (savedVolume != 1.0) {
+          _currentVolume = savedVolume;
+        }
       }
 
       _playbackManager.publishIdleState(_sessionManager.selectedMode);
@@ -3662,7 +3666,10 @@ class PlayerService {
   Future<void> setVolume(double volume) async {
     final clampedVolume = volume.clamp(0.0, 1.0).toDouble();
     _currentVolume = clampedVolume;
-    unawaited(_preferencesService.setUsbSoftwareVolume(clampedVolume));
+    if (currentEngineType == AudioEngineType.usbDacExperimental ||
+        currentEngineType == AudioEngineType.dapInternalHighRes) {
+      unawaited(_preferencesService.setUsbSoftwareVolume(clampedVolume));
+    }
 
     // DoP: software gain corrupts DoP markers (0x05/0xFA).
     // Volume must go through DAC hardware exclusively.

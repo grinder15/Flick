@@ -500,25 +500,13 @@ class PlayerService {
       }
     }
 
-    if (isBitPerfectModeEnabled) {
-      if (_usingRustBackend && _rustAudioService.isInitialized) {
-        await _applyRustPlaybackProcessingPolicy(currentEngineType);
-      } else {
-        final player = _justAudioPlayer;
-        if (player != null) {
-          await player.setVolume(_bitPerfectDefaultVolume);
-          await player.setSpeed(1.0);
-        }
-      }
+    if (_usingRustBackend && _rustAudioService.isInitialized) {
+      await _applyRustPlaybackProcessingPolicy(currentEngineType);
     } else {
-      if (_usingRustBackend && _rustAudioService.isInitialized) {
-        await _applyRustPlaybackProcessingPolicy(currentEngineType);
-      } else {
-        final player = _justAudioPlayer;
-        if (player != null) {
-          await player.setVolume(_currentVolume);
-          await player.setSpeed(playbackSpeedNotifier.value);
-        }
+      final player = _justAudioPlayer;
+      if (player != null) {
+        await player.setVolume(_currentVolume);
+        await player.setSpeed(playbackSpeedNotifier.value);
       }
     }
 
@@ -949,10 +937,8 @@ class PlayerService {
     await _configureAndroidAudioSession();
     final player = just_audio.AudioPlayer();
     _justAudioPlayer = player;
-    await player.setVolume(isBitPerfectModeEnabled ? _bitPerfectDefaultVolume : _currentVolume);
-    await player.setSpeed(
-      isBitPerfectModeEnabled ? 1.0 : playbackSpeedNotifier.value,
-    );
+    await player.setVolume(_currentVolume);
+    await player.setSpeed(playbackSpeedNotifier.value);
     await _updateLoopMode();
     return player;
   }
@@ -971,10 +957,8 @@ class PlayerService {
       }
     }
 
-    await player.setVolume(isBitPerfectModeEnabled ? _bitPerfectDefaultVolume : _currentVolume);
-    await player.setSpeed(
-      isBitPerfectModeEnabled ? 1.0 : playbackSpeedNotifier.value,
-    );
+    await player.setVolume(_currentVolume);
+    await player.setSpeed(playbackSpeedNotifier.value);
     await _updateLoopMode();
   }
 

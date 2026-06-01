@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
@@ -15,6 +16,7 @@ import 'package:flick/features/songs/widgets/orbit_scroll.dart';
 import 'package:flick/features/songs/widgets/song_fast_index_overlay.dart';
 import 'package:flick/features/songs/widgets/song_actions_bottom_sheet.dart';
 import 'package:flick/features/songs/widgets/sort_filter_bottom_sheet.dart';
+import 'package:flick/features/folders/screens/folders_screen.dart';
 import 'package:flick/providers/providers.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/models/nav_bar_config.dart';
@@ -65,6 +67,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   String _listPaginationSignature = '';
   bool _selectionMode = false;
   final Set<String> _selectedIds = {};
+  FolderBrowserSortOption _folderSortOption = FolderBrowserSortOption.name;
 
   @override
   void initState() {
@@ -77,6 +80,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     });
     _listScrollController.addListener(_onListScroll);
     _folderGridScrollController.addListener(_onFolderGridScroll);
+    _loadFolderSortOption();
   }
 
   @override
@@ -524,12 +528,50 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     );
   }
 
-  Widget _buildFolderGridView(List<FolderGroup> folders) {
-    _syncFolderPagination(folders);
+  List<FolderGroup> _sortedFolderGroups(List<FolderGroup> folders) {
+    final sorted = List<FolderGroup>.from(folders);
+    switch (_folderSortOption) {
+      case FolderBrowserSortOption.name:
+        sorted.sort((a, b) => a.name.compareTo(b.name));
+      case FolderBrowserSortOption.songCount:
+        sorted.sort((a, b) {
+          final c = b.songs.length.compareTo(a.songs.length);
+          return c != 0 ? c : a.name.compareTo(b.name);
+        });
+      case FolderBrowserSortOption.title:
+        sorted.sort((a, b) {
+          final ta = a.songs.isNotEmpty ? a.songs.first.title : '';
+          final tb = b.songs.isNotEmpty ? b.songs.first.title : '';
+          final c = ta.compareTo(tb);
+          return c != 0 ? c : a.name.compareTo(b.name);
+        });
+      case FolderBrowserSortOption.artist:
+        sorted.sort((a, b) {
+          final aa = a.songs.isNotEmpty ? a.songs.first.artist : '';
+          final ab = b.songs.isNotEmpty ? b.songs.first.artist : '';
+          final c = aa.compareTo(ab);
+          return c != 0 ? c : a.name.compareTo(b.name);
+        });
+      case FolderBrowserSortOption.dateAdded:
+        sorted.sort((a, b) {
+          final da = a.songs.isNotEmpty ? a.songs.first.dateAdded : null;
+          final db = b.songs.isNotEmpty ? b.songs.first.dateAdded : null;
+          if (da == null && db == null) return a.name.compareTo(b.name);
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return db.compareTo(da);
+        });
+    }
+    return sorted;
+  }
 
-    final visibleCount = min(_visibleFolderCount, folders.length);
-    final visibleFolders = folders.take(visibleCount).toList(growable: false);
-    final hasMore = visibleCount < folders.length;
+  Widget _buildFolderGridView(List<FolderGroup> folders) {
+    final sortedFolders = _sortedFolderGroups(folders);
+    _syncFolderPagination(sortedFolders);
+
+    final visibleCount = min(_visibleFolderCount, sortedFolders.length);
+    final visibleFolders = sortedFolders.take(visibleCount).toList(growable: false);
+    final hasMore = visibleCount < sortedFolders.length;
 
     return CustomScrollView(
       controller: _folderGridScrollController,
@@ -572,7 +614,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   ),
                   child: _FolderLoadMoreIndicator(
                     visibleCount: visibleCount,
-                    totalCount: folders.length,
+                    totalCount: sortedFolders.length,
                     isComplete: !hasMore && visibleCount > _getFolderPageSize(),
                     onLoadMore: hasMore ? _loadMoreFolders : null,
                   ),
@@ -895,6 +937,27 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   }
 
   void _onFolderGridScroll() {}
+
+  Future<void> _loadFolderSortOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('songs_folder_sort_option');
+    if (!mounted) return;
+    final option = FolderBrowserSortOption.values.firstWhere(
+      (v) => v.name == value,
+      orElse: () => FolderBrowserSortOption.name,
+    );
+    if (option != _folderSortOption) {
+      setState(() => _folderSortOption = option);
+    }
+  }
+
+  Future<void> _setFolderSortOption(FolderBrowserSortOption option) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('songs_folder_sort_option', option.name);
+    if (mounted) {
+      setState(() => _folderSortOption = option);
+    }
+  }
 
   void _loadMoreFolders() {
     if (!mounted || _visibleFolderCount >= _totalFolderCount) {
@@ -1386,8 +1449,16 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       barrierColor: Colors.black.withValues(alpha: 0.5),
       builder: (sheetContext) {
         return _FolderFilterSheet(
+          currentSort: _folderSortOption,
           currentFilter: currentFilter,
           folderGridPageSize: _getFolderPageSize(),
+          onSortChanged: (option) {
+            _setFolderSortOption(option);
+            setState(() {
+              _visibleFolderCount = min(_getFolderPageSize(), _totalFolderCount);
+              _folderPaginationSignature = '';
+            });
+          },
           onFilterChanged: (filter) {
             ref.read(songsProvider.notifier).setFileTypeFilter(filter);
             setState(() {
@@ -2051,14 +2122,18 @@ class _ArtEntry {
 }
 
 class _FolderFilterSheet extends StatefulWidget {
+  final FolderBrowserSortOption currentSort;
   final SongFileTypeFilter currentFilter;
   final int folderGridPageSize;
+  final ValueChanged<FolderBrowserSortOption> onSortChanged;
   final ValueChanged<SongFileTypeFilter> onFilterChanged;
   final ValueChanged<int> onPageSizeChanged;
 
   const _FolderFilterSheet({
+    required this.currentSort,
     required this.currentFilter,
     required this.folderGridPageSize,
+    required this.onSortChanged,
     required this.onFilterChanged,
     required this.onPageSizeChanged,
   });
@@ -2084,7 +2159,7 @@ class _FolderFilterSheetState extends State<_FolderFilterSheet> {
   @override
   Widget build(BuildContext context) {
     return AppBottomSheetSurface(
-      maxHeightRatio: 0.55,
+      maxHeightRatio: 0.7,
       child: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
         child: Column(
@@ -2102,6 +2177,20 @@ class _FolderFilterSheetState extends State<_FolderFilterSheet> {
                 ),
               ),
             ),
+            Text(
+              'SORT BY',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: context.adaptiveTextTertiary,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingSm),
+            ...FolderBrowserSortOption.values.map((option) => _buildFolderSortTile(context, option)),
+            const SizedBox(height: AppConstants.spacingMd),
+            const Divider(color: AppColors.glassBorder, height: 1),
+            const SizedBox(height: AppConstants.spacingMd),
             Text(
               'FILTER BY FORMAT',
               style: TextStyle(
@@ -2222,6 +2311,91 @@ class _FolderFilterSheetState extends State<_FolderFilterSheet> {
         ),
       ),
     );
+  }
+
+  Widget _buildFolderSortTile(BuildContext context, FolderBrowserSortOption option) {
+    final isSelected = widget.currentSort == option;
+    final icon = _folderSortIcon(option);
+    final label = _folderSortLabel(option);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          widget.onSortChanged(option);
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            color: isSelected
+                ? AppColors.accent.withValues(alpha: 0.12)
+                : Colors.transparent,
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 20,
+                color: isSelected
+                    ? AppColors.accent
+                    : context.adaptiveTextSecondary,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.accent
+                        : context.adaptiveTextPrimary,
+                  ),
+                ),
+              ),
+              if (isSelected)
+                const Icon(
+                  Icons.check_rounded,
+                  size: 20,
+                  color: AppColors.accent,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  IconData _folderSortIcon(FolderBrowserSortOption option) {
+    switch (option) {
+      case FolderBrowserSortOption.name:
+        return LucideIcons.folder;
+      case FolderBrowserSortOption.songCount:
+        return LucideIcons.hash;
+      case FolderBrowserSortOption.title:
+        return LucideIcons.type;
+      case FolderBrowserSortOption.artist:
+        return LucideIcons.mic;
+      case FolderBrowserSortOption.dateAdded:
+        return LucideIcons.calendar;
+    }
+  }
+
+  String _folderSortLabel(FolderBrowserSortOption option) {
+    switch (option) {
+      case FolderBrowserSortOption.name:
+        return 'Folder Name';
+      case FolderBrowserSortOption.songCount:
+        return 'Folder Song Count';
+      case FolderBrowserSortOption.title:
+        return 'Song Title';
+      case FolderBrowserSortOption.artist:
+        return 'Song Artist';
+      case FolderBrowserSortOption.dateAdded:
+        return 'Date Added';
+    }
   }
 }
 

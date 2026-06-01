@@ -268,6 +268,7 @@ class _MainShellState extends ConsumerState<MainShell>
       _maybeOpenExternalPlayer(ref.read(currentSongProvider));
       _refreshLibraryDeletions();
       ref.read(updateCheckProvider.notifier).refreshIfOnline();
+      ref.read(autoLibrarySyncServiceProvider);
 
       final tutorialState = ref.read(tutorialProvider);
       if (tutorialState.autoStartPending && !tutorialState.active) {

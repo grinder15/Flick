@@ -613,27 +613,50 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
       child: CustomScrollView(
         controller: _folderGridScrollController,
         slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-              AppConstants.spacingLg,
-              0,
-              AppConstants.spacingLg,
-              AppConstants.spacingLg,
-            ),
-            sliver: SliverGrid(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columns,
-                childAspectRatio: aspectRatio,
-                crossAxisSpacing: AppConstants.spacingMd,
-                mainAxisSpacing: AppConstants.spacingLg,
-              ),
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final folder = visibleFolders[index];
-                return _FolderCard(
-                  folder: folder,
-                  onTap: () => _openFolderDetail(folder),
+          SliverToBoxAdapter(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: ScaleTransition(
+                    scale: Tween<double>(begin: 0.92, end: 1.0).animate(
+                      CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                    ),
+                    child: child,
+                  ),
                 );
-              }, childCount: visibleFolders.length),
+              },
+              child: KeyedSubtree(
+                key: ValueKey('folder_grid_$columns'),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(
+                    AppConstants.spacingLg,
+                    0,
+                    AppConstants.spacingLg,
+                    AppConstants.spacingLg,
+                  ),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: columns,
+                    childAspectRatio: aspectRatio,
+                    crossAxisSpacing: AppConstants.spacingMd,
+                    mainAxisSpacing: AppConstants.spacingLg,
+                  ),
+                  itemCount: visibleFolders.length,
+                  itemBuilder: (context, index) {
+                    final folder = visibleFolders[index];
+                    return Transform.scale(
+                      scale: 0.95 + (_folderGridScale * 0.05),
+                      child: _FolderCard(
+                        folder: folder,
+                        onTap: () => _openFolderDetail(folder),
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
           SliverToBoxAdapter(

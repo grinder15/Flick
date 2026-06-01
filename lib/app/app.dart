@@ -28,7 +28,6 @@ import 'package:flick/providers/providers.dart';
 import 'package:flick/features/onboarding/screens/onboarding_screen.dart';
 import 'package:flick/features/onboarding/widgets/tutorial_overlay.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
-import 'package:flick/widgets/common/glass_dialog.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/library_scanner_service.dart';
 import 'package:flick/services/player_service.dart';
@@ -36,6 +35,7 @@ import 'package:flick/services/milestone_service.dart';
 import 'package:flick/services/widget_sync_service.dart';
 import 'package:flick/services/widget_intent_handler.dart';
 import 'package:flick/models/nav_bar_config.dart';
+import 'package:flick/features/milestone/widgets/milestone_card.dart';
 
 /// Main application widget for Flick Player.
 class FlickPlayerApp extends StatelessWidget {
@@ -302,6 +302,17 @@ class _MainShellState extends ConsumerState<MainShell>
     if (milestone == null || !mounted) return;
 
     _playerService.pendingMilestoneNotifier.value = null;
+    final milestoneService = MilestoneService();
+    unawaited(_showMilestoneDialog(milestone, milestoneService));
+  }
+
+  Future<void> _showMilestoneDialog(
+    MilestoneType milestone,
+    MilestoneService service,
+  ) async {
+    final next = await service.getNextMilestone();
+    if (!mounted) return;
+
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -310,43 +321,20 @@ class _MainShellState extends ConsumerState<MainShell>
       pageBuilder: (context, anim1, anim2) => const SizedBox.shrink(),
       transitionBuilder: (context, anim1, anim2, child) {
         return FadeTransition(
-          opacity: CurvedAnimation(
-            parent: anim1,
-            curve: Curves.easeOutCubic,
-          ),
+          opacity: CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic),
           child: ScaleTransition(
-            scale: Tween<double>(
-              begin: 0.9,
-              end: 1.0,
-            ).animate(
-              CurvedAnimation(
-                parent: anim1,
-                curve: Curves.easeOutBack,
-              ),
+            scale: Tween<double>(begin: 0.9, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
             ),
-            child: GlassDialog(
-              title: milestone.title,
-              content: Text(milestone.message),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Dismiss'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const SupportFlickScreen(),
-                      ),
-                    );
-                  },
-                  child: Text(
-                    'Support Flick',
-                    style: TextStyle(color: AppColors.accent),
-                  ),
-                ),
-              ],
+            child: MilestoneCard(
+              milestone: milestone,
+              nextLabel: next.next?.shortLabel,
+              nextRemaining: next.next == null ? null : next.remaining,
+              onSupportTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SupportFlickScreen()),
+                );
+              },
             ),
           ),
         );
@@ -562,7 +550,8 @@ class _MainShellState extends ConsumerState<MainShell>
                     final currentConfig = ref.read(navBarConfigProvider);
                     final currentOrder = _getPageOrder(currentConfig);
                     if (position < 0 || position >= currentOrder.length) return;
-                    if (_programmaticPageTarget == null && position != _lastHapticPage) {
+                    if (_programmaticPageTarget == null &&
+                        position != _lastHapticPage) {
                       AppHaptics.selection();
                     }
                     _lastHapticPage = position;
@@ -626,9 +615,7 @@ class _MainShellState extends ConsumerState<MainShell>
                 ),
 
                 // Interactive tutorial overlay
-                const Positioned.fill(
-                  child: TutorialOverlay(),
-                ),
+                const Positioned.fill(child: TutorialOverlay()),
               ],
             ),
           ),

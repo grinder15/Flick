@@ -6,12 +6,14 @@ import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
+import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/data/repositories/recently_played_repository.dart';
 import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/features/albums/screens/album_detail_screen.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
+import 'package:flick/widgets/common/display_mode_wrapper.dart';
 
 /// Artist detail screen showing songs, albums, and most played tracks.
 class ArtistDetailScreen extends StatefulWidget {
@@ -180,124 +182,228 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     NavigationHelper.navigateToFullPlayer(context, heroTag: 'artist_shuffle');
   }
 
+  int? get _artistYear {
+    int? earliest;
+    for (final song in widget.songs) {
+      if (song.year != null && song.year! > 0) {
+        if (earliest == null || song.year! < earliest) {
+          earliest = song.year;
+        }
+      }
+    }
+    return earliest;
+  }
+
+  String? get _artistGenre {
+    for (final song in widget.songs) {
+      final genre = song.genre?.trim();
+      if (genre != null && genre.isNotEmpty) {
+        return genre;
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final albumGroups = _albumGroups;
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: CustomScrollView(
-        slivers: [
-          _buildAppBar(context, albumGroups.length),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppConstants.spacingLg,
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _ActionButton(
-                      icon: LucideIcons.play,
-                      label: 'Play All',
-                      onTap: _playAll,
+    return DisplayModeWrapper(
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        body: Stack(
+          children: [
+            _buildAmbientBackground(),
+            CustomScrollView(
+              slivers: [
+                _buildAppBar(context, albumGroups.length),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppConstants.spacingLg,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _ActionButton(
+                            icon: LucideIcons.play,
+                            label: 'Play All',
+                            onTap: _playAll,
+                          ),
+                        ),
+                        const SizedBox(width: AppConstants.spacingMd),
+                        Expanded(
+                          child: _ActionButton(
+                            icon: LucideIcons.shuffle,
+                            label: 'Shuffle',
+                            onTap: _shuffleAll,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: AppConstants.spacingMd),
-                  Expanded(
-                    child: _ActionButton(
-                      icon: LucideIcons.shuffle,
-                      label: 'Shuffle',
-                      onTap: _shuffleAll,
+                ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: AppConstants.spacingLg),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppConstants.spacingLg,
+                    ),
+                    child: Wrap(
+                      spacing: AppConstants.spacingSm,
+                      runSpacing: AppConstants.spacingSm,
+                      children: [
+                        _InfoChip(
+                          icon: LucideIcons.music,
+                          label: '${widget.songs.length} songs',
+                        ),
+                        _InfoChip(
+                          icon: LucideIcons.clock,
+                          label: _formattedTotalDuration,
+                        ),
+                        if (_artistYear != null)
+                          _InfoChip(
+                            icon: LucideIcons.calendar,
+                            label: '${_artistYear!}',
+                          ),
+                        if (_artistGenre != null)
+                          _InfoChip(
+                            icon: LucideIcons.tags,
+                            label: _artistGenre!,
+                          ),
+                      ],
                     ),
                   ),
+                ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: AppConstants.spacingLg),
+                ),
+                if (_artistAlbums.length > 1)
+                  _buildSectionTitle(context, 'Albums'),
+                if (_artistAlbums.length > 1)
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 200,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppConstants.spacingLg,
+                        ),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _artistAlbums.length,
+                        separatorBuilder: (_, __) => const SizedBox(
+                          width: AppConstants.spacingMd,
+                        ),
+                        itemBuilder: (context, index) {
+                          final album = _artistAlbums[index];
+                          return _AlbumCard(
+                            albumName: album.albumName,
+                            albumArtist: album.albumArtist,
+                            songCount: album.songs.length,
+                            albumArt: _getArt(album.songs),
+                            albumArtSourcePath: _getSourcePath(album.songs),
+                            onTap: () => _openAlbum(album),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                if (_artistAlbums.length > 1)
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: AppConstants.spacingLg),
+                  ),
+                if (!_isLoadingExtras && _mostPlayedSongs.isNotEmpty)
+                  _buildSectionTitle(context, 'Most Played'),
+                if (!_isLoadingExtras && _mostPlayedSongs.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: SizedBox(
+                      height: 72,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppConstants.spacingLg,
+                        ),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _mostPlayedSongs.length,
+                        separatorBuilder: (_, __) => const SizedBox(
+                          width: AppConstants.spacingMd,
+                        ),
+                        itemBuilder: (context, index) {
+                          final song = _mostPlayedSongs[index];
+                          return _MostPlayedCard(
+                            song: song,
+                            onTap: () => _playSong(song),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                if (!_isLoadingExtras && _mostPlayedSongs.isNotEmpty)
+                  const SliverToBoxAdapter(
+                    child: SizedBox(height: AppConstants.spacingLg),
+                  ),
+                _buildSectionTitle(context, 'Songs'),
+                SliverPadding(
+                  padding: EdgeInsets.only(
+                    bottom: AppConstants.navBarHeight + 120,
+                  ),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate((context, index) {
+                      final albumEntry = albumGroups.entries.toList()[index];
+                      return _AlbumSection(
+                        albumName: albumEntry.key,
+                        songs: albumEntry.value,
+                        onSongTap: _playSong,
+                      );
+                    }, childCount: albumGroups.length),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAmbientBackground() {
+    return Stack(
+      children: [
+        Positioned(
+          top: -100,
+          left: -80,
+          child: Container(
+            width: 240,
+            height: 240,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  AppColors.accent.withValues(alpha: 0.14),
+                  Colors.transparent,
                 ],
               ),
             ),
           ),
-          const SliverToBoxAdapter(
-            child: SizedBox(height: AppConstants.spacingLg),
-          ),
-          if (_artistAlbums.length > 1)
-            _buildSectionTitle(context, 'Albums'),
-          if (_artistAlbums.length > 1)
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 180,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppConstants.spacingLg,
-                  ),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _artistAlbums.length,
-                  separatorBuilder: (_, __) => const SizedBox(
-                    width: AppConstants.spacingMd,
-                  ),
-                  itemBuilder: (context, index) {
-                    final album = _artistAlbums[index];
-                    return _AlbumCard(
-                      albumName: album.albumName,
-                      albumArtist: album.albumArtist,
-                      songCount: album.songs.length,
-                      albumArt: _getArt(album.songs),
-                      albumArtSourcePath: _getSourcePath(album.songs),
-                      onTap: () => _openAlbum(album),
-                    );
-                  },
-                ),
+        ),
+        Positioned(
+          top: 140,
+          right: -100,
+          child: Container(
+            width: 200,
+            height: 200,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  AppColors.surfaceLight.withValues(alpha: 0.20),
+                  Colors.transparent,
+                ],
               ),
             ),
-          if (_artistAlbums.length > 1)
-            const SliverToBoxAdapter(
-              child: SizedBox(height: AppConstants.spacingLg),
-            ),
-          if (!_isLoadingExtras && _mostPlayedSongs.isNotEmpty)
-            _buildSectionTitle(context, 'Most Played'),
-          if (!_isLoadingExtras && _mostPlayedSongs.isNotEmpty)
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: 72,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppConstants.spacingLg,
-                  ),
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _mostPlayedSongs.length,
-                  separatorBuilder: (_, __) => const SizedBox(
-                    width: AppConstants.spacingMd,
-                  ),
-                  itemBuilder: (context, index) {
-                    final song = _mostPlayedSongs[index];
-                    return _MostPlayedCard(
-                      song: song,
-                      onTap: () => _playSong(song),
-                    );
-                  },
-                ),
-              ),
-            ),
-          if (!_isLoadingExtras && _mostPlayedSongs.isNotEmpty)
-            const SliverToBoxAdapter(
-              child: SizedBox(height: AppConstants.spacingLg),
-            ),
-          _buildSectionTitle(context, 'Songs'),
-          SliverPadding(
-            padding: EdgeInsets.only(
-              bottom: AppConstants.navBarHeight + 120,
-            ),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final albumEntry = albumGroups.entries.toList()[index];
-                return _AlbumSection(
-                  albumName: albumEntry.key,
-                  songs: albumEntry.value,
-                  onSongTap: _playSong,
-                );
-              }, childCount: albumGroups.length),
-            ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -305,6 +411,7 @@ class _ArtistDetailScreenState extends State<ArtistDetailScreen> {
     return SliverAppBar(
       expandedHeight: 220,
       pinned: true,
+      scrolledUnderElevation: 0,
       backgroundColor: AppColors.surface,
       leading: Container(
         margin: const EdgeInsets.all(8),
@@ -521,7 +628,44 @@ class _StatChip extends StatelessWidget {
   }
 }
 
-class _AlbumCard extends StatelessWidget {
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _InfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.spacingMd,
+        vertical: AppConstants.spacingSm,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.glassBackgroundStrong,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: context.adaptiveTextSecondary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: context.adaptiveTextSecondary,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AlbumCard extends StatefulWidget {
   final String albumName;
   final String albumArtist;
   final int songCount;
@@ -539,147 +683,215 @@ class _AlbumCard extends StatelessWidget {
   });
 
   @override
+  State<_AlbumCard> createState() => _AlbumCardState();
+}
+
+class _AlbumCardState extends State<_AlbumCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: AppConstants.animationFast,
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 140,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AspectRatio(
-              aspectRatio: 1,
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceLight,
-                  borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-                  child: CachedImageWidget(
-                    imagePath: albumArt,
-                    audioSourcePath: albumArtSourcePath,
-                    fit: BoxFit.cover,
-                    placeholder: Center(
-                      child: Icon(
-                        LucideIcons.disc,
-                        color: context.adaptiveTextTertiary,
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: GestureDetector(
+        onTapDown: (_) => _controller.forward(),
+        onTapUp: (_) => _controller.reverse(),
+        onTapCancel: () => _controller.reverse(),
+        onTap: widget.onTap,
+        child: SizedBox(
+          width: 140,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AspectRatio(
+                aspectRatio: 1,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceLight,
+                    borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+                    child: CachedImageWidget(
+                      imagePath: widget.albumArt,
+                      audioSourcePath: widget.albumArtSourcePath,
+                      fit: BoxFit.cover,
+                      placeholder: Center(
+                        child: Icon(
+                          LucideIcons.disc,
+                          color: context.adaptiveTextTertiary,
+                        ),
                       ),
-                    ),
-                    errorWidget: Center(
-                      child: Icon(
-                        LucideIcons.disc,
-                        color: context.adaptiveTextTertiary,
+                      errorWidget: Center(
+                        child: Icon(
+                          LucideIcons.disc,
+                          color: context.adaptiveTextTertiary,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: AppConstants.spacingSm),
-            Text(
-              albumName,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: context.adaptiveTextPrimary,
-                fontWeight: FontWeight.w600,
+              const SizedBox(height: AppConstants.spacingSm),
+              Text(
+                widget.albumName,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.adaptiveTextPrimary,
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              '$songCount songs',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: context.adaptiveTextTertiary,
+              const SizedBox(height: 2),
+              Text(
+                '${widget.songCount} songs',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: context.adaptiveTextTertiary,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _MostPlayedCard extends StatelessWidget {
+class _MostPlayedCard extends StatefulWidget {
   final Song song;
   final VoidCallback onTap;
 
   const _MostPlayedCard({required this.song, required this.onTap});
 
   @override
+  State<_MostPlayedCard> createState() => _MostPlayedCardState();
+}
+
+class _MostPlayedCardState extends State<_MostPlayedCard>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      duration: AppConstants.animationFast,
+      vsync: this,
+    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 240,
-        padding: const EdgeInsets.all(AppConstants.spacingSm),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: AppColors.glassBackground,
-                borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                child: CachedImageWidget(
-                  imagePath: song.albumArt,
-                  audioSourcePath: song.filePath,
-                  fit: BoxFit.cover,
-                  placeholder: Icon(
-                    LucideIcons.music,
-                    color: context.adaptiveTextTertiary,
-                    size: 18,
-                  ),
-                  errorWidget: Icon(
-                    LucideIcons.music,
-                    color: context.adaptiveTextTertiary,
-                    size: 18,
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: GestureDetector(
+        onTapDown: (_) => _controller.forward(),
+        onTapUp: (_) => _controller.reverse(),
+        onTapCancel: () => _controller.reverse(),
+        onTap: widget.onTap,
+        child: Container(
+          width: 240,
+          padding: const EdgeInsets.all(AppConstants.spacingSm),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: AppColors.glassBackground,
+                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
+                  child: CachedImageWidget(
+                    imagePath: widget.song.albumArt,
+                    audioSourcePath: widget.song.filePath,
+                    fit: BoxFit.cover,
+                    placeholder: Icon(
+                      LucideIcons.music,
+                      color: context.adaptiveTextTertiary,
+                      size: 18,
+                    ),
+                    errorWidget: Icon(
+                      LucideIcons.music,
+                      color: context.adaptiveTextTertiary,
+                      size: 18,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: AppConstants.spacingSm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    song.title,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: context.adaptiveTextPrimary,
-                      fontWeight: FontWeight.w600,
+              const SizedBox(width: AppConstants.spacingSm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      widget.song.title,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    song.album ?? '',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: context.adaptiveTextTertiary,
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.song.album ?? '',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.adaptiveTextTertiary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Icon(
-              LucideIcons.play,
-              color: context.adaptiveTextSecondary,
-              size: 20,
-            ),
-          ],
+              Icon(
+                LucideIcons.play,
+                color: context.adaptiveTextSecondary,
+                size: 20,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -757,8 +969,8 @@ class _SongTile extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 44,
-                height: 44,
+                width: context.scaleSize(AppConstants.containerSizeMd),
+                height: context.scaleSize(AppConstants.containerSizeMd),
                 decoration: BoxDecoration(
                   color: AppColors.glassBackground,
                   borderRadius: BorderRadius.circular(AppConstants.radiusSm),
@@ -772,25 +984,39 @@ class _SongTile extends StatelessWidget {
                     placeholder: Icon(
                       LucideIcons.music,
                       color: context.adaptiveTextTertiary,
-                      size: 18,
+                      size: context.responsiveIcon(AppConstants.iconSizeMd),
                     ),
                     errorWidget: Icon(
                       LucideIcons.music,
                       color: context.adaptiveTextTertiary,
-                      size: 18,
+                      size: context.responsiveIcon(AppConstants.iconSizeMd),
                     ),
                   ),
                 ),
               ),
               const SizedBox(width: AppConstants.spacingMd),
               Expanded(
-                child: Text(
-                  song.title,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: context.adaptiveTextPrimary,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      song.title,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: context.adaptiveTextPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      song.album ?? '',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.adaptiveTextTertiary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
                 ),
               ),
               Text(

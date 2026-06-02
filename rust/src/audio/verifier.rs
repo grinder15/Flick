@@ -54,6 +54,7 @@ impl OutputVerification {
             OutputStrategy::DapNative
             | OutputStrategy::MixerBitPerfect
             | OutputStrategy::UsbDirect
+            | OutputStrategy::UsbDsdNative
                 if !self.bit_perfect =>
             {
                 OutputStrategy::ResampledFallback

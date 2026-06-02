@@ -1278,6 +1278,8 @@ class PlayerService {
         ) ??
         (outputSignature?.startsWith('android-uac2:') == true
             ? 'usb_direct'
+            : outputSignature?.startsWith('android-shared:usb-dsd-native:') == true
+            ? 'usb_dsd_native'
             : 'resampled_fallback');
     final engineRequestedSampleRate = _intValue(
       engineState?['requested_sample_rate'] ??
@@ -1346,8 +1348,9 @@ class PlayerService {
         ? AudioPathManagement.androidManagedShared
         : !usesRustDiagnostics
         ? AudioPathManagement.androidManagedShared
-        : outputStrategy == 'usb_direct' &&
-              outputSignature?.startsWith('android-uac2:') == true
+        : (outputStrategy == 'usb_direct' &&
+                  outputSignature?.startsWith('android-uac2:') == true) ||
+              outputStrategy == 'usb_dsd_native'
         ? AudioPathManagement.directUsbExperimental
         : AudioPathManagement.androidManagedLowLatency;
 
@@ -1393,12 +1396,17 @@ class PlayerService {
             'mixer_bit_perfect' => 'Mixer bit-perfect',
             'mixer_matched' => 'Mixer matched',
             'usb_direct' => 'USB direct',
+            'usb_dsd_native' => 'USB DSD native',
             'resampled_fallback' => 'Resampled fallback',
             _ => 'Adaptive',
           };
     final backendDescription = !usesRustDiagnostics
         ? 'just_audio / ExoPlayer'
         : switch (outputStrategy) {
+            'usb_dsd_native' when passthroughAllowed =>
+              'Rust engine via USB direct native DSD (verified)',
+            'usb_dsd_native' =>
+              'Rust engine via USB direct native DSD',
             'usb_direct' when passthroughAllowed =>
               'Rust engine via libusb direct USB (verified)',
             'usb_direct' => 'Rust engine via libusb direct USB',
@@ -1425,6 +1433,9 @@ class PlayerService {
               ? 'Android shared (USB route)'
               : 'Android shared')
         : switch (outputStrategy) {
+            'usb_dsd_native' when passthroughAllowed =>
+              'Verified USB DSD native',
+            'usb_dsd_native' => 'USB DSD native',
             'usb_direct' when passthroughAllowed => 'Verified USB direct',
             'usb_direct' => 'USB direct',
             'dsd_native' when passthroughAllowed => 'Verified DSD native',
@@ -1469,7 +1480,8 @@ class PlayerService {
           passthroughAllowed &&
           (pathManagement == AudioPathManagement.directUsbExperimental ||
               outputStrategy == 'mixer_bit_perfect' ||
-              outputStrategy == 'dap_native'),
+              outputStrategy == 'dap_native' ||
+              outputStrategy == 'usb_dsd_native'),
       supportsAndroidManagedHighResOnly:
           activeEngineType == AudioEngineType.dapInternalHighRes,
       supportsInternalDapPathOnly:

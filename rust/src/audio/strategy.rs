@@ -10,6 +10,7 @@ pub enum OutputStrategy {
     ResampledFallback,
     DsdNative,
     DsdDoP,
+    UsbDsdNative,
 }
 
 impl From<OutputStrategy> for BackendType {
@@ -22,6 +23,7 @@ impl From<OutputStrategy> for BackendType {
             OutputStrategy::ResampledFallback => BackendType::ResampledFallback,
             OutputStrategy::DsdNative => BackendType::DsdNative,
             OutputStrategy::DsdDoP => BackendType::DsdDoP,
+            OutputStrategy::UsbDsdNative => BackendType::UsbDsdNative,
         }
     }
 }
@@ -36,6 +38,7 @@ impl From<BackendType> for OutputStrategy {
             BackendType::ResampledFallback => OutputStrategy::ResampledFallback,
             BackendType::DsdNative => OutputStrategy::DsdNative,
             BackendType::DsdDoP => OutputStrategy::DsdDoP,
+            BackendType::UsbDsdNative => OutputStrategy::UsbDsdNative,
         }
     }
 }
@@ -50,18 +53,19 @@ impl OutputStrategy {
             Self::ResampledFallback => "resampled_fallback",
             Self::DsdNative => "dsd_native",
             Self::DsdDoP => "dsd_dop",
+            Self::UsbDsdNative => "usb_dsd_native",
         }
     }
 
     pub fn requests_passthrough(self) -> bool {
         matches!(
             self,
-            Self::DapNative | Self::MixerBitPerfect | Self::UsbDirect | Self::DsdDoP
+            Self::DapNative | Self::MixerBitPerfect | Self::UsbDirect | Self::DsdDoP | Self::UsbDsdNative
         )
     }
 
     pub fn is_dsd(self) -> bool {
-        matches!(self, Self::DsdNative | Self::DsdDoP)
+        matches!(self, Self::DsdNative | Self::DsdDoP | Self::UsbDsdNative)
     }
 }
 
@@ -104,6 +108,7 @@ pub struct DeviceCaps {
     pub supports_native_dsd: bool,
     pub supports_dop: bool,
     pub max_dsd_carrier_rate: u32,
+    pub usb_supports_native_dsd: bool,
 }
 
 impl Default for DeviceCaps {
@@ -118,6 +123,7 @@ impl Default for DeviceCaps {
             supports_native_dsd: false,
             supports_dop: false,
             max_dsd_carrier_rate: 0,
+            usb_supports_native_dsd: false,
         }
     }
 }
@@ -201,7 +207,30 @@ fn score_dsd_dop(device: &DeviceCaps, track: &TrackInfo) -> Option<u8> {
     None
 }
 
+fn score_usb_dsd_native(device: &DeviceCaps, track: &TrackInfo) -> Option<u8> {
+    if !track.is_dsd || !device.usb_supports_native_dsd {
+        return None;
+    }
+    if !(device.direct_usb_available && device.direct_usb_verified) {
+        return None;
+    }
+    if let Some(dsd_rate) = track.dsd_rate {
+        let byte_rate = crate::audio::dsd_engine::dsd::DsdRate::from_sample_rate(dsd_rate)
+            .map(|r| r.byte_rate())
+            .unwrap_or(0);
+        if byte_rate > 0 {
+            log::debug!(
+                "[STRATEGY] score_usb_dsd_native = 115 (dsd_rate={}, byte_rate={})",
+                dsd_rate, byte_rate
+            );
+            return Some(115);
+        }
+    }
+    None
+}
+
 pub static DEFAULT_CANDIDATES: &[BackendCandidate] = &[
+    BackendCandidate { backend_type: BackendType::UsbDsdNative, scorer: score_usb_dsd_native },
     BackendCandidate { backend_type: BackendType::DsdNative, scorer: score_dsd_native },
     BackendCandidate { backend_type: BackendType::DapNative, scorer: score_dap_native },
     BackendCandidate { backend_type: BackendType::MixerBitPerfect, scorer: score_mixer_bit_perfect },
@@ -501,5 +530,51 @@ mod tests {
             &[],
         );
         assert_eq!(strategy, OutputStrategy::DsdNative);
+    }
+
+    #[test]
+    fn usb_dsd_native_wins_over_dap_native_and_internal_dsd_native() {
+        let strategy = select_strategy(
+            TrackInfo::dsd(2_822_400, 2),
+            &DeviceCaps {
+                confirmed_dap_native: true,
+                supports_native_dsd: true,
+                direct_usb_available: true,
+                direct_usb_verified: true,
+                supports_dop: true,
+                max_dsd_carrier_rate: 176_400,
+                usb_supports_native_dsd: true,
+                ..test_caps()
+            },
+        );
+        assert_eq!(strategy, OutputStrategy::UsbDsdNative);
+    }
+
+    #[test]
+    fn usb_dsd_native_not_chosen_when_usb_unavailable() {
+        let strategy = select_strategy(
+            TrackInfo::dsd(2_822_400, 2),
+            &DeviceCaps {
+                confirmed_dap_native: true,
+                supports_native_dsd: true,
+                usb_supports_native_dsd: true,
+                ..test_caps()
+            },
+        );
+        assert_eq!(strategy, OutputStrategy::DsdNative);
+    }
+
+    #[test]
+    fn usb_dsd_native_not_chosen_for_pcm_tracks() {
+        let strategy = select_strategy(
+            TrackInfo::pcm(96_000, 2),
+            &DeviceCaps {
+                direct_usb_available: true,
+                direct_usb_verified: true,
+                usb_supports_native_dsd: true,
+                ..test_caps()
+            },
+        );
+        assert_eq!(strategy, OutputStrategy::UsbDirect);
     }
 }

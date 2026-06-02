@@ -404,6 +404,49 @@ class RecentlyPlayedRepository {
     return _isar.recentlyPlayedEntitys.watchLazy();
   }
 
+  /// Get the most-played songs for a specific artist.
+  /// Returns songs sorted by play count, most played first.
+  Future<List<Song>> getMostPlayedSongsByArtist(
+    String artistName, {
+    int limit = 5,
+  }) async {
+    final entries = await _isar.recentlyPlayedEntitys
+        .where()
+        .sortByPlayedAtDesc()
+        .findAll();
+
+    if (entries.isEmpty) return const [];
+
+    final allSongEntities = await _songRepository.getAllSongEntities();
+    final songMap = {for (final entity in allSongEntities) entity.id: entity};
+
+    final playCounts = <String, int>{};
+    final songEntities = <String, SongEntity>{};
+
+    for (final entry in entries) {
+      final songEntity = songMap[entry.songId];
+      if (songEntity == null) continue;
+      if (songEntity.artist != artistName) continue;
+
+      final id = songEntity.id.toString();
+      songEntities[id] = songEntity;
+      playCounts[id] = (playCounts[id] ?? 0) + 1;
+    }
+
+    final sortedIds = playCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    final result = <Song>[];
+    for (final entry in sortedIds.take(limit)) {
+      final entity = songEntities[entry.key];
+      if (entity != null) {
+        result.add(_entityToSong(entity));
+      }
+    }
+
+    return result;
+  }
+
   Future<List<RecentlyPlayedEntry>> _getEntriesBetween({
     required DateTime start,
     required DateTime endExclusive,

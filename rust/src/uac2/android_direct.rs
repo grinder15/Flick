@@ -1083,6 +1083,41 @@ pub fn set_android_usb_dop_mode(
     Ok(())
 }
 
+pub fn set_android_usb_dsd_native_mode(
+    byte_rate: u32,
+    bit_depth: u8,
+) -> Result<(), String> {
+    let mut guard = DIRECT_USB_STATE.lock();
+    let Some(state) = guard.as_mut() else {
+        return Err("No Android direct USB DAC is registered".to_string());
+    };
+
+    let current = state.playback_format.unwrap_or(AndroidDirectUsbPlaybackFormat {
+        sample_rate: byte_rate,
+        bit_depth,
+        channels: 2,
+        is_dop: false,
+        dsd_transport: DsdTransportMode::None,
+    });
+
+    let native_format = AndroidDirectUsbPlaybackFormat {
+        sample_rate: byte_rate,
+        bit_depth: if bit_depth > 0 { bit_depth } else { current.bit_depth },
+        channels: current.channels,
+        is_dop: false,
+        dsd_transport: DsdTransportMode::Native,
+    };
+    let sanitized = sanitize_android_usb_playback_format(native_format);
+
+    state.playback_format = Some(sanitized);
+    state.requested_playback_format = Some(sanitized);
+    state.clock_status = None;
+    state.clock_control_attempted = false;
+    state.clock_control_succeeded = false;
+    state.clock_verification_passed = false;
+    Ok(())
+}
+
 pub fn set_android_usb_lock_enabled(enabled: bool) -> Result<(), String> {
     let stream_active = {
         let mut guard = DIRECT_USB_STATE.lock();

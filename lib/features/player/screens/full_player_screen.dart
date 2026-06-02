@@ -10,8 +10,8 @@ import 'package:flick/core/utils/app_haptics.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/data/repositories/song_repository.dart';
-import 'package:flick/features/albums/screens/albums_screen.dart';
-import 'package:flick/features/artists/screens/artists_screen.dart';
+import 'package:flick/features/albums/screens/album_detail_screen.dart';
+import 'package:flick/features/artists/screens/artist_detail_screen.dart';
 import 'package:flick/features/player/widgets/ambient_background.dart';
 import 'package:flick/features/player/widgets/share/share_bottom_sheet.dart';
 import 'package:flick/features/songs/screens/metadata_editor_screen.dart';
@@ -2605,6 +2605,8 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                       _showSongActionsBottomSheet(context, song),
                   onPrevious: _animateToPreviousSong,
                   onNext: _animateToNextSong,
+                  onNavigateToArtistDetail: (song) => _openArtistFromSong(context, song),
+                  onNavigateToAlbumDetail: (song) => _openAlbumFromSong(context, song),
                   buildFileInfoRow: (song, lyricsMode, mode) =>
                       _buildFileInfoRow(
                         context,
@@ -2687,6 +2689,8 @@ class _AnimatedSongScene extends StatelessWidget {
   final VoidCallback onShowSongActions;
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
+  final void Function(Song song) onNavigateToArtistDetail;
+  final void Function(Song song) onNavigateToAlbumDetail;
   final Widget Function(Song song, bool lyricsMode, PlayerScreenMode mode)
   buildFileInfoRow;
   final Widget Function(Song song) buildDirectoryInfo;
@@ -2732,6 +2736,8 @@ class _AnimatedSongScene extends StatelessWidget {
     required this.onShowSongActions,
     required this.onPrevious,
     required this.onNext,
+    required this.onNavigateToArtistDetail,
+    required this.onNavigateToAlbumDetail,
     required this.buildFileInfoRow,
     required this.buildDirectoryInfo,
     this.visualizerAnimationStyle = 'bars',
@@ -3495,18 +3501,21 @@ class _AnimatedSongScene extends StatelessWidget {
                     if (immersiveShowTitle && immersiveShowArtist)
                       SizedBox(height: context.responsive(6.0, 7.0, 8.0)),
                     if (immersiveShowArtist)
-                      Text(
-                        song.artist,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontFamily: 'ProductSans',
-                          fontSize: context.responsiveText(
-                            context.responsive(13.0, 14.0, 15.0) *
-                                immersiveTextScale,
+                      GestureDetector(
+                        onTap: () => onNavigateToArtistDetail(song),
+                        child: Text(
+                          song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'ProductSans',
+                            fontSize: context.responsiveText(
+                              context.responsive(13.0, 14.0, 15.0) *
+                                  immersiveTextScale,
+                            ),
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white.withValues(alpha: 0.78),
                           ),
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white.withValues(alpha: 0.78),
                         ),
                       ),
                   ],
@@ -3546,18 +3555,21 @@ class _AnimatedSongScene extends StatelessWidget {
               if (immersiveShowTitle && immersiveShowArtist)
                 SizedBox(height: context.responsive(10.0, 12.0, 14.0)),
               if (immersiveShowArtist)
-                Text(
-                  song.artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontFamily: 'ProductSans',
-                    fontSize: context.responsiveText(
-                      context.responsive(13.0, 14.0, 16.0) *
-                          immersiveTextScale,
+                GestureDetector(
+                  onTap: () => onNavigateToArtistDetail(song),
+                  child: Text(
+                    song.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontFamily: 'ProductSans',
+                      fontSize: context.responsiveText(
+                        context.responsive(13.0, 14.0, 16.0) *
+                            immersiveTextScale,
+                      ),
+                      fontWeight: FontWeight.w500,
+                      color: Colors.white.withValues(alpha: 0.82),
                     ),
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.82),
                   ),
                 ),
               if (immersiveShowTitle || immersiveShowArtist)
@@ -3806,16 +3818,19 @@ class _AnimatedSongScene extends StatelessWidget {
         if (artworkCardShowTitle && artworkCardShowArtist)
           SizedBox(height: titleToArtistSpacing),
         if (artworkCardShowArtist)
-          Text(
-            song.artist,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontFamily: 'ProductSans',
-              fontSize: context.responsiveText(artistSize),
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.78),
+          GestureDetector(
+            onTap: () => onNavigateToArtistDetail(song),
+            child: Text(
+              song.artist,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: 'ProductSans',
+                fontSize: context.responsiveText(artistSize),
+                fontWeight: FontWeight.w500,
+                color: Colors.white.withValues(alpha: 0.78),
+              ),
             ),
           ),
         if (artworkCardShowAlbum &&
@@ -3842,14 +3857,17 @@ class _AnimatedSongScene extends StatelessWidget {
                         border: Border.all(
                             color: Colors.white.withValues(alpha: 0.1)),
                       ),
-                      child: Text(
-                        song.album!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontFamily: 'ProductSans',
-                          fontSize: context.responsiveText(albumFontSize),
-                          color: Colors.white.withValues(alpha: 0.68),
+                      child: GestureDetector(
+                        onTap: () => onNavigateToAlbumDetail(song),
+                        child: Text(
+                          song.album!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontFamily: 'ProductSans',
+                            fontSize: context.responsiveText(albumFontSize),
+                            color: Colors.white.withValues(alpha: 0.68),
+                          ),
                         ),
                       ),
                     ),
@@ -3875,25 +3893,28 @@ class _AnimatedSongScene extends StatelessWidget {
               ],
             )
           else if (hasAlbum)
-            Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: albumHorizontalPadding,
-                vertical: albumVerticalPadding,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(999),
-                border:
-                    Border.all(color: Colors.white.withValues(alpha: 0.1)),
-              ),
-              child: Text(
-                song.album!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontFamily: 'ProductSans',
-                  fontSize: context.responsiveText(albumFontSize),
-                  color: Colors.white.withValues(alpha: 0.68),
+            GestureDetector(
+              onTap: () => onNavigateToAlbumDetail(song),
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: albumHorizontalPadding,
+                  vertical: albumVerticalPadding,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(999),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                child: Text(
+                  song.album!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'ProductSans',
+                    fontSize: context.responsiveText(albumFontSize),
+                    color: Colors.white.withValues(alpha: 0.68),
+                  ),
                 ),
               ),
             ),

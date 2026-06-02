@@ -12,6 +12,7 @@ import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/data/repositories/recently_played_repository.dart';
 import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/features/albums/screens/albums_screen.dart';
+import 'package:flick/features/artists/screens/artist_detail_screen.dart';
 import 'package:flick/features/artists/screens/artists_screen.dart';
 import 'package:flick/features/favorites/screens/favorites_screen.dart';
 import 'package:flick/features/folders/screens/folders_screen.dart';

@@ -1061,9 +1061,10 @@ class PlayerService {
       final dsdMode = Uac2PreferencesService.dsdOutputModeSync;
       if (dsdMode == DsdOutputMode.native || dsdMode == DsdOutputMode.auto) {
         final rawRate = song.sampleRate ?? 2822400;
+        final byteRate = rawRate ~/ 8;
         return Uac2AudioFormat(
-          sampleRate: rawRate,
-          bitDepth: 24,
+          sampleRate: byteRate,
+          bitDepth: 8,
           channels: 2,
           isDop: false,
           isNativeDsd: true,

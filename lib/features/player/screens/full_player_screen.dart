@@ -3957,80 +3957,290 @@ class _AnimatedSongScene extends StatelessWidget {
   }
 }
 
-class _AlbumArtBox extends StatelessWidget {
+class _AlbumArtBox extends StatefulWidget {
   final Song song;
   final double? size;
 
   const _AlbumArtBox({required this.song, this.size});
 
   @override
+  State<_AlbumArtBox> createState() => _AlbumArtBoxState();
+}
+
+class _AlbumArtBoxState extends State<_AlbumArtBox>
+    with TickerProviderStateMixin {
+  static const double _labelRatio = 0.44;
+
+  late final AnimationController _morphController;
+  late final AnimationController _spinController;
+  bool _isVinyl = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _morphController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _spinController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 16),
+    );
+    _morphController.addStatusListener(_handleMorphStatus);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AlbumArtBox oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.song.id != widget.song.id && _isVinyl) {
+      _isVinyl = false;
+      _spinController.stop();
+      _spinController.value = 0;
+      _morphController.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _morphController.removeStatusListener(_handleMorphStatus);
+    _spinController.dispose();
+    _morphController.dispose();
+    super.dispose();
+  }
+
+  void _handleMorphStatus(AnimationStatus status) {
+    if (!mounted) return;
+    if (status == AnimationStatus.completed && _isVinyl) {
+      _spinController.repeat();
+    } else if (status == AnimationStatus.dismissed) {
+      _spinController.value = 0;
+    }
+  }
+
+  void _toggle() {
+    AppHaptics.tap();
+    setState(() {
+      _isVinyl = !_isVinyl;
+      if (_isVinyl) {
+        _morphController.forward();
+      } else {
+        _spinController.stop();
+        _morphController.reverse();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final double resolvedSize = size ?? context.responsive(280.0, 320.0, 360.0);
+    final double resolvedSize =
+        widget.size ?? context.responsive(280.0, 320.0, 360.0);
     final framePadding = resolvedSize < 220 ? 5.0 : 7.0;
     final outerRadius = resolvedSize < 220 ? 28.0 : 34.0;
     final innerRadius = math.max(outerRadius - 7.0, 20.0);
     final iconSize = math.max(52.0, resolvedSize * 0.24);
     final shadowBlur = resolvedSize < 220 ? 28.0 : 36.0;
     final shadowOffsetY = resolvedSize < 220 ? 14.0 : 20.0;
+    final labelSize = resolvedSize * _labelRatio;
+    final labelRadius = labelSize / 2;
 
     return Center(
-      child: Container(
-        width: resolvedSize,
-        height: resolvedSize,
-        padding: EdgeInsets.all(framePadding),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(outerRadius),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Colors.white.withValues(alpha: 0.16),
-              Colors.white.withValues(alpha: 0.06),
-              Colors.white.withValues(alpha: 0.02),
-            ],
-            stops: const [0.0, 0.4, 1.0],
-          ),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.32),
-              blurRadius: shadowBlur,
-              offset: Offset(0, shadowOffsetY),
-            ),
-            BoxShadow(
-              color: Colors.white.withValues(alpha: 0.06),
-              blurRadius: 1,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(innerRadius),
-          child: CachedImageWidget(
-            imagePath: song.albumArt,
-            audioSourcePath: song.filePath,
-            fit: BoxFit.cover,
-            placeholder: Container(
-              color: Colors.white.withValues(alpha: 0.05),
-              child: Icon(
-                LucideIcons.music,
-                size: iconSize,
-                color: Colors.white.withValues(alpha: 0.48),
-              ),
-            ),
-            errorWidget: Container(
-              color: Colors.white.withValues(alpha: 0.05),
-              child: Icon(
-                LucideIcons.music,
-                size: iconSize,
-                color: Colors.white.withValues(alpha: 0.48),
-              ),
-            ),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _toggle,
+        child: SizedBox(
+          width: resolvedSize,
+          height: resolvedSize,
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_morphController, _spinController]),
+            builder: (context, _) {
+              final t = Curves.easeInOutCubic
+                  .transform(_morphController.value)
+                  .clamp(0.0, 1.0);
+              final glass = (1.0 - t).clamp(0.0, 1.0);
+              final spinAngle =
+                  _spinController.value * 2 * math.pi * t;
+
+              final artSize = resolvedSize - (resolvedSize - labelSize) * t;
+              final artFramePadding = framePadding * glass;
+              final artOuterRadius =
+                  outerRadius + (labelRadius - outerRadius) * t;
+              final artInnerRadius =
+                  innerRadius + (labelRadius - innerRadius) * t;
+
+              return Transform.rotate(
+                angle: spinAngle,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    if (t > 0.001)
+                      Opacity(
+                        opacity: t,
+                        child: SizedBox(
+                          width: resolvedSize,
+                          height: resolvedSize,
+                          child: CustomPaint(
+                            painter: _VinylDiscPainter(
+                              labelRatio: _labelRatio,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Container(
+                      width: artSize,
+                      height: artSize,
+                      padding: EdgeInsets.all(artFramePadding),
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(artOuterRadius),
+                        gradient: glass > 0.01
+                            ? LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white
+                                      .withValues(alpha: 0.16 * glass),
+                                  Colors.white
+                                      .withValues(alpha: 0.06 * glass),
+                                  Colors.white
+                                      .withValues(alpha: 0.02 * glass),
+                                ],
+                                stops: const [0.0, 0.4, 1.0],
+                              )
+                            : null,
+                        border: Border.all(
+                          color: glass > 0.5
+                              ? Colors.white
+                                  .withValues(alpha: 0.12 * glass)
+                              : Colors.black
+                                  .withValues(alpha: 0.28 * t),
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(
+                              alpha: 0.32 * (0.35 + 0.65 * glass),
+                            ),
+                            blurRadius:
+                                shadowBlur * (0.45 + 0.55 * glass),
+                            offset: Offset(
+                              0,
+                              shadowOffsetY * (0.25 + 0.75 * glass),
+                            ),
+                          ),
+                          if (glass > 0.05)
+                            BoxShadow(
+                              color: Colors.white.withValues(
+                                alpha: 0.06 * glass,
+                              ),
+                              blurRadius: 1,
+                              offset: const Offset(0, 1),
+                            ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius:
+                            BorderRadius.circular(artInnerRadius),
+                        child: CachedImageWidget(
+                          imagePath: widget.song.albumArt,
+                          audioSourcePath: widget.song.filePath,
+                          fit: BoxFit.cover,
+                          placeholder: Container(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            child: Icon(
+                              LucideIcons.music,
+                              size: iconSize * (1 - t * 0.5),
+                              color:
+                                  Colors.white.withValues(alpha: 0.48),
+                            ),
+                          ),
+                          errorWidget: Container(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            child: Icon(
+                              LucideIcons.music,
+                              size: iconSize * (1 - t * 0.5),
+                              color:
+                                  Colors.white.withValues(alpha: 0.48),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (t > 0.35)
+                      IgnorePointer(
+                        child: Container(
+                          width: resolvedSize * 0.045,
+                          height: resolvedSize * 0.045,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: const Color(0xFF050505)
+                                .withValues(alpha: t),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black
+                                    .withValues(alpha: 0.55 * t),
+                                blurRadius: 2,
+                                offset: const Offset(0, 0.5),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),
     );
   }
+}
+
+class _VinylDiscPainter extends CustomPainter {
+  _VinylDiscPainter({required this.labelRatio});
+
+  final double labelRatio;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final outerRadius = size.shortestSide / 2;
+
+    final discPaint = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.3, -0.3),
+        radius: 0.95,
+        colors: const [Color(0xFF2A2A2A), Color(0xFF0A0A0A)],
+      ).createShader(Rect.fromCircle(center: center, radius: outerRadius));
+    canvas.drawCircle(center, outerRadius, discPaint);
+
+    final groovePaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.7
+      ..color = Colors.white.withValues(alpha: 0.06);
+    final labelRadius = outerRadius * labelRatio;
+    const grooves = 16;
+    for (var i = 0; i < grooves; i++) {
+      final t = (i + 1) / (grooves + 1);
+      final r = labelRadius + (outerRadius - labelRadius) * t;
+      canvas.drawCircle(center, r, groovePaint);
+    }
+
+    final highlightPaint = Paint()
+      ..shader = RadialGradient(
+        center: const Alignment(-0.45, -0.45),
+        radius: 0.55,
+        colors: [
+          Colors.white.withValues(alpha: 0.10),
+          Colors.white.withValues(alpha: 0.0),
+        ],
+      ).createShader(Rect.fromCircle(center: center, radius: outerRadius));
+    canvas.drawCircle(center, outerRadius, highlightPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _VinylDiscPainter oldDelegate) =>
+      oldDelegate.labelRatio != labelRatio;
 }
 
 class _VisualizerArtBox extends StatelessWidget {

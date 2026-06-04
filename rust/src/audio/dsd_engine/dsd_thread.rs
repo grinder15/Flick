@@ -1,5 +1,5 @@
 use crate::audio::dsd_engine::dsd::{DsdOutputMode, DsdRate};
-use crate::audio::dsd_engine::format::{open_dsd_decoder, DsdChannelLayout, DsdFormatDecoder};
+use crate::audio::dsd_engine::format::{open_dsd_decoder, DsdBitOrder, DsdChannelLayout, DsdFormatDecoder};
 use crate::audio::dsd_engine::output::DsdOutputRouter;
 use crate::audio::source::{AudioSource, SourceInfo, SourceProducer};
 use anyhow::{anyhow, Result};
@@ -41,6 +41,7 @@ impl DsdDecoderThread {
         let source_channels = decoder.channels() as usize;
         let duration_secs = decoder.duration_secs();
         let channel_layout = decoder.channel_layout();
+        let source_bit_order = decoder.bit_order();
 
         let output_sample_rate = match output_mode {
             DsdOutputMode::PcmDecimation | DsdOutputMode::Auto => dsd_rate.best_pcm_target(target_rate),
@@ -80,7 +81,7 @@ impl DsdDecoderThread {
         }
 
         let output_router =
-            DsdOutputRouter::new(output_mode, dsd_rate, output_sample_rate, source_channels);
+            DsdOutputRouter::new(output_mode, dsd_rate, output_sample_rate, source_channels, source_bit_order);
 
         let stop_signal = Arc::new(AtomicBool::new(false));
         let stop_clone = Arc::clone(&stop_signal);
@@ -97,6 +98,7 @@ impl DsdDecoderThread {
                     stop_clone,
                     start_position_secs,
                     channel_layout,
+                    source_bit_order,
                 )
             })
             .map_err(|e| anyhow!("Failed to spawn DSD decoder thread: {}", e))?;
@@ -161,6 +163,7 @@ fn dsd_decode_thread(
     stop_signal: Arc<AtomicBool>,
     start_position_secs: Option<f64>,
     channel_layout: DsdChannelLayout,
+    _source_bit_order: DsdBitOrder,
 ) -> Result<()> {
     if let Some(pos) = start_position_secs {
         if pos > 0.0 {
@@ -184,10 +187,11 @@ fn dsd_decode_thread(
     let mut output_buf: Vec<f32> = Vec::with_capacity(DSD_READ_CHUNK_SIZE);
 
     log::info!(
-        "[DSD-DECODER] Starting: dsd_rate={} channels={} layout={:?}",
+        "[DSD-DECODER] Starting: dsd_rate={} channels={} layout={:?} bit_order={:?}",
         decoder.sample_rate(),
         source_channels,
         channel_layout,
+        _source_bit_order,
     );
 
     loop {

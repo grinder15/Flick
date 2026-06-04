@@ -200,6 +200,7 @@ pub extern "system" fn Java_com_mossapps_flick_MainActivity_nativeSetRustDirectU
             channels: channels as u16,
             is_dop: is_dop != 0,
             dsd_transport,
+            dsd_bit_rate: 0,
         })
     };
 

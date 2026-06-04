@@ -1,10 +1,27 @@
 use super::dsd::dop::DopPacker;
 use super::dsd::DsdDecimationPipeline;
 use super::dsd::{DsdOutputMode, DsdRate};
+use super::format::DsdBitOrder;
 use anyhow::Result;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static DSD_BIT_REVERSE_OVERRIDE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_dsd_bit_reverse_override(enabled: bool) {
+    DSD_BIT_REVERSE_OVERRIDE.store(enabled, Ordering::Relaxed);
+    log::info!(
+        "[DSD-FORMATTER] Bit-reverse override: {}",
+        if enabled { "FORCED ON" } else { "auto (off)" }
+    );
+}
+
+pub fn dsd_bit_reverse_override() -> bool {
+    DSD_BIT_REVERSE_OVERRIDE.load(Ordering::Relaxed)
+}
 
 pub struct DsdOutputRouter {
     mode: DsdOutputMode,
+    source_bit_order: DsdBitOrder,
     pcm_pipeline: Option<DsdDecimationPipeline>,
     dop_packer: Option<DopPacker>,
 }
@@ -15,6 +32,7 @@ impl DsdOutputRouter {
         dsd_rate: DsdRate,
         target_rate: u32,
         channels: usize,
+        source_bit_order: DsdBitOrder,
     ) -> Self {
         let pcm_pipeline = match mode {
             DsdOutputMode::PcmDecimation | DsdOutputMode::Auto => {
@@ -30,6 +48,7 @@ impl DsdOutputRouter {
 
         Self {
             mode,
+            source_bit_order,
             pcm_pipeline,
             dop_packer,
         }
@@ -69,7 +88,7 @@ impl DsdOutputRouter {
                 }
             }
             DsdOutputMode::Native => {
-                pack_native_dsd_f32(dsd_bytes, channel_offsets, output);
+                pack_native_dsd_f32(dsd_bytes, channel_offsets, self.source_bit_order, output);
             }
         }
         Ok(())
@@ -85,9 +104,29 @@ impl DsdOutputRouter {
     }
 }
 
+#[inline]
+fn reverse_bits(b: u8) -> u8 {
+    b.reverse_bits()
+}
+
+fn normalize_dsd_byte(byte: u8, source_order: DsdBitOrder) -> u8 {
+    let needs_reverse = match source_order {
+        DsdBitOrder::LsbFirst => true,
+        DsdBitOrder::MsbFirst => false,
+    };
+    if DSD_BIT_REVERSE_OVERRIDE.load(Ordering::Relaxed) {
+        if needs_reverse { byte } else { reverse_bits(byte) }
+    } else if needs_reverse {
+        reverse_bits(byte)
+    } else {
+        byte
+    }
+}
+
 fn pack_native_dsd_f32(
     dsd_bytes: &[u8],
     channel_offsets: &[usize],
+    source_bit_order: DsdBitOrder,
     output: &mut Vec<f32>,
 ) {
     let channels = channel_offsets.len().max(1);
@@ -97,7 +136,8 @@ fn pack_native_dsd_f32(
     if channels == 1 {
         output.reserve(dsd_bytes.len());
         for &b in dsd_bytes {
-            output.push(f32::from_bits(b as u32));
+            let normalized = normalize_dsd_byte(b, source_bit_order);
+            output.push(f32::from_bits(normalized as u32));
         }
         return;
     }
@@ -108,7 +148,8 @@ fn pack_native_dsd_f32(
         for ch in 0..channels {
             let ch_offset = channel_offsets.get(ch).copied().unwrap_or(ch * bytes_per_ch);
             let b = dsd_bytes[ch_offset + i];
-            output.push(f32::from_bits(b as u32));
+            let normalized = normalize_dsd_byte(b, source_bit_order);
+            output.push(f32::from_bits(normalized as u32));
         }
     }
 }

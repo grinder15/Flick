@@ -44,7 +44,7 @@ android {
 
     defaultConfig {
         applicationId = "com.mossapps.flick"
-        minSdk = 26
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

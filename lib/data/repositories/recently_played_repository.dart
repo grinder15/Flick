@@ -447,6 +447,55 @@ class RecentlyPlayedRepository {
     return result;
   }
 
+  /// Get the most-played song from a specific set of song IDs.
+  /// Ties are broken by the most recent play. Returns null if no
+  /// songs in the given IDs have been played yet.
+  Future<Song?> getMostPlayedSongAmong(Iterable<String> songIds) async {
+    final ids = songIds.toSet();
+    if (ids.isEmpty) return null;
+
+    final entries = await _isar.recentlyPlayedEntitys
+        .where()
+        .sortByPlayedAtDesc()
+        .findAll();
+
+    if (entries.isEmpty) return null;
+
+    final allSongEntities = await _songRepository.getAllSongEntities();
+    final songMap = {for (final entity in allSongEntities) entity.id: entity};
+
+    final playCounts = <String, int>{};
+    final songEntities = <String, SongEntity>{};
+    final lastPlayedAt = <String, DateTime>{};
+
+    for (final entry in entries) {
+      final songEntity = songMap[entry.songId];
+      if (songEntity == null) continue;
+      final id = songEntity.id.toString();
+      if (!ids.contains(id)) continue;
+
+      songEntities[id] = songEntity;
+      playCounts[id] = (playCounts[id] ?? 0) + 1;
+      final existing = lastPlayedAt[id];
+      if (existing == null || entry.playedAt.isAfter(existing)) {
+        lastPlayedAt[id] = entry.playedAt;
+      }
+    }
+
+    if (playCounts.isEmpty) return null;
+
+    final sortedIds = playCounts.entries.toList()
+      ..sort((a, b) {
+        final playCompare = b.value.compareTo(a.value);
+        if (playCompare != 0) return playCompare;
+        return lastPlayedAt[b.key]!.compareTo(lastPlayedAt[a.key]!);
+      });
+
+    final topEntity = songEntities[sortedIds.first.key];
+    if (topEntity == null) return null;
+    return _entityToSong(topEntity);
+  }
+
   Future<List<RecentlyPlayedEntry>> _getEntriesBetween({
     required DateTime start,
     required DateTime endExclusive,

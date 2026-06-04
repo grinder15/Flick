@@ -553,7 +553,7 @@ SOFTWARE.
                   subtitle: 'See what is new in this update',
                   onTap: _showPatchNotesBottomSheet,
                 ),
-                const SettingsDivider(),
+              const SettingsDivider(),
                 ActionButton(
                   icon: LucideIcons.externalLink,
                   title: 'Open in Play Store',
@@ -570,7 +570,7 @@ SOFTWARE.
               NavigationSetting(
                 icon: LucideIcons.info,
                 title: 'About Flick Player',
-                subtitle: 'Version 0.17.0-beta.1',
+                subtitle: 'Version 0.17 .0-beta.1',
                 onTap: _showAboutBottomSheet,
               ),
               const SettingsDivider(),

@@ -225,7 +225,7 @@ pub fn classify_device(signals: DeviceSignals) -> DeviceProfile {
         kind,
         max_sample_rate: signals.audio_caps.max_sample_rate,
         has_balanced_output: signals.audio_caps.has_balanced_output,
-        supports_native_dsd: native_dsd_from_caps || native_dsd_from_runtime,
+        supports_native_dsd: is_dap || native_dsd_from_caps || native_dsd_from_runtime,
     }
 }
 

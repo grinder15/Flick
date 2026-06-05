@@ -285,82 +285,96 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
                 slivers: [
                   SliverAppBar(
                     expandedHeight: 280,
-                    pinned: true,
-                    backgroundColor: animatedAppBar,
-                    leading: const SizedBox(),
-                    titleSpacing: 0,
-                    flexibleSpace: FlexibleSpaceBar(
-                      background: _buildAppBarBackground(
-                        context,
-                        resolvedBg,
-                        albumGroups.length,
-                      ),
+                  pinned: true,
+                  backgroundColor: animatedAppBar,
+                  leading: const SizedBox(),
+                  titleSpacing: 0,
+                  flexibleSpace: FlexibleSpaceBar(
+                    background: _buildAppBarBackground(
+                      context,
+                      resolvedBg,
+                      albumGroups.length,
                     ),
                   ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppConstants.spacingLg,
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: _ActionButton(
-                              icon: LucideIcons.play,
-                              label: 'Play All',
-                              onTap: _playAll,
-                            ),
-                          ),
-                          const SizedBox(width: AppConstants.spacingMd),
-                          Expanded(
-                            child: _ActionButton(
-                              icon: LucideIcons.shuffle,
-                              label: 'Shuffle',
-                              onTap: _shuffleAll,
-                            ),
-                          ),
-                        ],
+                ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: AppConstants.spacingMd),
+                ),
+                SliverToBoxAdapter(
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: AppConstants.spacingLg,
+                    ),
+                    decoration: BoxDecoration(
+                      color: resolvedBg,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(AppConstants.radiusXl),
+                        topRight: Radius.circular(AppConstants.radiusXl),
                       ),
                     ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppConstants.spacingLg,
+                      vertical: AppConstants.spacingMd,
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _ActionButton(
+                            icon: LucideIcons.play,
+                            label: 'Play All',
+                            onTap: _playAll,
+                          ),
+                        ),
+                        const SizedBox(width: AppConstants.spacingMd),
+                        Expanded(
+                          child: _ActionButton(
+                            icon: LucideIcons.shuffle,
+                            label: 'Shuffle',
+                            onTap: _shuffleAll,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppConstants.spacingLg),
-                  ),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppConstants.spacingLg,
-                      ),
-                      child: Wrap(
-                        spacing: AppConstants.spacingSm,
-                        runSpacing: AppConstants.spacingSm,
-                        children: [
+                ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: AppConstants.spacingLg),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppConstants.spacingLg,
+                    ),
+                    child: Wrap(
+                      spacing: AppConstants.spacingSm,
+                      runSpacing: AppConstants.spacingSm,
+                      children: [
+                        _InfoChip(
+                          icon: LucideIcons.music,
+                          label: '${widget.songs.length} songs',
+                        ),
+                        _InfoChip(
+                          icon: LucideIcons.clock,
+                          label: _formattedTotalDuration,
+                        ),
+                        if (_artistYear != null)
                           _InfoChip(
-                            icon: LucideIcons.music,
-                            label: '${widget.songs.length} songs',
+                            icon: LucideIcons.calendar,
+                            label: '${_artistYear!}',
                           ),
+                        if (_artistGenre != null)
                           _InfoChip(
-                            icon: LucideIcons.clock,
-                            label: _formattedTotalDuration,
+                            icon: LucideIcons.tags,
+                            label: _artistGenre!,
                           ),
-                          if (_artistYear != null)
-                            _InfoChip(
-                              icon: LucideIcons.calendar,
-                              label: '${_artistYear!}',
-                            ),
-                          if (_artistGenre != null)
-                            _InfoChip(
-                              icon: LucideIcons.tags,
-                              label: _artistGenre!,
-                            ),
-                        ],
-                      ),
+                      ],
                     ),
                   ),
-                  const SliverToBoxAdapter(
-                    child: SizedBox(height: AppConstants.spacingLg),
-                  ),
-                  if (_artistAlbums.length > 1)
+                ),
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: AppConstants.spacingLg),
+                ),
+                if (_artistAlbums.length > 1)
                     _buildSectionTitle(context, 'Albums'),
                   if (_artistAlbums.length > 1)
                     SliverToBoxAdapter(
@@ -499,7 +513,7 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
         Positioned(
           left: AppConstants.spacingLg,
           right: AppConstants.spacingLg,
-          bottom: AppConstants.spacingLg,
+          bottom: 4,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

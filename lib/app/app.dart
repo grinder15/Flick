@@ -629,17 +629,12 @@ class _MainShellState extends ConsumerState<MainShell>
                   ),
                 ),
 
-                // Persistent Background - uses Riverpod
+                // Persistent Background - always on for all bottom-bar screens
                 Positioned.fill(
                   child: Consumer(
                     builder: (context, ref, _) {
-                      final ambientBackgroundEnabled = ref.watch(
-                        ambientBackgroundEnabledProvider,
-                      );
                       final currentSong = ref.watch(currentSongProvider);
-                      return ambientBackgroundEnabled
-                          ? AmbientBackground(song: currentSong)
-                          : const SizedBox.shrink();
+                      return AmbientBackground(song: currentSong);
                     },
                   ),
                 ),

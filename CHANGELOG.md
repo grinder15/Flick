@@ -371,7 +371,7 @@
 - Foundation: Rust engine, just_audio fallback, UAC 2.0 subsystem, Isar database
 - Library management (songs, albums, artists, playlists, favorites)
 - Equalizer and audio effects
-- Cross-app playback via Moss ecosystem (Locker integration)
+- Cross-app playback via Moss ecosystem (Latch integration)
 - Flick Replay listening recaps
 - Last.fm scrobbling
 

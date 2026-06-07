@@ -92,9 +92,9 @@ When you use the album art import feature:
 - Downloaded images are cached locally on your device
 - No personal data is sent to these services
 
-### 6.3 Moss Ecosystem (Locker Integration)
+### 6.3 Moss Ecosystem (Latch Integration)
 
-Flick Player is part of the **Moss ecosystem** by Ultra Electronica. It can receive playback handoffs from **Locker** (another Moss app):
+Flick Player is part of the **Moss ecosystem** by Ultra Electronica. It can receive playback handoffs from **Latch** (another Moss app):
 
 - Playback intents contain only song file paths/metadata needed for playback
 - No personal data is exchanged between apps

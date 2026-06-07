@@ -97,8 +97,8 @@
 
 ### Ecosystem Integration
 - **Moss Ecosystem**: Part of the Moss app ecosystem by Ultra Electronica
-- **Locker Integration**: Flick can receive playback handoffs from Locker (another Moss app)
-- **Cross-app Playback**: Songs can be played from external sources via the Locker integration
+- **Latch Integration**: Flick can receive playback handoffs from Latch (another Moss app)
+- **Cross-app Playback**: Songs can be played from external sources via the Latch integration
 - **Shared Infrastructure**: Last.fm scrobbling, adaptive theming, and library scanning are shared across Moss apps
 
 ### User Interface
@@ -132,16 +132,16 @@ Flick Player is part of the **Moss ecosystem** by Ultra Electronica, a suite of 
 
 ### Apps in the Ecosystem
 - **Flick Player**: High-performance audiophile music player with UAC 2.0 support
-- **Locker**: [Part of the Moss ecosystem]()
+- **Latch**: [Part of the Moss ecosystem](https://github.com/moss-apps/Latch)
 
 ### Cross-App Integration
 Flick integrates with other Moss apps through platform channels:
-- **Playback Handoff**: Flick can receive songs from Locker via `ExternalPlaybackService`
+- **Playback Handoff**: Flick can receive songs from Latch via `ExternalPlaybackService`
 - **Shared Audio Infrastructure**: Audio processing, EQ settings, and library scanning are designed to work consistently across the ecosystem
 - **Last.fm Integration**: Scrobbling works seamlessly regardless of which app initiated the playback
 
-### Using Flick with Locker
-When a song is playing in Locker and you want to switch to Flick's advanced audio engine (for EQ, effects, or UAC 2.0 DAC output):
+### Using Flick with Latch
+When a song is playing in Latch and you want to switch to Flick's advanced audio engine (for EQ, effects, or UAC 2.0 DAC output):
 1. The playback intent is automatically routed to Flick
 2. Flick handles metadata extraction and playback
 3. Last.fm scrobbling continues uninterrupted

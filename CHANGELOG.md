@@ -334,7 +334,7 @@
 - Blur cache module-level for shared album art blur
 
 ### Deprecated
-- GitHub Releases will be deprecated once open beta begins
+- GitHub Releases are no longer deprecated and remain available for downloads
 
 ---
 

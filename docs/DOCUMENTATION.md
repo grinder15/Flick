@@ -78,7 +78,7 @@ The current roadmap includes:
 
 ### Deprecated / Removed
 
-- **GitHub Releases**: Will be deprecated once Flick's open beta test begins. Install from the Google Play Store to continue receiving updates.
+- **GitHub Releases**: Available for downloads alongside the Google Play Store.
 
 ### Recently Completed
 

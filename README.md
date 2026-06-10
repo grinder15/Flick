@@ -7,7 +7,7 @@
 ---
 ### Flick Player is a high-performance music player application built with Flutter and Rust, designed primarily for audiophiles who demand bit-perfect audio playback through external DACs and amplifiers.
 
-> **Deprecation Notice**: GitHub Releases will be deprecated once Flick's open beta test begins. Install Flick from the [Google Play Store](https://play.google.com/store/apps/details?id=com.mossapps.flick) to continue receiving updates.
+> **GitHub Releases**: Download the latest builds from [GitHub Releases](https://github.com/anomalyco/opencode/releases) or the [Google Play Store](https://play.google.com/store/apps/details?id=com.mossapps.flick).
 
 ## Key Features
 

@@ -86,6 +86,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
   double? _cachedTopBarFontSize;
   double _cachedTopBarTextWidth = 0;
   bool _isLyricsMode = false;
+  bool _isVinylRotationActive = false;
   bool _isVisualizationMode = false;
   bool _isImmersiveFullView = false;
   int _songTransitionDirection = 1;
@@ -2518,9 +2519,11 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
               behavior: HitTestBehavior.translucent,
               onTap: _handleImmersiveSceneTap,
               onVerticalDragStart: (_) {
+                if (_isVinylRotationActive) return;
                 _dragController.stop();
               },
               onVerticalDragUpdate: (details) {
+                if (_isVinylRotationActive) return;
                 // Only track downward drag
                 if (details.delta.dy > 0) {
                   // Throttle updates to every 16ms (~60fps) to avoid excessive updates
@@ -2540,6 +2543,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                 }
               },
               onVerticalDragEnd: (details) {
+                if (_isVinylRotationActive) return;
                 // If dragged down enough or with enough velocity, dismiss
                 if (_dragOffset > 100 || details.primaryVelocity! > 500) {
                   _dismissVolumePopup?.call();
@@ -2553,6 +2557,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                 _dragController.animateTo(0.0);
               },
               onHorizontalDragEnd: (details) {
+                if (_isVinylRotationActive) return;
                 if (details.primaryVelocity! < -500) {
                   // Swipe Left -> Next
                   _animateToNextSong();
@@ -2637,9 +2642,12 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                   immersiveFullViewScale: appPrefs.immersiveFullViewScale,
                   immersiveShowTitle: appPrefs.immersiveShowTitle,
                   immersiveShowArtist: appPrefs.immersiveShowArtist,
-immersiveShowFileInfo: appPrefs.immersiveShowFileInfo,
+                  immersiveShowFileInfo: appPrefs.immersiveShowFileInfo,
                   hideQueueBadge: PlayerActionButtonX.fromStorageValue(appPrefs.leftActionButton) == PlayerActionButton.queue ||
                       PlayerActionButtonX.fromStorageValue(appPrefs.rightActionButton) == PlayerActionButton.queue,
+                  onRotationEnabledChanged: (enabled) {
+                    _isVinylRotationActive = enabled;
+                  },
                  ),
               ),
             );
@@ -2713,6 +2721,7 @@ class _AnimatedSongScene extends StatelessWidget {
   final bool immersiveShowArtist;
   final bool immersiveShowFileInfo;
   final bool hideQueueBadge;
+  final void Function(bool enabled)? onRotationEnabledChanged;
 
   const _AnimatedSongScene({
     required this.song,
@@ -2759,6 +2768,7 @@ class _AnimatedSongScene extends StatelessWidget {
     this.immersiveShowArtist = true,
     this.immersiveShowFileInfo = true,
     this.hideQueueBadge = false,
+    this.onRotationEnabledChanged,
   });
 
   @override
@@ -3716,7 +3726,9 @@ class _AnimatedSongScene extends StatelessWidget {
                                         : _AlbumArtBox(
                                             song: song,
                                             size: artworkSize,
-                                            playerService: playerService),
+                                            playerService: playerService,
+                                            onRotationEnabledChanged: onRotationEnabledChanged,
+                                          ),
                                   ),
                                 ),
                                 SizedBox(height: artworkSpacing),
@@ -3965,11 +3977,13 @@ class _AlbumArtBox extends StatefulWidget {
   final Song song;
   final double? size;
   final PlayerService? playerService;
+  final void Function(bool enabled)? onRotationEnabledChanged;
 
   const _AlbumArtBox({
     required this.song,
     this.size,
     this.playerService,
+    this.onRotationEnabledChanged,
   });
 
   @override
@@ -4029,8 +4043,10 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
       if (!mounted) return;
       if (status == AnimationStatus.completed) {
         setState(() => _isRotationEnabled = true);
+        widget.onRotationEnabledChanged?.call(true);
       } else if (status == AnimationStatus.dismissed) {
         setState(() => _isRotationEnabled = false);
+        widget.onRotationEnabledChanged?.call(false);
       }
     });
     _morphController.addStatusListener(_handleMorphStatus);

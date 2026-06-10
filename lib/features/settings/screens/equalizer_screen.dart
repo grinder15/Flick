@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flick/widgets/common/floating_mini_player.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:math' as math;
 import 'package:path_provider/path_provider.dart';
@@ -16,6 +17,7 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/providers/equalizer_provider.dart';
+import 'package:flick/providers/navigation_provider.dart';
 import 'package:flick/services/eq_preset_file_service.dart';
 import 'package:flick/services/eq_preset_service.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
@@ -45,6 +47,9 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
   void initState() {
     super.initState();
     _pageController.addListener(_onPageChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(navBarVisibleProvider.notifier).setVisible(true);
+    });
   }
 
   @override
@@ -75,57 +80,62 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
   Widget build(BuildContext context) {
     final activePresetName = ref.watch(eqActivePresetNameProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _Header(
-              title: 'EQ & Dynamics',
-              subtitle: activePresetName != null
-                  ? 'Preset: $activePresetName'
-                  : null,
-              onBack: () => Navigator.of(context).pop(),
-              onPresets: _showPresetsBottomSheet,
-            ),
-            Expanded(
-              child: Column(
-                children: [
-                  _EffectsTabBar(
-                    selectedIndex: _currentPage,
-                    onSelected: (index) {
-                      setState(() => _currentPage = index);
-                      _pageController.animateToPage(
-                        index,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOutCubic,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: AppConstants.spacingMd),
-                  Expanded(
-                    child: PageView(
-                      controller: _pageController,
-                      physics: const BouncingScrollPhysics(),
-                      children: [
-                        _EqPage(
-                          scrollController: _scrollController,
-                          graphicGraphKey: _graphicGraphKey,
-                          parametricGraphKey: _parametricGraphKey,
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: AppColors.background,
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Header(
+                  title: 'EQ & Dynamics',
+                  subtitle: activePresetName != null
+                      ? 'Preset: $activePresetName'
+                      : null,
+                  onBack: () => Navigator.of(context).pop(),
+                  onPresets: _showPresetsBottomSheet,
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _EffectsTabBar(
+                        selectedIndex: _currentPage,
+                        onSelected: (index) {
+                          setState(() => _currentPage = index);
+                          _pageController.animateToPage(
+                            index,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOutCubic,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: AppConstants.spacingMd),
+                      Expanded(
+                        child: PageView(
+                          controller: _pageController,
+                          physics: const BouncingScrollPhysics(),
+                          children: [
+                            _EqPage(
+                              scrollController: _scrollController,
+                              graphicGraphKey: _graphicGraphKey,
+                              parametricGraphKey: _parametricGraphKey,
+                            ),
+                            const _DynamicsPage(),
+                            const _FxPage(),
+                          ],
                         ),
-                        const _DynamicsPage(),
-                        const _FxPage(),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
+        const FloatingMiniPlayer(),
+      ],
     );
   }
 }
@@ -202,10 +212,12 @@ class _EqPage extends ConsumerWidget {
     final enabled = ref.watch(eqEnabledProvider);
     final mode = ref.watch(eqModeProvider);
 
-    return SingleChildScrollView(
-      controller: scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
-      child: Column(
+      return NotificationListener<ScrollNotification>(
+        onNotification: (_) => true,
+        child: SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _GlassCard(
@@ -233,9 +245,10 @@ class _EqPage extends ConsumerWidget {
                     key: const ValueKey('param'),
                     graphKey: parametricGraphKey,
                   ),
-          ),
+            ),
           SizedBox(height: AppConstants.navBarHeight + 120),
         ],
+      ),
       ),
     );
   }
@@ -246,14 +259,17 @@ class _DynamicsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _DynamicsSection(),
-          SizedBox(height: AppConstants.navBarHeight + 120),
-        ],
+    return NotificationListener<ScrollNotification>(
+      onNotification: (_) => true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _DynamicsSection(),
+            SizedBox(height: AppConstants.navBarHeight + 120),
+          ],
+        ),
       ),
     );
   }
@@ -264,14 +280,17 @@ class _FxPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _CreativeFxSection(),
-          SizedBox(height: AppConstants.navBarHeight + 120),
-        ],
+    return NotificationListener<ScrollNotification>(
+      onNotification: (_) => true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _CreativeFxSection(),
+            SizedBox(height: AppConstants.navBarHeight + 120),
+          ],
+        ),
       ),
     );
   }

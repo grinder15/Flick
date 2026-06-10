@@ -28,6 +28,7 @@ pub mod engine;
 pub mod equalizer;
 pub mod fx;
 pub mod manager;
+pub mod opus_decoder;
 pub mod resampler;
 pub mod source;
 pub mod strategy;

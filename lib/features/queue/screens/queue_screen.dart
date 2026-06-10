@@ -153,41 +153,56 @@ class _QueueScreenState extends ConsumerState<QueueScreen> {
                               AppConstants.spacingLg,
                               AppConstants.spacingLg,
                             ),
-                            sliver: SliverList.builder(
-                              itemCount: upNext.length,
-                              itemBuilder: (context, index) {
-                                final song = upNext[index];
-                                final key = _upNextKey(index);
-                                if (_selectionMode) {
-                                  final isSelected =
-                                      _selectedKeys.contains(key);
-                                  return _UpcomingTile(
-                                    song: song,
-                                    index: index,
-                                    isSelectionMode: true,
-                                    isSelected: isSelected,
-                                    onTap: () => _toggleSelection(key),
-                                    onLongPress: () {},
-                                  );
-                                }
-                                return _UpcomingTile(
-                                  song: song,
-                                  index: index,
-                                  onTap: () async {
-                                    await ref
-                                        .read(playerProvider.notifier)
-                                        .playFromUpNextIndex(index);
-                                  },
-                                  onLongPress: () =>
-                                      _enterSelectionMode(key),
-                                  onRemove: () async {
-                                    await ref
-                                        .read(playerProvider.notifier)
-                                        .removeFromUpNext(index);
-                                  },
-                                );
-                              },
-                            ),
+                            sliver: _selectionMode
+                                ? SliverList.builder(
+                                    itemCount: upNext.length,
+                                    itemBuilder: (context, index) {
+                                      final song = upNext[index];
+                                      final key = _upNextKey(index);
+                                      final isSelected =
+                                          _selectedKeys.contains(key);
+                                      return _UpcomingTile(
+                                        song: song,
+                                        index: index,
+                                        isSelectionMode: true,
+                                        isSelected: isSelected,
+                                        onTap: () => _toggleSelection(key),
+                                        onLongPress: () {},
+                                      );
+                                    },
+                                  )
+                                : SliverReorderableList(
+                                    itemCount: upNext.length,
+                                    onReorder: (oldIndex, newIndex) async {
+                                      final targetIndex = newIndex > oldIndex
+                                          ? newIndex - 1
+                                          : newIndex;
+                                      await ref
+                                          .read(playerProvider.notifier)
+                                          .moveUpNextItem(oldIndex, targetIndex);
+                                    },
+                                    itemBuilder: (context, index) {
+                                      final song = upNext[index];
+                                      return _UpcomingTile(
+                                        key: ValueKey('upnext-${song.id}-$index'),
+                                        song: song,
+                                        index: index,
+                                        onTap: () async {
+                                          await ref
+                                              .read(playerProvider.notifier)
+                                              .playFromUpNextIndex(index);
+                                        },
+                                        onLongPress: () =>
+                                            _enterSelectionMode(
+                                                _upNextKey(index)),
+                                        onRemove: () async {
+                                          await ref
+                                              .read(playerProvider.notifier)
+                                              .removeFromUpNext(index);
+                                        },
+                                      );
+                                    },
+                                  ),
                           ),
                         if (queue.isNotEmpty)
                           SliverToBoxAdapter(
@@ -599,6 +614,7 @@ class _UpcomingTile extends StatelessWidget {
   final bool isSelected;
 
   const _UpcomingTile({
+    super.key,
     required this.song,
     required this.index,
     required this.onTap,
@@ -650,15 +666,17 @@ class _UpcomingTile extends StatelessWidget {
                   ),
                   const SizedBox(width: AppConstants.spacingSm),
                 ] else
-                  Container(
-                    width: 24,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '${index + 1}',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                            color: context.adaptiveTextTertiary,
-                            fontWeight: FontWeight.w700,
-                          ),
+                  ReorderableDragStartListener(
+                    index: index,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        right: AppConstants.spacingSm,
+                      ),
+                      child: Icon(
+                        LucideIcons.gripVertical,
+                        color: context.adaptiveTextTertiary,
+                        size: 18,
+                      ),
                     ),
                   ),
                 _Artwork(song: song),

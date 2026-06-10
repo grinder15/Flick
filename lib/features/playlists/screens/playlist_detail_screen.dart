@@ -7,6 +7,7 @@ import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/utils/responsive.dart';
+import 'package:flick/widgets/common/floating_mini_player.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/models/playlist.dart';
@@ -16,6 +17,7 @@ import 'package:flick/services/player_service.dart';
 import 'package:flick/data/repositories/recently_played_repository.dart';
 import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/providers/playlist_provider.dart';
+import 'package:flick/providers/navigation_provider.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 
 class PlaylistDetailScreen extends ConsumerStatefulWidget {
@@ -51,6 +53,7 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
     super.initState();
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(navBarVisibleProvider.notifier).setVisible(true);
       _loadSongs();
     });
   }
@@ -243,13 +246,17 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
             ? AppColors.surface
             : Color.lerp(_darkBase, _playlistColor!, _appBarBlend)!;
         final resolvedBg = animatedBg ?? AppColors.background;
-        return Scaffold(
+        return Stack(
+          children: [
+            Scaffold(
           backgroundColor: resolvedBg,
           body: AdaptiveColorProvider(
             backgroundColor: resolvedBg,
             albumDominantColor: _playlistColor,
-            child: CustomScrollView(
-              controller: _scrollController,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (_) => true,
+              child: CustomScrollView(
+                controller: _scrollController,
               slivers: [
                 SliverAppBar(
                   expandedHeight: 280,
@@ -467,11 +474,36 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                     padding: EdgeInsets.only(
                       bottom: AppConstants.navBarHeight + 80,
                     ),
-                    sliver: SliverList(
-                      delegate: SliverChildBuilderDelegate((context, index) {
+                    sliver: SliverReorderableList(
+                      proxyDecorator: (child, index, animation) {
+                        return Material(
+                          elevation: 4,
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusMd,
+                          ),
+                          child: child,
+                        );
+                      },
+                      onReorder: (oldIndex, newIndex) {
+                        ref.read(playlistsProvider.notifier).reorderSongs(
+                          widget.playlist.id,
+                          oldIndex,
+                          newIndex,
+                        );
+                        setState(() {
+                          var adjustedNew = newIndex;
+                          if (oldIndex < adjustedNew) adjustedNew -= 1;
+                          final item = _songs.removeAt(oldIndex);
+                          _songs.insert(adjustedNew, item);
+                        });
+                      },
+                      itemBuilder: (context, index) {
                         final song = _songs[index];
                         return _SongTile(
+                          key: ValueKey(song.id),
                           song: song,
+                          index: index,
                           onTap: () => _playSong(song),
                           onRemove: () async {
                             await ref
@@ -483,7 +515,8 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                             _loadSongs();
                           },
                         );
-                      }, childCount: _songs.length),
+                      },
+                      itemCount: _songs.length,
                     ),
                   ),
                 ],
@@ -516,8 +549,12 @@ class _PlaylistDetailScreenState extends ConsumerState<PlaylistDetailScreen> {
                   ),
                 ],
               ],
+              ),
+              ),
             ),
-          ),
+            ),
+            const FloatingMiniPlayer(),
+          ],
         );
       },
     );
@@ -739,11 +776,14 @@ class _InfoChip extends StatelessWidget {
 
 class _SongTile extends StatelessWidget {
   final Song song;
+  final int? index;
   final VoidCallback onTap;
   final VoidCallback onRemove;
 
   const _SongTile({
+    super.key,
     required this.song,
+    this.index,
     required this.onTap,
     required this.onRemove,
   });
@@ -757,10 +797,26 @@ class _SongTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: AppConstants.spacingLg,
-            vertical: AppConstants.spacingSm,
+            vertical: AppConstants.spacingMd,
           ),
           child: Row(
             children: [
+              if (index != null)
+                ReorderableDragStartListener(
+                  index: index!,
+                  child: Padding(
+                    padding: const EdgeInsets.only(
+                      right: 8,
+                      top: 8,
+                      bottom: 8,
+                    ),
+                    child: Icon(
+                      LucideIcons.gripVertical,
+                      color: AppColors.textSecondary.withValues(alpha: 0.4),
+                      size: 20,
+                    ),
+                  ),
+                ),
               Container(
                 width: context.scaleSize(AppConstants.containerSizeMd),
                 height: context.scaleSize(AppConstants.containerSizeMd),

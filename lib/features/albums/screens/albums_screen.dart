@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flick/core/theme/app_colors.dart';
@@ -11,6 +12,7 @@ import 'package:flick/features/albums/screens/album_detail_screen.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
+import 'package:flick/providers/navigation_provider.dart';
 
 enum AlbumSortOption { name, artist, tracks }
 
@@ -30,6 +32,7 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
   bool _isLoading = true;
   bool _isGlanceMinimized = false;
   AlbumSortOption _sortOption = AlbumSortOption.artist;
+  bool _visibilitySet = false;
 
   @override
   void initState() {
@@ -144,6 +147,16 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_visibilitySet) {
+      _visibilitySet = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          ProviderScope.containerOf(context)
+              .read(navBarVisibleProvider.notifier)
+              .setVisible(true);
+        }
+      });
+    }
     return DisplayModeWrapper(
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -440,12 +453,14 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
           ),
         ),
         Expanded(
-          child: GridView.builder(
-            padding: EdgeInsets.only(
-              left: AppConstants.spacingLg,
-              right: AppConstants.spacingLg,
-              bottom: AppConstants.navBarHeight + 120,
-            ),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (_) => true,
+            child: GridView.builder(
+              padding: EdgeInsets.only(
+                left: AppConstants.spacingLg,
+                right: AppConstants.spacingLg,
+                bottom: AppConstants.navBarHeight + 120,
+              ),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: context.gridColumns(
                 compact: 2,
@@ -468,8 +483,9 @@ class _AlbumsScreenState extends State<AlbumsScreen> {
                 onTap: () => _openAlbumDetail(album),
               );
             },
+            ),
+            ),
           ),
-        ),
       ],
     );
   }

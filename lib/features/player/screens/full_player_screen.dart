@@ -86,6 +86,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
   double? _cachedTopBarFontSize;
   double _cachedTopBarTextWidth = 0;
   bool _isLyricsMode = false;
+  bool _isVinylRotationActive = false;
   bool _isVisualizationMode = false;
   bool _isImmersiveFullView = false;
   int _songTransitionDirection = 1;
@@ -2518,9 +2519,11 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
               behavior: HitTestBehavior.translucent,
               onTap: _handleImmersiveSceneTap,
               onVerticalDragStart: (_) {
+                if (_isVinylRotationActive) return;
                 _dragController.stop();
               },
               onVerticalDragUpdate: (details) {
+                if (_isVinylRotationActive) return;
                 // Only track downward drag
                 if (details.delta.dy > 0) {
                   // Throttle updates to every 16ms (~60fps) to avoid excessive updates
@@ -2540,6 +2543,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                 }
               },
               onVerticalDragEnd: (details) {
+                if (_isVinylRotationActive) return;
                 // If dragged down enough or with enough velocity, dismiss
                 if (_dragOffset > 100 || details.primaryVelocity! > 500) {
                   _dismissVolumePopup?.call();
@@ -2553,6 +2557,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                 _dragController.animateTo(0.0);
               },
               onHorizontalDragEnd: (details) {
+                if (_isVinylRotationActive) return;
                 if (details.primaryVelocity! < -500) {
                   // Swipe Left -> Next
                   _animateToNextSong();
@@ -2637,9 +2642,12 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                   immersiveFullViewScale: appPrefs.immersiveFullViewScale,
                   immersiveShowTitle: appPrefs.immersiveShowTitle,
                   immersiveShowArtist: appPrefs.immersiveShowArtist,
-immersiveShowFileInfo: appPrefs.immersiveShowFileInfo,
+                  immersiveShowFileInfo: appPrefs.immersiveShowFileInfo,
                   hideQueueBadge: PlayerActionButtonX.fromStorageValue(appPrefs.leftActionButton) == PlayerActionButton.queue ||
                       PlayerActionButtonX.fromStorageValue(appPrefs.rightActionButton) == PlayerActionButton.queue,
+                  onRotationEnabledChanged: (enabled) {
+                    _isVinylRotationActive = enabled;
+                  },
                  ),
               ),
             );
@@ -2713,6 +2721,7 @@ class _AnimatedSongScene extends StatelessWidget {
   final bool immersiveShowArtist;
   final bool immersiveShowFileInfo;
   final bool hideQueueBadge;
+  final void Function(bool enabled)? onRotationEnabledChanged;
 
   const _AnimatedSongScene({
     required this.song,
@@ -2759,6 +2768,7 @@ class _AnimatedSongScene extends StatelessWidget {
     this.immersiveShowArtist = true,
     this.immersiveShowFileInfo = true,
     this.hideQueueBadge = false,
+    this.onRotationEnabledChanged,
   });
 
   @override
@@ -3716,7 +3726,9 @@ class _AnimatedSongScene extends StatelessWidget {
                                         : _AlbumArtBox(
                                             song: song,
                                             size: artworkSize,
-                                            playerService: playerService),
+                                            playerService: playerService,
+                                            onRotationEnabledChanged: onRotationEnabledChanged,
+                                          ),
                                   ),
                                 ),
                                 SizedBox(height: artworkSpacing),
@@ -3965,11 +3977,13 @@ class _AlbumArtBox extends StatefulWidget {
   final Song song;
   final double? size;
   final PlayerService? playerService;
+  final void Function(bool enabled)? onRotationEnabledChanged;
 
   const _AlbumArtBox({
     required this.song,
     this.size,
     this.playerService,
+    this.onRotationEnabledChanged,
   });
 
   @override
@@ -3995,10 +4009,10 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
   bool _isVinyl = false;
   bool _isRotationEnabled = false;
   Duration _lastObservedPosition = Duration.zero;
-  double _userRotationOffset = 0.0;
+  final ValueNotifier<double> _userRotationOffset = ValueNotifier(0.0);
   bool _isUserDragging = false;
   double _rotationHapticAccumulator = 0.0;
-  static const double _hapticTickInterval = math.pi / 12;
+  static const double _hapticTickInterval = math.pi / 16;
   late final DoubleTapGestureRecognizer _doubleTapRecognizer;
   late final TapGestureRecognizer _singleTapRecognizer;
   late final _RotationSeekRecognizer _rotationRecognizer;
@@ -4029,8 +4043,10 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
       if (!mounted) return;
       if (status == AnimationStatus.completed) {
         setState(() => _isRotationEnabled = true);
+        widget.onRotationEnabledChanged?.call(true);
       } else if (status == AnimationStatus.dismissed) {
         setState(() => _isRotationEnabled = false);
+        widget.onRotationEnabledChanged?.call(false);
       }
     });
     _morphController.addStatusListener(_handleMorphStatus);
@@ -4057,7 +4073,7 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
       _lastObservedPosition = Duration.zero;
       _seekAngleController.stop();
       _seekAngleController.value = 0;
-      _userRotationOffset = 0.0;
+      _userRotationOffset.value = 0.0;
       _isUserDragging = false;
       _isRotationEnabled = false;
       _outlineController.value = 0;
@@ -4096,6 +4112,7 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
     _seekAngleController.dispose();
     _spinController.dispose();
     _morphController.dispose();
+    _userRotationOffset.dispose();
     super.dispose();
   }
 
@@ -4157,19 +4174,19 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
     _seekAngleController.stop();
     _seekAngleController.value = 0;
     _lastObservedPosition = service.positionNotifier.value;
-    AppHaptics.selection();
+    AppHaptics.confirm();
   }
 
   void _onRotationUpdate(double delta) {
     if (!_isVinyl || !_isRotationEnabled) return;
     final service = widget.playerService;
     if (service == null) return;
-    _userRotationOffset += delta;
+    _userRotationOffset.value += delta;
 
     _rotationHapticAccumulator += delta.abs();
     if (_rotationHapticAccumulator >= _hapticTickInterval) {
       _rotationHapticAccumulator -= _hapticTickInterval;
-      AppHaptics.selection();
+      AppHaptics.tap();
     }
 
     final msPerRadian =
@@ -4189,8 +4206,6 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
       _lastObservedPosition = newPosition;
       unawaited(service.seek(newPosition));
     }
-
-    setState(() {});
   }
 
   void _onRotationEnd() {
@@ -4230,7 +4245,7 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
         _spinController.stop();
         _seekAngleController.stop();
         _seekAngleController.value = 0;
-        _userRotationOffset = 0.0;
+        _userRotationOffset.value = 0.0;
         _isRotationEnabled = false;
         _outlineController.value = 0;
         _morphController.reverse();
@@ -4296,6 +4311,7 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
               _spinController,
               _seekAngleController,
               _outlineController,
+              _userRotationOffset,
             ]),
             builder: (context, _) {
               final rawT = Curves.easeInOutCubic
@@ -4304,7 +4320,7 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
               final glass = (1.0 - t).clamp(0.0, 1.0);
               final rawAngle = _spinController.value * 2 * math.pi * t +
                   _seekAngleController.value +
-                  _userRotationOffset;
+                  _userRotationOffset.value;
               final spinAngle = rawAngle.isNaN ? 0.0 : rawAngle;
 
               final artSize = resolvedSize - (resolvedSize - labelSize) * t;
@@ -4497,7 +4513,7 @@ class _RotationSeekRecognizer extends OneSequenceGestureRecognizer {
       final totalDy = event.localPosition.dy - _startPos!.dy;
       final totalDist = math.sqrt(totalDx * totalDx + totalDy * totalDy);
 
-      if (totalDist < 12) return;
+      if (totalDist < 8) return;
 
       // Check if motion is tangential (rotational) vs radial (linear swipe)
       final motionDx = event.localPosition.dx - _startPos!.dx;
@@ -4506,7 +4522,7 @@ class _RotationSeekRecognizer extends OneSequenceGestureRecognizer {
       final radiusDy = _startPos!.dy - center.dy;
       final radiusLength = math.sqrt(radiusDx * radiusDx + radiusDy * radiusDy);
       
-      if (radiusLength < 20) return; // Too close to center
+      if (radiusLength < 10) return; // Too close to center
 
       final dotProduct = motionDx * radiusDx + motionDy * radiusDy;
       final motionLength = math.sqrt(motionDx * motionDx + motionDy * motionDy);
@@ -4514,7 +4530,7 @@ class _RotationSeekRecognizer extends OneSequenceGestureRecognizer {
       
       // If motion is mostly radial (cosAngle close to ±1), it's a swipe
       // If motion is mostly tangential (cosAngle close to 0), it's rotation
-      if (cosAngle.abs() > 0.5) {
+      if (cosAngle.abs() > 0.8) {
         resolve(GestureDisposition.rejected);
         stopTrackingPointer(event.pointer);
         return;
@@ -6094,48 +6110,91 @@ class _WaveformLayer extends StatefulWidget {
   State<_WaveformLayer> createState() => _WaveformLayerState();
 }
 
-class _WaveformLayerState extends State<_WaveformLayer> {
+class _WaveformLayerState extends State<_WaveformLayer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _appearController;
+  late final Animation<double> _appearAnimation;
+  String? _lastSongId;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastSongId = widget.currentSong?.id;
+    _appearController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _appearAnimation = CurvedAnimation(
+      parent: _appearController,
+      curve: Curves.easeOutCubic,
+    );
+    _appearController.forward();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WaveformLayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.currentSong?.id != _lastSongId) {
+      _lastSongId = widget.currentSong?.id;
+      _appearController.forward(from: 0.0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _appearController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer(
       builder: (context, ref, _) {
         final style = ref.watch(progressBarStyleProvider);
-        return ValueListenableBuilder<Duration>(
-          valueListenable: widget.playerService.durationNotifier,
-          builder: (context, engineDuration, _) {
-            final duration = engineDuration.inMilliseconds > 0
-                ? engineDuration
-                : (widget.currentSong?.duration ?? Duration.zero);
-
-            if (duration.inMilliseconds == 0) {
-              return const SizedBox();
-            }
-
+        return AnimatedBuilder(
+          animation: _appearAnimation,
+          builder: (context, _) {
+            final t = _appearAnimation.value;
             return ValueListenableBuilder<Duration>(
-              valueListenable: widget.positionNotifier,
-              builder: (context, position, _) {
-                final seekBar = switch (style) {
-                  ProgressBarStyle.line => LineSeekBar(
-                    position: position,
-                    duration: duration,
-                    onChanged: (newPos) {
-                      widget.positionNotifier.value = newPos;
-                      unawaited(widget.playerService.seek(newPos));
-                    },
-                  ),
-                  ProgressBarStyle.waveform => WaveformSeekBar(
-                    barCount: 60,
-                    position: position,
-                    duration: duration,
-                    onChanged: (newPos) {
-                      widget.positionNotifier.value = newPos;
-                      unawaited(widget.playerService.seek(newPos));
-                    },
-                  ),
-                };
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: RepaintBoundary(child: seekBar),
+              valueListenable: widget.playerService.durationNotifier,
+              builder: (context, engineDuration, _) {
+                final duration = engineDuration.inMilliseconds > 0
+                    ? engineDuration
+                    : (widget.currentSong?.duration ?? Duration.zero);
+
+                if (duration.inMilliseconds == 0) {
+                  return const SizedBox();
+                }
+
+                return ValueListenableBuilder<Duration>(
+                  valueListenable: widget.positionNotifier,
+                  builder: (context, position, _) {
+                    final seekBar = switch (style) {
+                      ProgressBarStyle.line => LineSeekBar(
+                        position: position,
+                        duration: duration,
+                        appearProgress: t,
+                        onChanged: (newPos) {
+                          widget.positionNotifier.value = newPos;
+                          unawaited(widget.playerService.seek(newPos));
+                        },
+                      ),
+                      ProgressBarStyle.waveform => WaveformSeekBar(
+                        barCount: 60,
+                        position: position,
+                        duration: duration,
+                        appearProgress: t,
+                        onChanged: (newPos) {
+                          widget.positionNotifier.value = newPos;
+                          unawaited(widget.playerService.seek(newPos));
+                        },
+                      ),
+                    };
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: RepaintBoundary(child: seekBar),
+                    );
+                  },
                 );
               },
             );

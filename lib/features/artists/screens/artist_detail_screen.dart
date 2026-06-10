@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/constants/app_constants.dart';
+import 'package:flick/widgets/common/floating_mini_player.dart';
 import 'package:flick/core/utils/navigation_helper.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/data/repositories/artist_repository.dart';
@@ -16,6 +17,7 @@ import 'package:flick/services/color_extraction_service.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
+import 'package:flick/providers/navigation_provider.dart';
 
 /// Artist detail screen showing songs, albums, and most played tracks.
 class ArtistDetailScreen extends ConsumerStatefulWidget {
@@ -68,6 +70,9 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
     _loadExtras();
     _resolveAndSaveArtistArt();
     _extractArtistColor();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(navBarVisibleProvider.notifier).setVisible(true);
+    });
   }
 
   @override
@@ -294,11 +299,15 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
               ? AppColors.surface
               : Color.lerp(_darkBase, _artistColor!, _appBarBlend)!;
           final resolvedBg = animatedBg ?? AppColors.background;
-          return Scaffold(
+          return Stack(
+            children: [
+              Scaffold(
             backgroundColor: resolvedBg,
             body: AdaptiveColorProvider(
               backgroundColor: resolvedBg,
               albumDominantColor: _artistColor,
+              child: NotificationListener<ScrollNotification>(
+              onNotification: (_) => true,
               child: CustomScrollView(
                 controller: _scrollController,
                 slivers: [
@@ -553,7 +562,11 @@ class _ArtistDetailScreenState extends ConsumerState<ArtistDetailScreen> {
                   ),
                 ],
               ),
+              ),
             ),
+              ),
+              const FloatingMiniPlayer(),
+            ],
           );
         },
       ),

@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:math' show pi;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,6 +22,7 @@ import 'package:flick/services/music_folder_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:flick/widgets/common/glass_dialog.dart';
+import 'package:flick/widgets/common/vinyl_record.dart';
 
 class LibrarySettingsScreen extends ConsumerStatefulWidget {
   const LibrarySettingsScreen({super.key});
@@ -30,12 +33,13 @@ class LibrarySettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final MusicFolderService _folderService = MusicFolderService();
   final LibraryScannerService _scannerService = LibraryScannerService();
   final SongRepository _songRepository = SongRepository();
 
   List<MusicFolder> _folders = [];
+  final Map<String, FolderEntity> _folderEntities = {};
   int _songCount = 0;
   bool _isScanning = false;
   ScanProgress? _scanProgress;
@@ -45,10 +49,12 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
 
   late final AnimationController _scanSettingsController;
   late final Animation<double> _scanSettingsRotation;
+  late final AnimationController _vinylController;
 
   final ValueNotifier<ScanProgress?> _scanProgressNotifier = ValueNotifier(
     null,
   );
+  final Stopwatch _scanStopwatch = Stopwatch();
 
   @override
   void initState() {
@@ -60,6 +66,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
     _scanSettingsRotation = Tween<double>(begin: 0, end: 0.5).animate(
       CurvedAnimation(parent: _scanSettingsController, curve: Curves.easeInOut),
     );
+    _vinylController = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    );
     _loadLibraryData();
     _syncFoldersToDatabase();
     _loadAndroidDeviceNotices();
@@ -69,6 +79,8 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
   void dispose() {
     _scanProgressNotifier.dispose();
     _scanSettingsController.dispose();
+    _vinylController.dispose();
+    _scanStopwatch.stop();
     super.dispose();
   }
 
@@ -91,9 +103,17 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
   Future<void> _loadLibraryData() async {
     final folders = await _folderService.getSavedFolders();
     final count = await _songRepository.getSongCount();
+    final repo = FolderRepository();
+    final entities = <String, FolderEntity>{};
+    for (final folder in folders) {
+      final entity = await repo.getFolderByUri(folder.uri);
+      if (entity != null) entities[folder.uri] = entity;
+    }
     if (mounted) {
       setState(() {
         _folders = folders;
+        _folderEntities.clear();
+        _folderEntities.addAll(entities);
         _songCount = count;
       });
     }
@@ -216,7 +236,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       _isScanning = true;
       _scanProgress = null;
     });
-    _showScanningBottomSheet(displayName);
+    _scanStopwatch.reset();
+    _scanStopwatch.start();
+    _vinylController.repeat();
+    _showScanningOverlay(displayName);
 
     await for (final progress in _scannerService.scanFolder(uri, displayName)) {
       if (mounted) {
@@ -225,6 +248,8 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       }
     }
 
+    _scanStopwatch.stop();
+    _vinylController.stop();
     await _loadLibraryData();
     if (mounted) {
       Navigator.of(context).pop();
@@ -234,7 +259,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
         _scanProgress = null;
       });
       final added = _songCount - previousCount;
-      _showToast('Scan completed: $added songs added');
+      _showScanCompleteBottomSheet(
+        scanDuration: _scanStopwatch.elapsed,
+        songsScanned: added,
+      );
     }
   }
 
@@ -244,7 +272,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       _isScanning = true;
       _scanProgress = null;
     });
-    _showScanningBottomSheet('All Folders');
+    _scanStopwatch.reset();
+    _scanStopwatch.start();
+    _vinylController.repeat();
+    _showScanningOverlay('All Folders');
 
     await for (final progress in _scannerService.scanAllFolders()) {
       if (mounted) {
@@ -253,6 +284,8 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       }
     }
 
+    _scanStopwatch.stop();
+    _vinylController.stop();
     await _loadLibraryData();
     if (mounted) {
       Navigator.of(context).pop();
@@ -262,7 +295,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
         _scanProgress = null;
       });
       final added = _songCount - previousCount;
-      _showToast('Rescan completed: $added songs added');
+      _showScanCompleteBottomSheet(
+        scanDuration: _scanStopwatch.elapsed,
+        songsScanned: added,
+      );
     }
   }
 
@@ -295,119 +331,265 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
     );
   }
 
-  void _showScanningBottomSheet(String folderName) {
-    GlassBottomSheet.show(
+  void _showScanningOverlay(String folderName) {
+    showGeneralDialog(
       context: context,
-      title: 'Scanning Library',
-      isDismissible: false,
-      enableDrag: false,
-      maxHeightRatio: 0.35,
-      content: ValueListenableBuilder<ScanProgress?>(
-        valueListenable: _scanProgressNotifier,
-        builder: (context, progress, _) {
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: 0.55),
+      transitionDuration: const Duration(milliseconds: 250),
+      pageBuilder: (_, animation, secondaryAnimation) {
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: Stack(
+            fit: StackFit.expand,
             children: [
-              const SizedBox(height: AppConstants.spacingMd),
-              Row(
-                children: [
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: AppConstants.spacingMd),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          progress?.currentFolder ?? folderName,
-                          style: const TextStyle(
-                            fontFamily: 'ProductSans',
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textPrimary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          progress?.currentFile ?? 'Initializing...',
-                          style: const TextStyle(
-                            fontFamily: 'ProductSans',
-                            fontSize: 13,
-                            color: AppColors.textTertiary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppConstants.spacingLg),
-              Container(
-                padding: const EdgeInsets.all(AppConstants.spacingMd),
-                decoration: BoxDecoration(
-                  color: AppColors.glassBackground,
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                  border: Border.all(color: AppColors.glassBorder),
+              // Blurred background
+              BackdropFilter(
+                filter: ImageFilter.blur(
+                  sigmaX: AppConstants.glassBlurSigma,
+                  sigmaY: AppConstants.glassBlurSigma,
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildScanStat(
-                      'Songs Found',
-                      '${progress?.songsFound ?? 0}',
-                      LucideIcons.music,
-                    ),
-                    Container(
-                      width: 1,
-                      height: 40,
-                      color: AppColors.glassBorder,
-                    ),
-                    _buildScanStat(
-                      'Total Files',
-                      '${progress?.totalFiles ?? 0}',
-                      LucideIcons.file,
-                    ),
-                  ],
-                ),
+                child: const SizedBox.expand(),
               ),
-              const SizedBox(height: AppConstants.spacingMd),
-              SizedBox(
-                width: double.infinity,
-                child: TextButton(
-                  onPressed: () {
-                    _scannerService.cancelScan();
-                    Navigator.of(context).pop();
-                    _scanProgressNotifier.value = null;
-                    setState(() {
-                      _isScanning = false;
-                      _scanProgress = null;
-                    });
+              // Spinning vinyl centered
+              Center(
+                child: AnimatedBuilder(
+                  animation: _vinylController,
+                  builder: (context, child) {
+                    return Transform.rotate(
+                      angle: _vinylController.value * 2 * pi,
+                      child: child,
+                    );
                   },
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.textSecondary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(
-                      fontFamily: 'ProductSans',
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+                  child: const VinylRecord(size: 180),
+                ),
+              ),
+              // Bottom sheet panel
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: ValueListenableBuilder<ScanProgress?>(
+                  valueListenable: _scanProgressNotifier,
+                  builder: (context, progress, _) {
+                    return Container(
+                      margin: const EdgeInsets.all(AppConstants.spacingLg),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            AppColors.surfaceLight.withValues(alpha: 0.98),
+                            AppColors.surface.withValues(alpha: 0.98),
+                          ],
+                        ),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(AppConstants.radiusXl),
+                          bottom: Radius.circular(AppConstants.radiusXl),
+                        ),
+                        border: Border.all(color: AppColors.glassBorder),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.28),
+                            blurRadius: 20,
+                            offset: const Offset(0, -6),
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.fromLTRB(
+                        AppConstants.spacingLg,
+                        AppConstants.spacingSm,
+                        AppConstants.spacingLg,
+                        AppConstants.spacingLg,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // Drag handle
+                          Container(
+                            width: 40,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: AppColors.textTertiary,
+                              borderRadius: BorderRadius.circular(
+                                AppConstants.radiusRound,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: AppConstants.spacingMd),
+                          Text(
+                            progress?.currentFolder ?? folderName,
+                            style: const TextStyle(
+                              fontFamily: 'ProductSans',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.textPrimary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            progress?.currentFile ?? 'Initializing...',
+                            style: const TextStyle(
+                              fontFamily: 'ProductSans',
+                              fontSize: 13,
+                              color: AppColors.textTertiary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: AppConstants.spacingLg),
+                          Container(
+                            padding: const EdgeInsets.all(AppConstants.spacingMd),
+                            decoration: BoxDecoration(
+                              color: AppColors.glassBackground,
+                              borderRadius: BorderRadius.circular(
+                                AppConstants.radiusMd,
+                              ),
+                              border: Border.all(color: AppColors.glassBorder),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                _buildScanStat(
+                                  'Songs Found',
+                                  '${progress?.songsFound ?? 0}',
+                                  LucideIcons.music,
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 40,
+                                  color: AppColors.glassBorder,
+                                ),
+                                _buildScanStat(
+                                  'Total Files',
+                                  '${progress?.totalFiles ?? 0}',
+                                  LucideIcons.file,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppConstants.spacingMd),
+                          SizedBox(
+                            width: double.infinity,
+                            child: TextButton(
+                              onPressed: () {
+                                _scannerService.cancelScan();
+                                _vinylController.stop();
+                                _scanStopwatch.stop();
+                                Navigator.of(context).pop();
+                                _scanProgressNotifier.value = null;
+                                setState(() {
+                                  _isScanning = false;
+                                  _scanProgress = null;
+                                });
+                              },
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppColors.textSecondary,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                              ),
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  fontFamily: 'ProductSans',
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
-          );
-        },
+          ),
+        );
+      },
+    );
+  }
+
+  void _showScanCompleteBottomSheet({
+    required Duration scanDuration,
+    required int songsScanned,
+  }) {
+    final seconds = scanDuration.inSeconds;
+    final milliseconds = scanDuration.inMilliseconds.remainder(1000);
+    final timeText = seconds > 0
+        ? '$seconds.${(milliseconds / 100).floor()}s'
+        : '${milliseconds}ms';
+
+    GlassBottomSheet.show(
+      context: context,
+      title: 'Scan Complete',
+      isDismissible: true,
+      enableDrag: true,
+      maxHeightRatio: 0.35,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: AppConstants.spacingMd),
+          Icon(
+            LucideIcons.circleCheck,
+            color: AppColors.accent,
+            size: 48,
+          ),
+          const SizedBox(height: AppConstants.spacingLg),
+          Container(
+            padding: const EdgeInsets.all(AppConstants.spacingMd),
+            decoration: BoxDecoration(
+              color: AppColors.glassBackground,
+              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildScanStat(
+                  'Songs Scanned',
+                  '$songsScanned',
+                  LucideIcons.music,
+                ),
+                Container(
+                  width: 1,
+                  height: 40,
+                  color: AppColors.glassBorder,
+                ),
+                _buildScanStat(
+                  'Time Taken',
+                  timeText,
+                  LucideIcons.timer,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppConstants.spacingMd),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                ),
+              ),
+              child: const Text(
+                'Done',
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -538,6 +720,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
   }
 
   Widget _buildFolderItem(MusicFolder folder) {
+    final globalDeepScan = ref.watch(libraryScanPreferencesProvider).useDeepScan;
+    final entity = _folderEntities[folder.uri];
+    final effectiveDeepScan = entity?.useDeepScan ?? globalDeepScan;
+
     return Material(
       color: Colors.transparent,
       child: Padding(
@@ -573,54 +759,35 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (Platform.isAndroid)
-                    FutureBuilder<FolderEntity?>(
-                      future: FolderRepository().getFolderByUri(folder.uri),
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData) return const SizedBox.shrink();
-                        final entity = snapshot.data;
-                        final globalDeepScan = ref.watch(libraryScanPreferencesProvider).useDeepScan;
-                        final folderDeepScan = entity?.useDeepScan;
-                        final effectiveDeepScan = folderDeepScan ?? globalDeepScan;
-                        return Row(
-                          children: [
-                            Text(
-                              'Deep scan',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: context.adaptiveTextTertiary,
-                              ),
-                            ),
-                            const SizedBox(width: AppConstants.spacingXs),
-                            SizedBox(
-                              height: 20,
-                              child: Switch(
-                                value: effectiveDeepScan,
-                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                onChanged: (value) async {
-                                  final repo = FolderRepository();
-                                  final existing = await repo.getFolderByUri(folder.uri);
-                                  if (existing != null) {
-                                    existing.useDeepScan = value;
-                                    await repo.upsertFolder(existing);
-                                  } else {
-                                    final newEntity = FolderEntity()
-                                      ..uri = folder.uri
-                                      ..displayName = folder.displayName
-                                      ..dateAdded = folder.dateAdded
-                                      ..songCount = 0
-                                      ..useDeepScan = value;
-                                    await repo.upsertFolder(newEntity);
-                                  }
-                                  setState(() {});
-                                },
-                              ),
-                            ),
-                          ],
-                        );
-                      },
+                    Text(
+                      effectiveDeepScan ? 'Deep scan on' : 'Deep scan off',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.adaptiveTextTertiary,
+                      ),
                     ),
                 ],
               ),
             ),
+            if (Platform.isAndroid)
+              CustomSwitch(
+                value: effectiveDeepScan,
+                onChanged: (value) async {
+                  final repo = FolderRepository();
+                  if (entity != null) {
+                    entity.useDeepScan = value;
+                    await repo.upsertFolder(entity);
+                  } else {
+                    final newEntity = FolderEntity()
+                      ..uri = folder.uri
+                      ..displayName = folder.displayName
+                      ..dateAdded = folder.dateAdded
+                      ..songCount = 0
+                      ..useDeepScan = value;
+                    await repo.upsertFolder(newEntity);
+                  }
+                  setState(() {});
+                },
+              ),
             IconButton(
               icon: Icon(
                 LucideIcons.trash2,

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flick/widgets/common/floating_mini_player.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:math' as math;
 import 'package:path_provider/path_provider.dart';
@@ -16,6 +17,7 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/providers/equalizer_provider.dart';
+import 'package:flick/providers/navigation_provider.dart';
 import 'package:flick/services/eq_preset_file_service.dart';
 import 'package:flick/services/eq_preset_service.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
@@ -45,6 +47,9 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
   void initState() {
     super.initState();
     _pageController.addListener(_onPageChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ref.read(navBarVisibleProvider.notifier).setVisible(true);
+    });
   }
 
   @override
@@ -75,57 +80,62 @@ class _EqualizerScreenState extends ConsumerState<EqualizerScreen> {
   Widget build(BuildContext context) {
     final activePresetName = ref.watch(eqActivePresetNameProvider);
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        bottom: false,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _Header(
-              title: 'EQ & Dynamics',
-              subtitle: activePresetName != null
-                  ? 'Preset: $activePresetName'
-                  : null,
-              onBack: () => Navigator.of(context).pop(),
-              onPresets: _showPresetsBottomSheet,
-            ),
-            Expanded(
-              child: Column(
-                children: [
-                  _EffectsTabBar(
-                    selectedIndex: _currentPage,
-                    onSelected: (index) {
-                      setState(() => _currentPage = index);
-                      _pageController.animateToPage(
-                        index,
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOutCubic,
-                      );
-                    },
-                  ),
-                  const SizedBox(height: AppConstants.spacingMd),
-                  Expanded(
-                    child: PageView(
-                      controller: _pageController,
-                      physics: const BouncingScrollPhysics(),
-                      children: [
-                        _EqPage(
-                          scrollController: _scrollController,
-                          graphicGraphKey: _graphicGraphKey,
-                          parametricGraphKey: _parametricGraphKey,
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: AppColors.background,
+          body: SafeArea(
+            bottom: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _Header(
+                  title: 'EQ & Dynamics',
+                  subtitle: activePresetName != null
+                      ? 'Preset: $activePresetName'
+                      : null,
+                  onBack: () => Navigator.of(context).pop(),
+                  onPresets: _showPresetsBottomSheet,
+                ),
+                Expanded(
+                  child: Column(
+                    children: [
+                      _EffectsTabBar(
+                        selectedIndex: _currentPage,
+                        onSelected: (index) {
+                          setState(() => _currentPage = index);
+                          _pageController.animateToPage(
+                            index,
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOutCubic,
+                          );
+                        },
+                      ),
+                      const SizedBox(height: AppConstants.spacingMd),
+                      Expanded(
+                        child: PageView(
+                          controller: _pageController,
+                          physics: const BouncingScrollPhysics(),
+                          children: [
+                            _EqPage(
+                              scrollController: _scrollController,
+                              graphicGraphKey: _graphicGraphKey,
+                              parametricGraphKey: _parametricGraphKey,
+                            ),
+                            const _DynamicsPage(),
+                            const _FxPage(),
+                          ],
                         ),
-                        const _DynamicsPage(),
-                        const _FxPage(),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
+        const FloatingMiniPlayer(),
+      ],
     );
   }
 }
@@ -202,10 +212,12 @@ class _EqPage extends ConsumerWidget {
     final enabled = ref.watch(eqEnabledProvider);
     final mode = ref.watch(eqModeProvider);
 
-    return SingleChildScrollView(
-      controller: scrollController,
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
-      child: Column(
+      return NotificationListener<ScrollNotification>(
+        onNotification: (_) => true,
+        child: SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _GlassCard(
@@ -220,6 +232,8 @@ class _EqPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: AppConstants.spacingLg),
+          _BmtKnobsRow(enabled: enabled),
+          const SizedBox(height: AppConstants.spacingLg),
           AnimatedSwitcher(
             duration: AppConstants.animationNormal,
             switchInCurve: Curves.easeOutCubic,
@@ -233,9 +247,10 @@ class _EqPage extends ConsumerWidget {
                     key: const ValueKey('param'),
                     graphKey: parametricGraphKey,
                   ),
-          ),
+            ),
           SizedBox(height: AppConstants.navBarHeight + 120),
         ],
+      ),
       ),
     );
   }
@@ -246,14 +261,17 @@ class _DynamicsPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _DynamicsSection(),
-          SizedBox(height: AppConstants.navBarHeight + 120),
-        ],
+    return NotificationListener<ScrollNotification>(
+      onNotification: (_) => true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _DynamicsSection(),
+            SizedBox(height: AppConstants.navBarHeight + 120),
+          ],
+        ),
       ),
     );
   }
@@ -264,14 +282,17 @@ class _FxPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _CreativeFxSection(),
-          SizedBox(height: AppConstants.navBarHeight + 120),
-        ],
+    return NotificationListener<ScrollNotification>(
+      onNotification: (_) => true,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.spacingMd),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const _CreativeFxSection(),
+            SizedBox(height: AppConstants.navBarHeight + 120),
+          ],
+        ),
       ),
     );
   }
@@ -479,6 +500,9 @@ class _PresetsSheetState extends ConsumerState<_PresetsSheet> {
           preampDb: preset.preampDb,
           graphicGainsDb: preset.graphicGainsDb,
           parametricBands: preset.parametricBands,
+          bassDb: preset.bassDb,
+          midDb: preset.midDb,
+          trebleDb: preset.trebleDb,
           compressor: preset.compressor,
           limiter: preset.limiter,
           fx: preset.fx,
@@ -536,6 +560,9 @@ class _PresetsSheetState extends ConsumerState<_PresetsSheet> {
             preampDb: preset.preampDb,
             graphicGainsDb: preset.graphicGainsDb,
             parametricBands: preset.parametricBands,
+            bassDb: preset.bassDb,
+            midDb: preset.midDb,
+            trebleDb: preset.trebleDb,
             compressor: preset.compressor,
             limiter: preset.limiter,
             fx: preset.fx,
@@ -1608,6 +1635,118 @@ class _ModeAndActionsRow extends ConsumerWidget {
   }
 }
 
+class _BmtKnobsRow extends ConsumerWidget {
+  final bool enabled;
+  const _BmtKnobsRow({required this.enabled});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bassDb = ref.watch(eqBassDbProvider);
+    final midDb = ref.watch(eqMidDbProvider);
+    final trebleDb = ref.watch(eqTrebleDbProvider);
+
+    return _GlassCard(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          vertical: AppConstants.spacingMd,
+        ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.spacingMd,
+              ),
+              child: Row(
+                children: [
+                  _IconTile(
+                    icon: LucideIcons.audioWaveform,
+                    enabled: enabled,
+                  ),
+                  const SizedBox(width: AppConstants.spacingMd),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tone Controls',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: context.adaptiveTextPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Bass, Mid & Treble',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: context.adaptiveTextTertiary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if ((bassDb + midDb + trebleDb).abs() > 0.01)
+                    _ResetButton(
+                      onTap: () {
+                        final notifier = ref.read(equalizerProvider.notifier);
+                        notifier.setBassDb(0.0);
+                        notifier.setMidDb(0.0);
+                        notifier.setTrebleDb(0.0);
+                      },
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppConstants.spacingMd),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _LabeledKnob(
+                  icon: LucideIcons.arrowDown,
+                  label: 'Bass',
+                  valueLabel:
+                      '${bassDb >= 0 ? '+' : ''}${bassDb.toStringAsFixed(1)} dB',
+                  value: bassDb,
+                  min: EqualizerNotifier.gainMinDb,
+                  max: EqualizerNotifier.gainMaxDb,
+                  onChanged: enabled
+                      ? (v) =>
+                          ref.read(equalizerProvider.notifier).setBassDb(v)
+                      : null,
+                ),
+                _LabeledKnob(
+                  icon: LucideIcons.minus,
+                  label: 'Mid',
+                  valueLabel:
+                      '${midDb >= 0 ? '+' : ''}${midDb.toStringAsFixed(1)} dB',
+                  value: midDb,
+                  min: EqualizerNotifier.gainMinDb,
+                  max: EqualizerNotifier.gainMaxDb,
+                  onChanged: enabled
+                      ? (v) =>
+                          ref.read(equalizerProvider.notifier).setMidDb(v)
+                      : null,
+                ),
+                _LabeledKnob(
+                  icon: LucideIcons.arrowUp,
+                  label: 'Treble',
+                  valueLabel:
+                      '${trebleDb >= 0 ? '+' : ''}${trebleDb.toStringAsFixed(1)} dB',
+                  value: trebleDb,
+                  min: EqualizerNotifier.gainMinDb,
+                  max: EqualizerNotifier.gainMaxDb,
+                  onChanged: enabled
+                      ? (v) =>
+                          ref.read(equalizerProvider.notifier).setTrebleDb(v)
+                      : null,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _GraphicEqView extends ConsumerWidget {
   final GlobalKey? graphKey;
   const _GraphicEqView({super.key, this.graphKey});
@@ -1861,24 +2000,19 @@ class _GraphicBandSlider extends ConsumerWidget {
                     opacity: enabled ? 1.0 : 0.5,
                     child: RotatedBox(
                       quarterTurns: -1,
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 4,
-                          activeTrackColor: toneColor,
-                          inactiveTrackColor: AppColors.glassBorderStrong,
-                          thumbColor: toneColor,
-                          overlayColor: toneColor.withValues(alpha: 0.12),
-                        ),
-                        child: Slider(
-                          value: gainDb,
-                          min: EqualizerNotifier.gainMinDb,
-                          max: EqualizerNotifier.gainMaxDb,
-                          onChanged: enabled
-                              ? (v) => ref
-                                    .read(equalizerProvider.notifier)
-                                    .setGraphicGainDb(index, v)
-                              : null,
-                        ),
+                      child: _AnimatedSlider(
+                        value: gainDb,
+                        min: EqualizerNotifier.gainMinDb,
+                        max: EqualizerNotifier.gainMaxDb,
+                        activeTrackColor: toneColor,
+                        inactiveTrackColor: AppColors.glassBorderStrong,
+                        thumbColor: toneColor,
+                        overlayColor: toneColor.withValues(alpha: 0.12),
+                        onChanged: enabled
+                            ? (v) => ref
+                                  .read(equalizerProvider.notifier)
+                                  .setGraphicGainDb(index, v)
+                            : null,
                       ),
                     ),
                   ),
@@ -1895,6 +2029,108 @@ class _GraphicBandSlider extends ConsumerWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _AnimatedSlider extends StatefulWidget {
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double>? onChanged;
+  final Color? activeTrackColor;
+  final Color? inactiveTrackColor;
+  final Color? thumbColor;
+  final Color? overlayColor;
+
+  const _AnimatedSlider({
+    required this.value,
+    required this.min,
+    required this.max,
+    this.onChanged,
+    this.activeTrackColor,
+    this.inactiveTrackColor,
+    this.thumbColor,
+    this.overlayColor,
+  });
+
+  @override
+  State<_AnimatedSlider> createState() => _AnimatedSliderState();
+}
+
+class _AnimatedSliderState extends State<_AnimatedSlider>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  double _currentValue = 0.0;
+  bool _isDragging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentValue = widget.value;
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _controller.addListener(() {
+      if (mounted) {
+        setState(() => _currentValue = _controller.value);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _animateTo(double target) {
+    _controller
+      ..stop()
+      ..value = _currentValue;
+    _controller.animateTo(
+      target,
+      curve: Curves.easeOutBack,
+      duration: const Duration(milliseconds: 350),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedSlider oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final newValue = widget.value;
+    if ((newValue - _currentValue).abs() > 0.001 && !_isDragging) {
+      _animateTo(newValue);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        trackHeight: 4,
+        activeTrackColor: widget.activeTrackColor,
+        inactiveTrackColor: widget.inactiveTrackColor,
+        thumbColor: widget.thumbColor,
+        overlayColor: widget.overlayColor,
+      ),
+      child: Slider(
+        value: _currentValue,
+        min: widget.min,
+        max: widget.max,
+        onChangeStart: (_) {
+          _controller.stop();
+          _isDragging = true;
+        },
+        onChangeEnd: (_) => _isDragging = false,
+        onChanged: widget.onChanged != null
+            ? (v) {
+                setState(() => _currentValue = v);
+                widget.onChanged!(v);
+              }
+            : null,
       ),
     );
   }

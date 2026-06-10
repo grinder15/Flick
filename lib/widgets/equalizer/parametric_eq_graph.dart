@@ -28,6 +28,10 @@ class ParametricEqGraph extends ConsumerWidget {
             (i) => ref.read(eqParamBandProvider(i)),
             growable: false,
           );
+          final bmtState = ref.read(equalizerProvider);
+          final bassDb = bmtState.bassDb;
+          final midDb = bmtState.midDb;
+          final trebleDb = bmtState.trebleDb;
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -48,6 +52,9 @@ class ParametricEqGraph extends ConsumerWidget {
               final curvePoints = equtils.buildParametricCurvePoints(
                 bands: bands,
                 sampleCount: sampleCount,
+                bassDb: bassDb,
+                midDb: midDb,
+                trebleDb: trebleDb,
               );
               final spots = curvePoints
                   .map((p) => FlSpot(p.x, p.db))
@@ -58,10 +65,17 @@ class ParametricEqGraph extends ConsumerWidget {
                   if (b.enabled)
                     FlSpot(
                       equtils.hzToX(b.frequencyHz),
-                      parametricResponseDbAtHz(
-                        hz: b.frequencyHz,
-                        bands: bands,
-                      ),
+                      (parametricResponseDbAtHz(
+                            hz: b.frequencyHz,
+                            bands: bands,
+                          ) + equtils.bmtOffsetDbAtHz(
+                            b.frequencyHz,
+                            bassDb: bassDb,
+                            midDb: midDb,
+                            trebleDb: trebleDb,
+                          ))
+                          .clamp(equtils.eqMinDb, equtils.eqMaxDb)
+                          .toDouble(),
                     ),
               ];
 

@@ -1198,6 +1198,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
+name = "opus-sys"
+version = "0.1.0"
+dependencies = [
+ "bindgen 0.70.1",
+ "cc",
+]
+
+[[package]]
 name = "oslog"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1453,6 +1461,7 @@ dependencies = [
  "notify",
  "oboe",
  "once_cell",
+ "opus-sys",
  "parking_lot",
  "rayon",
  "ringbuf",

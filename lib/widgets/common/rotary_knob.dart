@@ -39,24 +39,64 @@ class RotaryKnob extends StatefulWidget {
   State<RotaryKnob> createState() => _RotaryKnobState();
 }
 
-class _RotaryKnobState extends State<RotaryKnob> {
+class _RotaryKnobState extends State<RotaryKnob>
+    with SingleTickerProviderStateMixin {
   double _currentValue = 0.0;
   double _lastHapticValue = 0.0;
+  double _targetValue = 0.0;
   bool _isDragging = false;
+  late AnimationController _animController;
 
   @override
   void initState() {
     super.initState();
-    _currentValue = widget.value.clamp(widget.min, widget.max).toDouble();
+    _targetValue = widget.value.clamp(widget.min, widget.max).toDouble();
+    _currentValue = _targetValue;
     _lastHapticValue = _currentValue;
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _animController.addListener(() {
+      if (mounted) {
+        setState(() {
+          _currentValue = _animController.value;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  void _animateTo(double newValue) {
+    _animController
+      ..stop()
+      ..duration = const Duration(milliseconds: 350)
+      ..value = _currentValue;
+    _animController.animateTo(
+      newValue,
+      curve: Curves.easeOutBack,
+      duration: const Duration(milliseconds: 350),
+    );
   }
 
   @override
   void didUpdateWidget(covariant RotaryKnob oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if ((widget.value - _currentValue).abs() > 0.001) {
-      _currentValue = widget.value.clamp(widget.min, widget.max).toDouble();
-      _lastHapticValue = _currentValue;
+    final newTarget = widget.value.clamp(widget.min, widget.max).toDouble();
+    if ((newTarget - _targetValue).abs() > 0.001) {
+      _targetValue = newTarget;
+      if (_isDragging) {
+        _animController.stop();
+        _currentValue = newTarget;
+        _lastHapticValue = newTarget;
+      } else {
+        _animateTo(newTarget);
+      }
     }
   }
 
@@ -68,6 +108,7 @@ class _RotaryKnobState extends State<RotaryKnob> {
 
   void _handleDragStart(Offset globalPosition) {
     if (widget.onChanged == null) return;
+    _animController.stop();
     _isDragging = true;
     _updateValueFromPosition(globalPosition);
   }

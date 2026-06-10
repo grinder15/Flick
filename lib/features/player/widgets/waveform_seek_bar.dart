@@ -8,6 +8,7 @@ class WaveformSeekBar extends StatefulWidget {
   final Duration duration;
   final ValueChanged<Duration> onChanged;
   final ValueChanged<Duration>? onChangeEnd;
+  final double appearProgress;
 
   const WaveformSeekBar({
     super.key,
@@ -16,6 +17,7 @@ class WaveformSeekBar extends StatefulWidget {
     required this.onChanged,
     this.onChangeEnd,
     this.barCount = 60,
+    this.appearProgress = 1.0,
   });
 
   final int barCount;
@@ -240,6 +242,7 @@ class _WaveformSeekBarState extends State<WaveformSeekBar> {
                       activeColor: AppColors.accent,
                       barCount: widget.barCount,
                       zoomFactor: _isFineScrubbing ? _fineScrubZoom : 1.0,
+                      appearProgress: widget.appearProgress,
                     ),
                   ),
                 ),
@@ -266,6 +269,7 @@ class _WaveformPainter extends CustomPainter {
   final Color activeColor;
   final int barCount;
   final double zoomFactor;
+  final double appearProgress;
 
   _WaveformPainter({
     required this.waveformData,
@@ -275,6 +279,7 @@ class _WaveformPainter extends CustomPainter {
     required this.activeColor,
     required this.barCount,
     required this.zoomFactor,
+    required this.appearProgress,
   });
 
   double _sampleHeight(double progress) {
@@ -319,7 +324,7 @@ class _WaveformPainter extends CustomPainter {
       final barProgress = zoomFactor <= 1
           ? i / barCount
           : startProgress + (i / max(1, barCount - 1)) * visibleProgressWindow;
-      final barHeight = _sampleHeight(barProgress) * size.height;
+      final barHeight = _sampleHeight(barProgress) * size.height * appearProgress;
       final x = i * (barWidth + spacing) + barWidth / 2;
       final yCenter = size.height / 2;
 
@@ -360,7 +365,8 @@ class _WaveformPainter extends CustomPainter {
     }
 
     if (oldDelegate.zoomFactor != zoomFactor ||
-        oldDelegate.waveformData != waveformData) {
+        oldDelegate.waveformData != waveformData ||
+        oldDelegate.appearProgress != appearProgress) {
       return true;
     }
 

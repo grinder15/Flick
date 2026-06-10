@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:math' show pi;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/theme/app_colors.dart';
@@ -30,7 +32,7 @@ class LibrarySettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final MusicFolderService _folderService = MusicFolderService();
   final LibraryScannerService _scannerService = LibraryScannerService();
   final SongRepository _songRepository = SongRepository();
@@ -46,10 +48,12 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
 
   late final AnimationController _scanSettingsController;
   late final Animation<double> _scanSettingsRotation;
+  late final AnimationController _vinylController;
 
   final ValueNotifier<ScanProgress?> _scanProgressNotifier = ValueNotifier(
     null,
   );
+  final Stopwatch _scanStopwatch = Stopwatch();
 
   @override
   void initState() {
@@ -61,6 +65,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
     _scanSettingsRotation = Tween<double>(begin: 0, end: 0.5).animate(
       CurvedAnimation(parent: _scanSettingsController, curve: Curves.easeInOut),
     );
+    _vinylController = AnimationController(
+      duration: const Duration(seconds: 3),
+      vsync: this,
+    );
     _loadLibraryData();
     _syncFoldersToDatabase();
     _loadAndroidDeviceNotices();
@@ -70,6 +78,8 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
   void dispose() {
     _scanProgressNotifier.dispose();
     _scanSettingsController.dispose();
+    _vinylController.dispose();
+    _scanStopwatch.stop();
     super.dispose();
   }
 
@@ -225,6 +235,9 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       _isScanning = true;
       _scanProgress = null;
     });
+    _scanStopwatch.reset();
+    _scanStopwatch.start();
+    _vinylController.repeat();
     _showScanningBottomSheet(displayName);
 
     await for (final progress in _scannerService.scanFolder(uri, displayName)) {
@@ -234,6 +247,8 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       }
     }
 
+    _scanStopwatch.stop();
+    _vinylController.stop();
     await _loadLibraryData();
     if (mounted) {
       Navigator.of(context).pop();
@@ -243,7 +258,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
         _scanProgress = null;
       });
       final added = _songCount - previousCount;
-      _showToast('Scan completed: $added songs added');
+      _showScanCompleteBottomSheet(
+        scanDuration: _scanStopwatch.elapsed,
+        songsScanned: added,
+      );
     }
   }
 
@@ -253,6 +271,9 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       _isScanning = true;
       _scanProgress = null;
     });
+    _scanStopwatch.reset();
+    _scanStopwatch.start();
+    _vinylController.repeat();
     _showScanningBottomSheet('All Folders');
 
     await for (final progress in _scannerService.scanAllFolders()) {
@@ -262,6 +283,8 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       }
     }
 
+    _scanStopwatch.stop();
+    _vinylController.stop();
     await _loadLibraryData();
     if (mounted) {
       Navigator.of(context).pop();
@@ -271,7 +294,10 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
         _scanProgress = null;
       });
       final added = _songCount - previousCount;
-      _showToast('Rescan completed: $added songs added');
+      _showScanCompleteBottomSheet(
+        scanDuration: _scanStopwatch.elapsed,
+        songsScanned: added,
+      );
     }
   }
 
@@ -310,54 +336,55 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
       title: 'Scanning Library',
       isDismissible: false,
       enableDrag: false,
-      maxHeightRatio: 0.35,
+      maxHeightRatio: 0.45,
       content: ValueListenableBuilder<ScanProgress?>(
         valueListenable: _scanProgressNotifier,
         builder: (context, progress, _) {
           return Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               const SizedBox(height: AppConstants.spacingMd),
-              Row(
-                children: [
-                  const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: AppColors.textPrimary,
-                    ),
+              AnimatedBuilder(
+                animation: _vinylController,
+                builder: (context, child) {
+                  return Transform.rotate(
+                    angle: _vinylController.value * 2 * pi,
+                    child: child,
+                  );
+                },
+                child: SvgPicture.asset(
+                  'assets/icons/svg/record_vinyl_white.svg',
+                  width: 72,
+                  height: 72,
+                  colorFilter: const ColorFilter.mode(
+                    AppColors.textPrimary,
+                    BlendMode.srcIn,
                   ),
-                  const SizedBox(width: AppConstants.spacingMd),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          progress?.currentFolder ?? folderName,
-                          style: const TextStyle(
-                            fontFamily: 'ProductSans',
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.textPrimary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          progress?.currentFile ?? 'Initializing...',
-                          style: const TextStyle(
-                            fontFamily: 'ProductSans',
-                            fontSize: 13,
-                            color: AppColors.textTertiary,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                ),
+              ),
+              const SizedBox(height: AppConstants.spacingMd),
+              Text(
+                progress?.currentFolder ?? folderName,
+                style: const TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textPrimary,
+                ),
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                progress?.currentFile ?? 'Initializing...',
+                style: const TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontSize: 13,
+                  color: AppColors.textTertiary,
+                ),
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppConstants.spacingLg),
               Container(
@@ -394,6 +421,8 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
                 child: TextButton(
                   onPressed: () {
                     _scannerService.cancelScan();
+                    _vinylController.stop();
+                    _scanStopwatch.stop();
                     Navigator.of(context).pop();
                     _scanProgressNotifier.value = null;
                     setState(() {
@@ -417,6 +446,88 @@ class _LibrarySettingsScreenState extends ConsumerState<LibrarySettingsScreen>
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _showScanCompleteBottomSheet({
+    required Duration scanDuration,
+    required int songsScanned,
+  }) {
+    final seconds = scanDuration.inSeconds;
+    final milliseconds = scanDuration.inMilliseconds.remainder(1000);
+    final timeText = seconds > 0
+        ? '$seconds.${(milliseconds / 100).floor()}s'
+        : '${milliseconds}ms';
+
+    GlassBottomSheet.show(
+      context: context,
+      title: 'Scan Complete',
+      isDismissible: true,
+      enableDrag: true,
+      maxHeightRatio: 0.35,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(height: AppConstants.spacingMd),
+          Icon(
+            LucideIcons.circleCheck,
+            color: AppColors.accent,
+            size: 48,
+          ),
+          const SizedBox(height: AppConstants.spacingLg),
+          Container(
+            padding: const EdgeInsets.all(AppConstants.spacingMd),
+            decoration: BoxDecoration(
+              color: AppColors.glassBackground,
+              borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildScanStat(
+                  'Songs Scanned',
+                  '$songsScanned',
+                  LucideIcons.music,
+                ),
+                Container(
+                  width: 1,
+                  height: 40,
+                  color: AppColors.glassBorder,
+                ),
+                _buildScanStat(
+                  'Time Taken',
+                  timeText,
+                  LucideIcons.timer,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppConstants.spacingMd),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                ),
+              ),
+              child: const Text(
+                'Done',
+                style: TextStyle(
+                  fontFamily: 'ProductSans',
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -6148,64 +6148,59 @@ class _WaveformLayerState extends State<_WaveformLayer>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _appearAnimation,
-      builder: (context, child) {
-        final t = _appearAnimation.value;
-        return Opacity(
-          opacity: t,
-          child: Transform.translate(
-            offset: Offset(0, 6.0 * (1.0 - t)),
-            child: child,
-          ),
+    return Consumer(
+      builder: (context, ref, _) {
+        final style = ref.watch(progressBarStyleProvider);
+        return AnimatedBuilder(
+          animation: _appearAnimation,
+          builder: (context, _) {
+            final t = _appearAnimation.value;
+            return ValueListenableBuilder<Duration>(
+              valueListenable: widget.playerService.durationNotifier,
+              builder: (context, engineDuration, _) {
+                final duration = engineDuration.inMilliseconds > 0
+                    ? engineDuration
+                    : (widget.currentSong?.duration ?? Duration.zero);
+
+                if (duration.inMilliseconds == 0) {
+                  return const SizedBox();
+                }
+
+                return ValueListenableBuilder<Duration>(
+                  valueListenable: widget.positionNotifier,
+                  builder: (context, position, _) {
+                    final seekBar = switch (style) {
+                      ProgressBarStyle.line => LineSeekBar(
+                        position: position,
+                        duration: duration,
+                        appearProgress: t,
+                        onChanged: (newPos) {
+                          widget.positionNotifier.value = newPos;
+                          unawaited(widget.playerService.seek(newPos));
+                        },
+                      ),
+                      ProgressBarStyle.waveform => WaveformSeekBar(
+                        barCount: 60,
+                        position: position,
+                        duration: duration,
+                        appearProgress: t,
+                        onChanged: (newPos) {
+                          widget.positionNotifier.value = newPos;
+                          unawaited(widget.playerService.seek(newPos));
+                        },
+                      ),
+                    };
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: RepaintBoundary(child: seekBar),
+                    );
+                  },
+                );
+              },
+            );
+          },
         );
       },
-      child: Consumer(
-        builder: (context, ref, _) {
-          final style = ref.watch(progressBarStyleProvider);
-          return ValueListenableBuilder<Duration>(
-            valueListenable: widget.playerService.durationNotifier,
-            builder: (context, engineDuration, _) {
-              final duration = engineDuration.inMilliseconds > 0
-                  ? engineDuration
-                  : (widget.currentSong?.duration ?? Duration.zero);
-
-              if (duration.inMilliseconds == 0) {
-                return const SizedBox();
-              }
-
-              return ValueListenableBuilder<Duration>(
-                valueListenable: widget.positionNotifier,
-                builder: (context, position, _) {
-                  final seekBar = switch (style) {
-                    ProgressBarStyle.line => LineSeekBar(
-                      position: position,
-                      duration: duration,
-                      onChanged: (newPos) {
-                        widget.positionNotifier.value = newPos;
-                        unawaited(widget.playerService.seek(newPos));
-                      },
-                    ),
-                    ProgressBarStyle.waveform => WaveformSeekBar(
-                      barCount: 60,
-                      position: position,
-                      duration: duration,
-                      onChanged: (newPos) {
-                        widget.positionNotifier.value = newPos;
-                        unawaited(widget.playerService.seek(newPos));
-                      },
-                    ),
-                  };
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: RepaintBoundary(child: seekBar),
-                  );
-                },
-              );
-            },
-          );
-        },
-      ),
     );
   }
 }

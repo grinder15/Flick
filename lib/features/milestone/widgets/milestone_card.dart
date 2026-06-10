@@ -2,11 +2,11 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../services/milestone_service.dart';
+import '../../../widgets/common/vinyl_record.dart';
 
 /// Signature celebration card shown when a milestone is unlocked. The visual
 /// anchor is a hand-painted vinyl record — a deliberate reference to Flick's
@@ -180,11 +180,7 @@ class _MilestoneCardState extends State<MilestoneCard>
           angle: rotation,
           child: Transform.scale(
             scale: scale,
-            child: SizedBox(
-              width: 104,
-              height: 104,
-              child: _VinylRecord(labelColor: tierColor),
-            ),
+            child: VinylRecord(size: 104, labelColor: tierColor),
           ),
         );
       },
@@ -298,98 +294,4 @@ class _MilestoneCardState extends State<MilestoneCard>
   }
 }
 
-/// A hand-painted vinyl record — concentric grooves, a tinted center label
-/// with the Flick logo, and a center hole. Sized at 104×104 by the parent.
-class _VinylRecord extends StatelessWidget {
-  const _VinylRecord({required this.labelColor});
 
-  final Color labelColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _VinylPainter(
-        labelColor: labelColor,
-        grooveColor: labelColor.withValues(alpha: 0.18),
-      ),
-      child: Center(
-        child: SvgPicture.asset(
-          'assets/icons/flicklogo_svg.svg',
-          width: 20,
-          height: 24,
-          colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
-        ),
-      ),
-    );
-  }
-}
-
-class _VinylPainter extends CustomPainter {
-  _VinylPainter({required this.labelColor, required this.grooveColor});
-
-  final Color labelColor;
-  final Color grooveColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final outerRadius = size.shortestSide / 2;
-
-    // Outer disc body — use a dark gradient to suggest a glossy record.
-    final discPaint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.3, -0.3),
-        radius: 0.95,
-        colors: [const Color(0xFF2A2A2A), const Color(0xFF0A0A0A)],
-      ).createShader(Rect.fromCircle(center: center, radius: outerRadius));
-    canvas.drawCircle(center, outerRadius, discPaint);
-
-    // Concentric grooves — drawn as thin tinted rings, skipping the label area.
-    final groovePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.6
-      ..color = grooveColor;
-    const labelRatio = 0.44;
-    final labelRadius = outerRadius * labelRatio;
-    final grooves = 9;
-    for (var i = 0; i < grooves; i++) {
-      final t = (i + 1) / (grooves + 1);
-      final r = labelRadius + (outerRadius - labelRadius) * t;
-      canvas.drawCircle(center, r, groovePaint);
-    }
-
-    // Subtle highlight on top-left to suggest light catching the disc.
-    final highlightPaint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(-0.45, -0.45),
-        radius: 0.55,
-        colors: [
-          Colors.white.withValues(alpha: 0.10),
-          Colors.white.withValues(alpha: 0.0),
-        ],
-      ).createShader(Rect.fromCircle(center: center, radius: outerRadius));
-    canvas.drawCircle(center, outerRadius, highlightPaint);
-
-    // Center label — the tier color.
-    final labelPaint = Paint()..color = labelColor;
-    canvas.drawCircle(center, labelRadius, labelPaint);
-
-    // Subtle inner shadow on the label edge so the disc has depth.
-    final labelEdgePaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8
-      ..color = Colors.black.withValues(alpha: 0.25);
-    canvas.drawCircle(center, labelRadius, labelEdgePaint);
-
-    // Center spindle hole — the Flick logo (rendered as a child widget) sits
-    // on top of the label, and the hole gives the disc a real record feel.
-    final holePaint = Paint()..color = const Color(0xFF0A0A0A);
-    canvas.drawCircle(center, outerRadius * 0.05, holePaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _VinylPainter oldDelegate) {
-    return oldDelegate.labelColor != labelColor ||
-        oldDelegate.grooveColor != grooveColor;
-  }
-}

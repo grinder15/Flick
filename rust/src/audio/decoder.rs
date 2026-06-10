@@ -3,6 +3,7 @@
 //! Decoding happens in a separate thread to avoid blocking the audio callback.
 //! Decoded samples are written to a ring buffer for consumption by the audio thread.
 
+use crate::audio::opus_decoder;
 use crate::audio::resampler::AudioResampler;
 use crate::audio::source::{AudioSource, SourceInfo, SourceProducer};
 use std::fs::File;
@@ -12,7 +13,7 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
 use symphonia::core::audio::{AudioBufferRef, Signal};
-use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL, CODEC_TYPE_OPUS};
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
@@ -62,15 +63,19 @@ pub struct ProbeResult {
     pub track_id: u32,
 }
 
+fn normalize_ogg_hint(ext: &str) -> &str {
+    match ext {
+        "ogx" | "oga" | "opus" | "ogg" => "ogg",
+        "spx" => "ogg",
+        other => other,
+    }
+}
+
 /// Probe an audio file to get its metadata and prepare for decoding.
 pub fn probe_file(path: &Path) -> Result<ProbeResult, DecoderError> {
-    let file = File::open(path)?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-
-    let mut hint = Hint::new();
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
+    let raw_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let lower_ext = raw_ext.to_ascii_lowercase();
+    let hint_ext = normalize_ogg_hint(&lower_ext);
 
     let format_opts = FormatOptions {
         enable_gapless: true,
@@ -78,9 +83,30 @@ pub fn probe_file(path: &Path) -> Result<ProbeResult, DecoderError> {
     };
     let metadata_opts = MetadataOptions::default();
 
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &format_opts, &metadata_opts)
-        .map_err(|e| DecoderError::UnsupportedFormat(e.to_string()))?;
+    let mut hint = Hint::new();
+    if !hint_ext.is_empty() {
+        hint.with_extension(hint_ext);
+    }
+
+    let file1 = File::open(path)?;
+    let mss1 = MediaSourceStream::new(Box::new(file1), Default::default());
+
+    let probed = match symphonia::default::get_probe()
+        .format(&hint, mss1, &format_opts, &metadata_opts)
+    {
+        Ok(probed) => probed,
+        Err(first_err) => {
+            // Content-based fallback: reopen and retry with no extension hint.
+            let file2 = File::open(path)?;
+            let mss2 = MediaSourceStream::new(Box::new(file2), Default::default());
+            let no_hint = Hint::new();
+            symphonia::default::get_probe()
+                .format(&no_hint, mss2, &format_opts, &metadata_opts)
+                .map_err(|_| {
+                    DecoderError::UnsupportedFormat(first_err.to_string())
+                })?
+        }
+    };
 
     let format = probed.format;
 
@@ -113,9 +139,14 @@ pub fn probe_file(path: &Path) -> Result<ProbeResult, DecoderError> {
     let total_samples = (duration_secs * sample_rate as f64 * channels as f64) as u64;
 
     let decoder_opts = DecoderOptions::default();
-    let decoder = symphonia::default::get_codecs()
-        .make(&codec_params, &decoder_opts)
-        .map_err(|e| DecoderError::UnsupportedFormat(e.to_string()))?;
+    let decoder: Box<dyn Decoder> = if codec_params.codec == CODEC_TYPE_OPUS {
+        Box::new(opus_decoder::OpusDecoder::try_new(codec_params, &decoder_opts)
+            .map_err(|e| DecoderError::UnsupportedFormat(e.to_string()))?)
+    } else {
+        symphonia::default::get_codecs()
+            .make(&codec_params, &decoder_opts)
+            .map_err(|e| DecoderError::UnsupportedFormat(e.to_string()))?
+    };
 
     let source_info = SourceInfo {
         path: path.to_path_buf(),

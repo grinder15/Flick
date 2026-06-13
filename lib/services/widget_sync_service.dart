@@ -201,10 +201,16 @@ class WidgetSyncService {
         return 1;
       case LoopMode.all:
         return 2;
-      case LoopMode.advanceList:
+      case LoopMode.advanceAlbum:
         return 3;
-      case LoopMode.stopAfterCurrent:
+      case LoopMode.advanceArtist:
         return 4;
+      case LoopMode.advanceFolder:
+        return 5;
+      case LoopMode.advancePlaylist:
+        return 6;
+      case LoopMode.stopAfterCurrent:
+        return 7;
     }
   }
 

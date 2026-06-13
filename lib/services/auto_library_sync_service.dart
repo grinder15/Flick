@@ -35,5 +35,10 @@ class AutoLibrarySyncService {
     debugPrint('Auto library sync stopped');
   }
 
+  void notifyResumed() {
+    if (!_isRunning) return;
+    _observerService?.notifyResumed();
+  }
+
   bool get isRunning => _isRunning;
 }

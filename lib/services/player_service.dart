@@ -5,9 +5,12 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' as just_audio;
+import 'package:flick/models/advance_list_order.dart';
 import 'package:flick/models/audio_engine_type.dart';
 import 'package:flick/models/audio_output_diagnostics.dart';
+import 'package:flick/models/playback_context.dart';
 import 'package:flick/models/playback_state.dart';
+import 'package:flick/models/shuffle_mode.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/src/rust/api/audio_api.dart' as rust_audio;
 import 'package:flick/services/notification_service.dart';
@@ -18,6 +21,8 @@ import 'package:flick/services/equalizer_service.dart';
 import 'package:flick/services/last_played_service.dart';
 import 'package:flick/services/favorites_service.dart';
 import 'package:flick/data/repositories/recently_played_repository.dart';
+import 'package:flick/data/repositories/song_repository.dart';
+import 'package:flick/services/playlist_service.dart';
 import 'package:flick/services/replay_play_tracker.dart';
 import 'package:flick/services/milestone_service.dart';
 import 'package:flick/services/android_audio_engine.dart';
@@ -53,7 +58,29 @@ enum HwVolumeCapability { unknown, supported, unsupported }
 enum VolumeTier { hardware, software, system }
 
 /// Loop mode for playback
-enum LoopMode { off, one, all }
+enum LoopMode {
+  off,
+  one,
+  all,
+  advanceList,
+  stopAfterCurrent;
+
+  String get label => switch (this) {
+    LoopMode.off => 'Off',
+    LoopMode.one => 'Repeat One',
+    LoopMode.all => 'Repeat All',
+    LoopMode.advanceList => 'Advance List',
+    LoopMode.stopAfterCurrent => 'Stop After Current',
+  };
+
+  String get description => switch (this) {
+    LoopMode.off => 'Play list once, stop at end',
+    LoopMode.one => 'Repeat current track',
+    LoopMode.all => 'Repeat entire list',
+    LoopMode.advanceList => 'Play next album/folder/playlist when done',
+    LoopMode.stopAfterCurrent => 'Stop after current song finishes',
+  };
+}
 
 @visibleForTesting
 List<Song> buildShufflePlaybackOrder({
@@ -182,7 +209,9 @@ bool shouldHandleManualCompletion({
     return true;
   }
 
-  return loopMode == LoopMode.off;
+  return loopMode == LoopMode.off ||
+      loopMode == LoopMode.advanceList ||
+      loopMode == LoopMode.stopAfterCurrent;
 }
 
 @visibleForTesting
@@ -244,6 +273,8 @@ class PlayerService {
   final FavoritesService _favoritesService = FavoritesService();
   final Uac2PreferencesService _preferencesService = Uac2PreferencesService();
   final AppPreferencesService _appPreferencesService = AppPreferencesService();
+  final SongRepository _songRepository = SongRepository();
+  final PlaylistService _playlistService = PlaylistService();
   final RustAudioService _rustAudioService = RustAudioService();
   final Uac2Service _uac2Service = Uac2Service.instance;
   final ColorExtractionService _colorExtractionService = ColorExtractionService();
@@ -328,8 +359,26 @@ class PlayerService {
   );
 
   // Playback Mode State
-  final ValueNotifier<bool> isShuffleNotifier = ValueNotifier(false);
+  final ValueNotifier<ShuffleMode> shuffleModeNotifier = ValueNotifier(ShuffleMode.off);
+  ValueNotifier<bool> get isShuffleNotifier => _isShuffleCompat;
+  late final ValueNotifier<bool> _isShuffleCompat = _ShuffleBoolNotifier(shuffleModeNotifier);
   final ValueNotifier<LoopMode> loopModeNotifier = ValueNotifier(LoopMode.all);
+
+  // A-B Repeat
+  final ValueNotifier<Duration?> abRepeatANotifier = ValueNotifier(null);
+  final ValueNotifier<Duration?> abRepeatBNotifier = ValueNotifier(null);
+
+  // Playback Context
+  PlaybackContext _playbackContext = PlaybackContext.unknown;
+  PlaybackContext get playbackContext => _playbackContext;
+  final ValueNotifier<PlaybackContext> playbackContextNotifier = ValueNotifier(PlaybackContext.unknown);
+
+  // Advance List Order
+  AdvanceListOrder _advanceListOrder = AdvanceListOrder.alphabetical;
+  AdvanceListOrder get advanceListOrder => _advanceListOrder;
+
+  // Category shuffle tracking
+  final Set<String> _playedCategoryIds = {};
 
   // Playback Speed
   final ValueNotifier<double> playbackSpeedNotifier = ValueNotifier(1.0);
@@ -1830,6 +1879,9 @@ class PlayerService {
       }
       if (positionNotifier.value != state.position) {
         positionNotifier.value = state.position;
+        if (isAbRepeatActive) {
+          checkAbRepeatBoundary(state.position);
+        }
       }
       if (bufferedPositionNotifier.value != state.bufferedPosition) {
         bufferedPositionNotifier.value = state.bufferedPosition;
@@ -2023,6 +2075,13 @@ class PlayerService {
       return;
     }
 
+    if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
+      debugPrint('_onSongFinished: stopAfterCurrent, pausing');
+      await _pauseInternal();
+      await seek(Duration.zero);
+      return;
+    }
+
     if (loopModeNotifier.value == LoopMode.one) {
       final songToReplay = currentSongNotifier.value ?? _songAtCurrentIndex();
       if (songToReplay != null) {
@@ -2038,10 +2097,23 @@ class PlayerService {
   Future<void> _handleGaplessTrackEnded() async {
     if (_playlist.isEmpty) return;
 
+    if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
+      await _pauseInternal();
+      await seek(Duration.zero);
+      return;
+    }
+
     if (_currentIndex < _playlist.length - 1) {
       _setCurrentIndex(_currentIndex + 1);
+    } else if (shuffleModeNotifier.value == ShuffleMode.songsAndCategories ||
+               shuffleModeNotifier.value == ShuffleMode.categories) {
+      await _advanceToRandomCategory();
+      return;
     } else if (loopModeNotifier.value == LoopMode.all) {
       _setCurrentIndex(0);
+    } else if (loopModeNotifier.value == LoopMode.advanceList) {
+      await _advanceToNextCategory();
+      return;
     } else {
       await _pauseInternal();
       await seek(Duration.zero);
@@ -3017,8 +3089,9 @@ class PlayerService {
   }
 
   /// Play a specific song.
-  Future<void> play(Song song, {List<Song>? playlist}) {
+  Future<void> play(Song song, {List<Song>? playlist, PlaybackContext? context}) {
     debugPrint('[UI] tap(${song.id})');
+    if (context != null) setPlaybackContext(context);
     return _enqueuePlaybackRequest(
       () => _playInternal(song, playlist: playlist),
     );
@@ -3056,6 +3129,7 @@ class PlayerService {
       );
 
       _positionSaveTimer?.cancel();
+      clearAbRepeat();
 
       if (playlist != null) {
         _replacePlaybackContext(playlist);
@@ -3181,6 +3255,22 @@ class PlayerService {
 
   Future<void> persistLastPlayed() async {
     await _savePosition();
+  }
+
+  Future<void> restorePlaybackModes() async {
+    final shuffleIdx = await _appPreferencesService.getShuffleMode();
+    if (shuffleIdx >= 0 && shuffleIdx < ShuffleMode.values.length) {
+      shuffleModeNotifier.value = ShuffleMode.values[shuffleIdx];
+    }
+    final loopIdx = await _appPreferencesService.getLoopMode();
+    if (loopIdx >= 0 && loopIdx < LoopMode.values.length) {
+      loopModeNotifier.value = LoopMode.values[loopIdx];
+      await _updateLoopMode();
+    }
+    final advanceIdx = await _appPreferencesService.getAdvanceListOrder();
+    if (advanceIdx >= 0 && advanceIdx < AdvanceListOrder.values.length) {
+      _advanceListOrder = AdvanceListOrder.values[advanceIdx];
+    }
   }
 
   Future<void> restoreLastPlayed() async {
@@ -3463,6 +3553,17 @@ class PlayerService {
       'next(): currentIndex=$_currentIndex, playlistLength=${_playlist.length}, loopMode=${loopModeNotifier.value}',
     );
 
+    if (shuffleModeNotifier.value == ShuffleMode.random && _playlist.length > 1) {
+      final rng = math.Random();
+      int targetIndex;
+      do {
+        targetIndex = rng.nextInt(_playlist.length);
+      } while (targetIndex == _currentIndex && _playlist.length > 1);
+      _setCurrentIndex(targetIndex);
+      await _playSongAtCurrentIndex();
+      return;
+    }
+
     if (_currentIndex < _playlist.length - 1) {
       final targetIndex = _currentIndex + 1;
       _setCurrentIndex(targetIndex);
@@ -3470,10 +3571,23 @@ class PlayerService {
       return;
     }
 
+    final shuffle = shuffleModeNotifier.value;
+    if (shuffle == ShuffleMode.songsAndCategories || shuffle == ShuffleMode.categories) {
+      debugPrint('next(): category shuffle active, advancing to random category');
+      await _advanceToRandomCategory();
+      return;
+    }
+
     if (loopModeNotifier.value == LoopMode.all) {
       debugPrint('next(): LoopMode.all, wrapping to index 0');
       _setCurrentIndex(0);
       await _playSongAtCurrentIndex();
+      return;
+    }
+
+    if (loopModeNotifier.value == LoopMode.advanceList) {
+      debugPrint('next(): LoopMode.advanceList, advancing to next category');
+      await _advanceToNextCategory();
       return;
     }
 
@@ -3556,6 +3670,8 @@ class PlayerService {
 
     switch (loopModeNotifier.value) {
       case LoopMode.off:
+      case LoopMode.advanceList:
+      case LoopMode.stopAfterCurrent:
         await player.setLoopMode(just_audio.LoopMode.off);
         break;
       case LoopMode.one:
@@ -3570,8 +3686,18 @@ class PlayerService {
   // ==================== Shuffle/Loop Toggles ====================
 
   Future<void> toggleShuffle() async {
-    final enable = !isShuffleNotifier.value;
-    isShuffleNotifier.value = enable;
+    final enable = !shuffleModeNotifier.value.isActive;
+    await setShuffleMode(enable ? ShuffleMode.songs : ShuffleMode.off);
+  }
+
+  Future<void> setShuffleMode(ShuffleMode mode) async {
+    final wasActive = shuffleModeNotifier.value.isActive;
+    shuffleModeNotifier.value = mode;
+    _playedCategoryIds.clear();
+    unawaited(_appPreferencesService.setShuffleMode(mode.index));
+
+    final enable = mode.isActive;
+    if (enable == wasActive) return;
 
     final current = currentSongNotifier.value;
     final oldCurrentIndex = _currentIndex;
@@ -3670,17 +3796,22 @@ class PlayerService {
     }
   }
 
+  static const _quickLoopCycle = [LoopMode.off, LoopMode.all, LoopMode.one];
+
   Future<void> toggleLoopMode() async {
-    final modes = LoopMode.values;
-    final nextIndex = (loopModeNotifier.value.index + 1) % modes.length;
-    loopModeNotifier.value = modes[nextIndex];
+    final current = loopModeNotifier.value;
+    final quickIdx = _quickLoopCycle.indexOf(current);
+    final next = quickIdx == -1
+        ? LoopMode.off
+        : _quickLoopCycle[(quickIdx + 1) % _quickLoopCycle.length];
+    await setLoopMode(next);
+  }
 
+  Future<void> setLoopMode(LoopMode mode) async {
+    loopModeNotifier.value = mode;
+    unawaited(_appPreferencesService.setLoopMode(mode.index));
     await _updateLoopMode();
-
-    // Repeat-all needs a real playlist loaded into just_audio. If the Android
-    // engine fast-started a single track, rebuild now so ExoPlayer can advance
-    // to the next item instead of looping the current source forever.
-    if (!_usingRustBackend && loopModeNotifier.value == LoopMode.all) {
+    if (!_usingRustBackend && mode == LoopMode.all) {
       await _rebuildPlaylist();
     }
   }
@@ -4223,6 +4354,282 @@ class PlayerService {
       debugPrint('Failed to delete temporary playback file: $e');
     }
   }
+
+  // ─── Playback Context ──────────────────────────────────────────────
+
+  void setPlaybackContext(PlaybackContext context) {
+    _playbackContext = context;
+    playbackContextNotifier.value = context;
+    if (context.sourceId != null &&
+        context.source != PlaybackSource.unknown &&
+        context.source != PlaybackSource.allSongs) {
+      _playedCategoryIds.add(context.sourceId!);
+    }
+  }
+
+  // ─── Advance List ──────────────────────────────────────────────────
+
+  void setAdvanceListOrder(AdvanceListOrder order) {
+    _advanceListOrder = order;
+    unawaited(_appPreferencesService.setAdvanceListOrder(order.index));
+  }
+
+  Future<void> _advanceToNextCategory() async {
+    final ctx = _playbackContext;
+    if (ctx.source == PlaybackSource.unknown || ctx.source == PlaybackSource.allSongs) {
+      debugPrint('_advanceToNextCategory: no category context, pausing');
+      await _pauseInternal();
+      await seek(Duration.zero);
+      return;
+    }
+
+    try {
+      final nextSongs = await _getNextCategorySongs(ctx);
+      if (nextSongs == null || nextSongs.isEmpty) {
+        debugPrint('_advanceToNextCategory: no next category found, pausing');
+        await _pauseInternal();
+        await seek(Duration.zero);
+        return;
+      }
+      await play(nextSongs.first, playlist: nextSongs);
+    } catch (e) {
+      debugPrint('_advanceToNextCategory: error: $e');
+      await _pauseInternal();
+      await seek(Duration.zero);
+    }
+  }
+
+  Future<List<Song>?> _getNextCategorySongs(PlaybackContext ctx) async {
+    switch (ctx.source) {
+      case PlaybackSource.album:
+        return _getNextAlbumSongs(ctx.sourceId);
+      case PlaybackSource.artist:
+        return _getNextArtistSongs(ctx.sourceId);
+      case PlaybackSource.folder:
+        return _getNextFolderSongs(ctx.sourceId);
+      case PlaybackSource.playlist:
+        return _getNextPlaylistSongs(ctx.sourceId);
+      case PlaybackSource.allSongs:
+      case PlaybackSource.unknown:
+        return null;
+    }
+  }
+
+  Future<List<Song>?> _getNextAlbumSongs(String? currentAlbum) async {
+    if (currentAlbum == null) return null;
+    final groups = await _songRepository.getAlbumGroups();
+    if (groups.isEmpty) return null;
+    final sorted = _sortCategories(groups.map((g) => g.albumName).toList());
+    final nextName = _pickNext(sorted, currentAlbum);
+    if (nextName == null) return null;
+    final nextGroup = groups.firstWhere((g) => g.albumName == nextName);
+    setPlaybackContext(PlaybackContext(
+      source: PlaybackSource.album,
+      sourceId: nextName,
+      sourceName: nextName,
+    ));
+    return nextGroup.songs;
+  }
+
+  Future<List<Song>?> _getNextArtistSongs(String? currentArtist) async {
+    if (currentArtist == null) return null;
+    final artistMap = await _songRepository.getSongsByArtist();
+    if (artistMap.isEmpty) return null;
+    final sorted = _sortCategories(artistMap.keys.toList());
+    final nextName = _pickNext(sorted, currentArtist);
+    if (nextName == null) return null;
+    setPlaybackContext(PlaybackContext(
+      source: PlaybackSource.artist,
+      sourceId: nextName,
+      sourceName: nextName,
+    ));
+    return artistMap[nextName];
+  }
+
+  Future<List<Song>?> _getNextFolderSongs(String? currentUri) async {
+    if (currentUri == null) return null;
+    final uris = await _songRepository.getUniqueFolderUris();
+    if (uris.isEmpty) return null;
+    final sorted = _sortCategories(uris);
+    final nextUri = _pickNext(sorted, currentUri);
+    if (nextUri == null) return null;
+    final songs = await _songRepository.getSongsByFolder(nextUri);
+    if (songs.isEmpty) return null;
+    final folderName = Uri.tryParse(nextUri)?.pathSegments.lastOrNull ?? nextUri;
+    setPlaybackContext(PlaybackContext(
+      source: PlaybackSource.folder,
+      sourceId: nextUri,
+      sourceName: folderName,
+    ));
+    return songs;
+  }
+
+  Future<List<Song>?> _getNextPlaylistSongs(String? currentId) async {
+    if (currentId == null) return null;
+    final playlists = await _playlistService.getPlaylists();
+    if (playlists.isEmpty) return null;
+    final sorted = _sortCategories(playlists.map((p) => p.id).toList());
+    final nextId = _pickNext(sorted, currentId);
+    if (nextId == null) return null;
+    final playlist = playlists.firstWhere((p) => p.id == nextId);
+    final allSongs = await _songRepository.getAllSongs();
+    final songIdSet = playlist.songIds.toSet();
+    final songs = allSongs.where((s) => songIdSet.contains(s.id)).toList();
+    if (songs.isEmpty) return null;
+    setPlaybackContext(PlaybackContext(
+      source: PlaybackSource.playlist,
+      sourceId: nextId,
+      sourceName: playlist.name,
+    ));
+    return songs;
+  }
+
+  List<String> _sortCategories(List<String> items) {
+    switch (_advanceListOrder) {
+      case AdvanceListOrder.alphabetical:
+        return List.of(items)..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      case AdvanceListOrder.dateAdded:
+        return items;
+      case AdvanceListOrder.random:
+        return List.of(items)..shuffle(math.Random());
+    }
+  }
+
+  String? _pickNext(List<String> sorted, String current) {
+    if (sorted.isEmpty) return null;
+    final idx = sorted.indexOf(current);
+    if (idx == -1) return sorted.first;
+    if (idx >= sorted.length - 1) return null;
+    return sorted[idx + 1];
+  }
+
+  Future<void> _advanceToRandomCategory() async {
+    final ctx = _playbackContext;
+    if (ctx.source == PlaybackSource.unknown || ctx.source == PlaybackSource.allSongs) {
+      await _pauseInternal();
+      await seek(Duration.zero);
+      return;
+    }
+
+    try {
+      final allIds = await _getAllCategoryIds(ctx.source);
+      var available = allIds.where((id) => !_playedCategoryIds.contains(id)).toList();
+
+      if (available.isEmpty) {
+        if (loopModeNotifier.value == LoopMode.all) {
+          _playedCategoryIds.clear();
+          if (ctx.sourceId != null) _playedCategoryIds.add(ctx.sourceId!);
+          available = allIds.where((id) => !_playedCategoryIds.contains(id)).toList();
+        }
+        if (available.isEmpty) {
+          await _pauseInternal();
+          await seek(Duration.zero);
+          return;
+        }
+      }
+
+      final rng = math.Random();
+      final nextId = available[rng.nextInt(available.length)];
+      final songs = await _getCategorySongsById(ctx.source, nextId);
+      if (songs == null || songs.isEmpty) {
+        await _pauseInternal();
+        await seek(Duration.zero);
+        return;
+      }
+
+      final shouldShuffle = shuffleModeNotifier.value == ShuffleMode.songsAndCategories;
+      final ordered = shouldShuffle ? (List<Song>.of(songs)..shuffle(rng)) : songs;
+      await play(ordered.first, playlist: ordered);
+    } catch (e) {
+      debugPrint('_advanceToRandomCategory error: $e');
+      await _pauseInternal();
+      await seek(Duration.zero);
+    }
+  }
+
+  Future<List<String>> _getAllCategoryIds(PlaybackSource source) async {
+    switch (source) {
+      case PlaybackSource.album:
+        final groups = await _songRepository.getAlbumGroups();
+        return groups.map((g) => g.albumName).toList();
+      case PlaybackSource.artist:
+        final artistMap = await _songRepository.getSongsByArtist();
+        return artistMap.keys.toList();
+      case PlaybackSource.folder:
+        return _songRepository.getUniqueFolderUris();
+      case PlaybackSource.playlist:
+        final playlists = await _playlistService.getPlaylists();
+        return playlists.map((p) => p.id).toList();
+      case PlaybackSource.allSongs:
+      case PlaybackSource.unknown:
+        return [];
+    }
+  }
+
+  Future<List<Song>?> _getCategorySongsById(PlaybackSource source, String id) async {
+    switch (source) {
+      case PlaybackSource.album:
+        final groups = await _songRepository.getAlbumGroups();
+        final group = groups.where((g) => g.albumName == id).firstOrNull;
+        if (group == null) return null;
+        setPlaybackContext(PlaybackContext(source: PlaybackSource.album, sourceId: id, sourceName: id));
+        return group.songs;
+      case PlaybackSource.artist:
+        final artistMap = await _songRepository.getSongsByArtist();
+        final songs = artistMap[id];
+        if (songs == null) return null;
+        setPlaybackContext(PlaybackContext(source: PlaybackSource.artist, sourceId: id, sourceName: id));
+        return songs;
+      case PlaybackSource.folder:
+        final songs = await _songRepository.getSongsByFolder(id);
+        if (songs.isEmpty) return null;
+        final folderName = Uri.tryParse(id)?.pathSegments.lastOrNull ?? id;
+        setPlaybackContext(PlaybackContext(source: PlaybackSource.folder, sourceId: id, sourceName: folderName));
+        return songs;
+      case PlaybackSource.playlist:
+        final playlist = await _playlistService.getPlaylist(id);
+        if (playlist == null) return null;
+        final allSongs = await _songRepository.getAllSongs();
+        final songIdSet = playlist.songIds.toSet();
+        final songs = allSongs.where((s) => songIdSet.contains(s.id)).toList();
+        if (songs.isEmpty) return null;
+        setPlaybackContext(PlaybackContext(source: PlaybackSource.playlist, sourceId: id, sourceName: playlist.name));
+        return songs;
+      case PlaybackSource.allSongs:
+      case PlaybackSource.unknown:
+        return null;
+    }
+  }
+
+  // ─── A-B Repeat ────────────────────────────────────────────────────
+
+  void setAbRepeatA() {
+    abRepeatANotifier.value = positionNotifier.value;
+  }
+
+  void setAbRepeatB() {
+    final b = positionNotifier.value;
+    final a = abRepeatANotifier.value;
+    if (a == null || b <= a) return;
+    abRepeatBNotifier.value = b;
+  }
+
+  void clearAbRepeat() {
+    abRepeatANotifier.value = null;
+    abRepeatBNotifier.value = null;
+  }
+
+  bool get isAbRepeatActive =>
+      abRepeatANotifier.value != null && abRepeatBNotifier.value != null;
+
+  void checkAbRepeatBoundary(Duration position) {
+    final a = abRepeatANotifier.value;
+    final b = abRepeatBNotifier.value;
+    if (a == null || b == null) return;
+    if (position >= b) {
+      seek(a);
+    }
+  }
 }
 
 class _QueueEntry {
@@ -4247,5 +4654,36 @@ class _MutableValueNotifier<T> extends ValueNotifier<T> {
     }
     _currentValue = newValue;
     notifyListeners();
+  }
+}
+
+class _ShuffleBoolNotifier extends ValueNotifier<bool> {
+  _ShuffleBoolNotifier(this._source) : super(_source.value.isActive) {
+    _source.addListener(_sync);
+  }
+
+  final ValueNotifier<ShuffleMode> _source;
+
+  void _sync() {
+    final active = _source.value.isActive;
+    if (value != active) {
+      value = active;
+    }
+  }
+
+  @override
+  set value(bool newValue) {
+    super.value = newValue;
+    if (newValue && !_source.value.isActive) {
+      _source.value = ShuffleMode.songs;
+    } else if (!newValue && _source.value.isActive) {
+      _source.value = ShuffleMode.off;
+    }
+  }
+
+  @override
+  void dispose() {
+    _source.removeListener(_sync);
+    super.dispose();
   }
 }

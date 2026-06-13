@@ -22,7 +22,10 @@ class LoopModeSheet extends StatelessWidget {
     LoopMode.off => LucideIcons.repeat,
     LoopMode.one => LucideIcons.repeat1,
     LoopMode.all => LucideIcons.repeat,
-    LoopMode.advanceList => LucideIcons.listEnd,
+    LoopMode.advanceAlbum => LucideIcons.disc3,
+    LoopMode.advanceArtist => LucideIcons.micVocal,
+    LoopMode.advanceFolder => LucideIcons.folderOpen,
+    LoopMode.advancePlaylist => LucideIcons.listMusic,
     LoopMode.stopAfterCurrent => LucideIcons.circleStop,
   };
 

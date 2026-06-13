@@ -51,6 +51,7 @@ class AppPreferences {
   final bool bottomBarAutoCollapseEnabled;
   final int bottomBarAutoCollapseSeconds;
   final bool keepPlayingOnQuit;
+  final bool floatingPlayerEnabled;
 
   const AppPreferences({
     this.animationsEnabled = true,
@@ -103,6 +104,7 @@ class AppPreferences {
     this.bottomBarAutoCollapseEnabled = false,
     this.bottomBarAutoCollapseSeconds = 5,
     this.keepPlayingOnQuit = false,
+    this.floatingPlayerEnabled = false,
   });
 
   AppPreferences copyWith({
@@ -156,6 +158,7 @@ class AppPreferences {
     bool? bottomBarAutoCollapseEnabled,
     int? bottomBarAutoCollapseSeconds,
     bool? keepPlayingOnQuit,
+    bool? floatingPlayerEnabled,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
@@ -228,6 +231,8 @@ class AppPreferences {
       bottomBarAutoCollapseSeconds:
           bottomBarAutoCollapseSeconds ?? this.bottomBarAutoCollapseSeconds,
       keepPlayingOnQuit: keepPlayingOnQuit ?? this.keepPlayingOnQuit,
+      floatingPlayerEnabled:
+          floatingPlayerEnabled ?? this.floatingPlayerEnabled,
     );
   }
 }
@@ -286,6 +291,7 @@ class AppPreferencesService {
   static const _bottomBarAutoCollapseSecondsKey =
       'bottom_bar_auto_collapse_seconds';
   static const _keepPlayingOnQuitKey = 'app_keep_playing_on_quit';
+  static const _floatingPlayerEnabledKey = 'app_floating_player_enabled';
   static const _shuffleModeKey = 'playback_shuffle_mode';
   static const _loopModeKey = 'playback_loop_mode';
   static const _advanceListOrderKey = 'playback_advance_list_order';
@@ -360,6 +366,8 @@ class AppPreferencesService {
       bottomBarAutoCollapseSeconds:
           prefs.getInt(_bottomBarAutoCollapseSecondsKey) ?? 5,
       keepPlayingOnQuit: prefs.getBool(_keepPlayingOnQuitKey) ?? false,
+      floatingPlayerEnabled:
+          prefs.getBool(_floatingPlayerEnabledKey) ?? false,
     );
   }
 
@@ -845,5 +853,15 @@ class AppPreferencesService {
   Future<void> setKeepPlayingOnQuit(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keepPlayingOnQuitKey, value);
+  }
+
+  Future<bool> getFloatingPlayerEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_floatingPlayerEnabledKey) ?? false;
+  }
+
+  Future<void> setFloatingPlayerEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_floatingPlayerEnabledKey, value);
   }
 }

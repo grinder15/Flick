@@ -20,7 +20,10 @@ import 'package:flick/features/songs/widgets/album_art_picker_bottom_sheet.dart'
 import 'package:flick/models/album_color_mode.dart';
 import 'package:flick/models/player_screen_mode.dart';
 import 'package:flick/models/player_action_button.dart';
+import 'package:flick/models/shuffle_mode.dart';
 import 'package:flick/models/song.dart';
+import 'package:flick/features/player/widgets/shuffle_mode_sheet.dart';
+import 'package:flick/features/player/widgets/loop_mode_sheet.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/external_playback_service.dart';
 import 'package:flick/services/favorites_service.dart';
@@ -37,6 +40,7 @@ import 'package:flick/features/player/widgets/bit_perfect_capsule.dart';
 import 'package:flick/features/player/widgets/bit_perfect_indicator.dart';
 import 'package:flick/features/player/widgets/lyrics_editor_bottom_sheet.dart';
 import 'package:flick/features/player/widgets/online_lyrics_search_sheet.dart';
+import 'package:flick/features/settings/screens/equalizer_screen.dart';
 import 'package:flick/features/player/widgets/line_seek_bar.dart';
 import 'package:flick/features/player/widgets/waveform_seek_bar.dart';
 import 'package:flick/models/progress_bar_style.dart';
@@ -87,6 +91,7 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
   double _cachedTopBarTextWidth = 0;
   bool _isLyricsMode = false;
   bool _isVinylRotationActive = false;
+  bool _isVinylMode = false;
   bool _isVisualizationMode = false;
   bool _isImmersiveFullView = false;
   int _songTransitionDirection = 1;
@@ -2054,6 +2059,24 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
           inactiveBg: inactiveBg,
           inactiveBorder: inactiveBorder,
         );
+      case PlayerActionButton.equalizer:
+        return _buildEqualizerButton(
+          context: context,
+          actionPadding: actionPadding,
+          actionRadius: actionRadius,
+          actionIconSize: actionIconSize,
+          inactiveBg: inactiveBg,
+          inactiveBorder: inactiveBorder,
+        );
+      case PlayerActionButton.volume:
+        return _buildVolumeButton(
+          context: context,
+          actionPadding: actionPadding,
+          actionRadius: actionRadius,
+          actionIconSize: actionIconSize,
+          inactiveBg: inactiveBg,
+          inactiveBorder: inactiveBorder,
+        );
     }
   }
 
@@ -2400,6 +2423,186 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
     );
   }
 
+  Widget _buildEqualizerButton({
+    required BuildContext context,
+    required EdgeInsets actionPadding,
+    required double actionRadius,
+    required double actionIconSize,
+    required Color inactiveBg,
+    required Color inactiveBorder,
+  }) {
+    return Tooltip(
+      message: 'Equalizer',
+      child: GestureDetector(
+        onTap: () {
+          Navigator.of(context).push(
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  const EqualizerScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                if (AppConstants.animationNormal == Duration.zero) {
+                  return child;
+                }
+                final curvedAnimation = CurvedAnimation(
+                  parent: animation,
+                  curve: Curves.easeOutCubic,
+                );
+                return SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.12, 0.0),
+                    end: Offset.zero,
+                  ).animate(curvedAnimation),
+                  child: FadeTransition(
+                    opacity: curvedAnimation,
+                    child: child,
+                  ),
+                );
+              },
+              transitionDuration: AppConstants.animationNormal,
+            ),
+          );
+        },
+        child: Container(
+          padding: actionPadding,
+          decoration: BoxDecoration(
+            color: inactiveBg,
+            borderRadius: BorderRadius.circular(actionRadius),
+            border: Border.all(color: inactiveBorder),
+          ),
+          child: Icon(
+            LucideIcons.slidersHorizontal,
+            color: Colors.white.withValues(alpha: 0.96),
+            size: actionIconSize,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVolumeButton({
+    required BuildContext context,
+    required EdgeInsets actionPadding,
+    required double actionRadius,
+    required double actionIconSize,
+    required Color inactiveBg,
+    required Color inactiveBorder,
+  }) {
+    return Tooltip(
+      message: 'Volume',
+      child: GestureDetector(
+        onTap: () => _showVolumeBottomSheet(context),
+        child: Container(
+          padding: actionPadding,
+          decoration: BoxDecoration(
+            color: inactiveBg,
+            borderRadius: BorderRadius.circular(actionRadius),
+            border: Border.all(color: inactiveBorder),
+          ),
+          child: Icon(
+            LucideIcons.volume,
+            color: Colors.white.withValues(alpha: 0.96),
+            size: actionIconSize,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showVolumeBottomSheet(BuildContext context) {
+    final initialVolume = _playerService.currentVolume;
+    double currentVolume = initialVolume;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(color: AppColors.glassBorder),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      currentVolume > 0
+                          ? LucideIcons.volume2
+                          : LucideIcons.volumeX,
+                      color: AppColors.accent,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    const Text(
+                      'Volume',
+                      style: TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${(currentVolume * 100).round()}%',
+                      style: const TextStyle(
+                        fontFamily: 'ProductSans',
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Icon(
+                      LucideIcons.volume1,
+                      color: AppColors.textTertiary,
+                      size: 20,
+                    ),
+                    Expanded(
+                      child: Slider(
+                        value: currentVolume,
+                        min: 0.0,
+                        max: 1.0,
+                        divisions: 100,
+                        label: '${(currentVolume * 100).round()}%',
+                        onChanged: (value) {
+                          setSheetState(() {
+                            currentVolume = value;
+                          });
+                        },
+                        onChangeEnd: (value) async {
+                          await _playerService.setVolume(value);
+                        },
+                        activeColor: AppColors.accent,
+                        inactiveColor: AppColors.textTertiary.withValues(alpha: 0.3),
+                      ),
+                    ),
+                    Icon(
+                      LucideIcons.volume2,
+                      color: AppColors.textTertiary,
+                      size: 20,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildDirectoryInfo(
     BuildContext context,
     Song song, {
@@ -2645,9 +2848,13 @@ class _FullPlayerScreenState extends ConsumerState<FullPlayerScreen>
                   immersiveShowFileInfo: appPrefs.immersiveShowFileInfo,
                   hideQueueBadge: PlayerActionButtonX.fromStorageValue(appPrefs.leftActionButton) == PlayerActionButton.queue ||
                       PlayerActionButtonX.fromStorageValue(appPrefs.rightActionButton) == PlayerActionButton.queue,
-                  onRotationEnabledChanged: (enabled) {
+                   onRotationEnabledChanged: (enabled) {
                     _isVinylRotationActive = enabled;
                   },
+                   vinylMode: _isVinylMode,
+                   onVinylChanged: (vinyl) {
+                     _isVinylMode = vinyl;
+                   },
                  ),
               ),
             );
@@ -2722,6 +2929,8 @@ class _AnimatedSongScene extends StatelessWidget {
   final bool immersiveShowFileInfo;
   final bool hideQueueBadge;
   final void Function(bool enabled)? onRotationEnabledChanged;
+  final bool vinylMode;
+  final ValueChanged<bool>? onVinylChanged;
 
   const _AnimatedSongScene({
     required this.song,
@@ -2769,6 +2978,8 @@ class _AnimatedSongScene extends StatelessWidget {
     this.immersiveShowFileInfo = true,
     this.hideQueueBadge = false,
     this.onRotationEnabledChanged,
+    this.vinylMode = false,
+    this.onVinylChanged,
   });
 
   @override
@@ -3728,6 +3939,8 @@ class _AnimatedSongScene extends StatelessWidget {
                                             size: artworkSize,
                                             playerService: playerService,
                                             onRotationEnabledChanged: onRotationEnabledChanged,
+                                            initialVinyl: vinylMode,
+                                            onVinylChanged: onVinylChanged,
                                           ),
                                   ),
                                 ),
@@ -3961,7 +4174,6 @@ class _AnimatedSongScene extends StatelessWidget {
           playerService: playerService,
           formatDuration: formatDuration,
           currentSong: song,
-          isShuffleNotifier: playerService.isShuffleNotifier,
           onPrevious: onPrevious,
           onNext: onNext,
           timelineHorizontalPadding: immersivePlaybackPadding,
@@ -3978,12 +4190,16 @@ class _AlbumArtBox extends StatefulWidget {
   final double? size;
   final PlayerService? playerService;
   final void Function(bool enabled)? onRotationEnabledChanged;
+  final bool initialVinyl;
+  final ValueChanged<bool>? onVinylChanged;
 
   const _AlbumArtBox({
     required this.song,
     this.size,
     this.playerService,
     this.onRotationEnabledChanged,
+    this.initialVinyl = false,
+    this.onVinylChanged,
   });
 
   @override
@@ -4064,6 +4280,13 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
       service.positionNotifier.addListener(_onPositionChanged);
       service.isPlayingNotifier.addListener(_onPlayingChanged);
     }
+    if (widget.initialVinyl) {
+      _isVinyl = true;
+      _morphController.value = 1.0;
+      if (_isPlaying) {
+        _spinController.repeat();
+      }
+    }
   }
 
   @override
@@ -4078,10 +4301,11 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
       _isRotationEnabled = false;
       _outlineController.value = 0;
       if (_isVinyl) {
-        _isVinyl = false;
         _spinController.stop();
         _spinController.value = 0;
-        _morphController.value = 0;
+        if (_isPlaying) {
+          _spinController.repeat();
+        }
       }
     }
     if (oldWidget.playerService != widget.playerService) {
@@ -4251,6 +4475,7 @@ class _AlbumArtBoxState extends State<_AlbumArtBox>
         _morphController.reverse();
       }
     });
+    widget.onVinylChanged?.call(_isVinyl);
   }
 
   void _handleVinylSingleTap() {
@@ -6210,7 +6435,6 @@ class _PlayerControls extends StatelessWidget {
   final PlayerService playerService;
   final String Function(Duration) formatDuration;
   final Song? currentSong;
-  final ValueNotifier<bool> isShuffleNotifier;
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
   final double timelineHorizontalPadding;
@@ -6221,7 +6445,6 @@ class _PlayerControls extends StatelessWidget {
     required this.playerService,
     required this.formatDuration,
     required this.currentSong,
-    required this.isShuffleNotifier,
     required this.onPrevious,
     required this.onNext,
     this.timelineHorizontalPadding = 0,
@@ -6267,36 +6490,53 @@ class _PlayerControls extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       // Shuffle
-                      ValueListenableBuilder<bool>(
-                        valueListenable: isShuffleNotifier,
-                        builder: (context, isShuffle, _) {
-                          return Container(
-                            width: context.responsive(40.0, 44.0, 48.0),
-                            height: context.responsive(40.0, 44.0, 48.0),
-                            decoration: BoxDecoration(
-                              color: isShuffle
-                                  ? activeAccent.withValues(alpha: 0.25)
-                                  : buttonSurface.withValues(alpha: 0.6),
-                              shape: BoxShape.circle,
-                              border: isShuffle
-                                  ? Border.all(
-                                      color: activeAccent.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                      width: 1.5,
-                                    )
-                                  : null,
-                            ),
-                            child: IconButton(
-                              onPressed: () {
-                                AppHaptics.tap();
-                                playerService.toggleShuffle();
-                              },
-                              iconSize: context.responsive(18.0, 20.0, 22.0),
-                              padding: EdgeInsets.zero,
-                              icon: Icon(
-                                LucideIcons.shuffle,
-                                color: isShuffle
+                      ValueListenableBuilder<ShuffleMode>(
+                        valueListenable: playerService.shuffleModeNotifier,
+                        builder: (context, shuffleMode, _) {
+                          final isActive = shuffleMode.isActive;
+                          final icon = switch (shuffleMode) {
+                            ShuffleMode.categories => LucideIcons.layers,
+                            ShuffleMode.random => LucideIcons.dices,
+                            _ => LucideIcons.shuffle,
+                          };
+                          return GestureDetector(
+                            onTap: () {
+                              AppHaptics.tap();
+                              playerService.toggleShuffle();
+                              final next = playerService.shuffleModeNotifier.value;
+                              ScaffoldMessenger.of(context)
+                                ..hideCurrentSnackBar()
+                                ..showSnackBar(SnackBar(
+                                  content: Text('Shuffle: ${next.label}'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 1),
+                                ));
+                            },
+                            onLongPress: () {
+                              AppHaptics.tap();
+                              ShuffleModeSheet.show(context, playerService);
+                            },
+                            child: Container(
+                              width: context.responsive(40.0, 44.0, 48.0),
+                              height: context.responsive(40.0, 44.0, 48.0),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? activeAccent.withValues(alpha: 0.25)
+                                    : buttonSurface.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                                border: isActive
+                                    ? Border.all(
+                                        color: activeAccent.withValues(
+                                          alpha: 0.6,
+                                        ),
+                                        width: 1.5,
+                                      )
+                                    : null,
+                              ),
+                              child: Icon(
+                                icon,
+                                size: context.responsive(18.0, 20.0, 22.0),
+                                color: isActive
                                     ? activeAccent
                                     : Colors.white.withValues(alpha: 0.7),
                               ),
@@ -6357,51 +6597,57 @@ class _PlayerControls extends StatelessWidget {
                       ValueListenableBuilder<LoopMode>(
                         valueListenable: playerService.loopModeNotifier,
                         builder: (context, loopMode, _) {
-                          IconData icon = LucideIcons.repeat;
-                          Color color = Colors.white.withValues(alpha: 0.7);
-                          if (loopMode == LoopMode.all) {
-                            color = activeAccent;
-                          }
-                          if (loopMode == LoopMode.one) {
-                            icon = LucideIcons.repeat1;
-                            color = activeAccent;
-                          }
-                          return Container(
-                            width: context.responsive(40.0, 44.0, 48.0),
-                            height: context.responsive(40.0, 44.0, 48.0),
-                            decoration: BoxDecoration(
-                              color: buttonSurface.withValues(alpha: 0.6),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                IconButton(
-                                  onPressed: () {
-                                    AppHaptics.tap();
-                                    playerService.toggleLoopMode();
-                                  },
-                                  iconSize: context.responsive(
-                                    18.0,
-                                    20.0,
-                                    22.0,
+                          final icon = LoopModeSheet.iconFor(loopMode);
+                          final isActive = loopMode != LoopMode.off;
+                          final color = isActive
+                              ? activeAccent
+                              : Colors.white.withValues(alpha: 0.7);
+                          return GestureDetector(
+                            onTap: () {
+                              AppHaptics.tap();
+                              playerService.toggleLoopMode();
+                              final next = playerService.loopModeNotifier.value;
+                              ScaffoldMessenger.of(context)
+                                ..hideCurrentSnackBar()
+                                ..showSnackBar(SnackBar(
+                                  content: Text('Repeat: ${next.label}'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 1),
+                                ));
+                            },
+                            onLongPress: () {
+                              AppHaptics.tap();
+                              LoopModeSheet.show(context, playerService);
+                            },
+                            child: Container(
+                              width: context.responsive(40.0, 44.0, 48.0),
+                              height: context.responsive(40.0, 44.0, 48.0),
+                              decoration: BoxDecoration(
+                                color: buttonSurface.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    icon,
+                                    size: context.responsive(18.0, 20.0, 22.0),
+                                    color: color,
                                   ),
-                                  padding: EdgeInsets.zero,
-                                  icon: Icon(icon, color: color),
-                                ),
-                                if (loopMode == LoopMode.all)
-                                  Positioned(
-                                    bottom: 6,
-                                    child: Container(
-                                      width: 4,
-                                      height: 4,
-                                      decoration: BoxDecoration(
-                                        color: activeAccent,
-                                        shape: BoxShape.circle,
+                                  if (loopMode == LoopMode.all)
+                                    Positioned(
+                                      bottom: 6,
+                                      child: Container(
+                                        width: 4,
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: activeAccent,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           );
                         },

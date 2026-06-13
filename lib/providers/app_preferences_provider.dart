@@ -370,6 +370,26 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
         .read(appPreferencesServiceProvider)
         .setBottomBarAutoCollapseSeconds(value);
   }
+
+  Future<void> setKeepPlayingOnQuit(bool value) async {
+    if (state.keepPlayingOnQuit == value) return;
+    state = state.copyWith(keepPlayingOnQuit: value);
+    await ref.read(appPreferencesServiceProvider).setKeepPlayingOnQuit(value);
+  }
+
+  Future<void> setFloatingPlayerEnabled(bool value) async {
+    if (state.floatingPlayerEnabled == value) return;
+    state = state.copyWith(floatingPlayerEnabled: value);
+    await ref
+        .read(appPreferencesServiceProvider)
+        .setFloatingPlayerEnabled(value);
+  }
+
+  Future<void> setAutoFocusSearch(bool value) async {
+    if (state.autoFocusSearch == value) return;
+    state = state.copyWith(autoFocusSearch: value);
+    await ref.read(appPreferencesServiceProvider).setAutoFocusSearch(value);
+  }
 }
 
 final appPreferencesProvider =

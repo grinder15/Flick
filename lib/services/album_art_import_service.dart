@@ -36,6 +36,8 @@ class AlbumArtCandidate {
   final String? releaseDate;
 }
 
+enum AlbumArtScope { wholeAlbum, songOnly }
+
 class AlbumArtUpdateResult {
   const AlbumArtUpdateResult({
     required this.albumName,
@@ -155,6 +157,22 @@ class AlbumArtImportService {
     return applyImageBytes(song: song, bytes: response.bodyBytes);
   }
 
+  Future<AlbumArtUpdateResult> applyOnlineCandidateToSong({
+    required Song song,
+    required AlbumArtCandidate candidate,
+  }) async {
+    final response = await _client
+        .get(Uri.parse(candidate.imageUrl), headers: _downloadHeaders())
+        .timeout(_requestTimeout);
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AlbumArtImportException(
+        'Failed to download album art (HTTP ${response.statusCode}).',
+      );
+    }
+
+    return applyImageBytesToSong(song: song, bytes: response.bodyBytes);
+  }
+
   Future<AlbumArtUpdateResult> applyImageBytes({
     required Song song,
     required Uint8List bytes,
@@ -210,6 +228,66 @@ class AlbumArtImportService {
       albumArtist: group.albumArtist,
       albumArtPath: null,
       filePaths: filePaths,
+    );
+  }
+
+  Future<AlbumArtUpdateResult> applyImageBytesToSong({
+    required Song song,
+    required Uint8List bytes,
+  }) async {
+    if (!_looksLikeImage(bytes)) {
+      throw const AlbumArtImportException(
+        'Selected file is not a supported image.',
+      );
+    }
+
+    final filePath = song.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      throw const AlbumArtImportException(
+        'Song has no file path.',
+      );
+    }
+
+    final file = await _writeCustomArtwork(filePath, bytes);
+    await _songRepository.updateAlbumArtPath(filePath, file.path);
+
+    return AlbumArtUpdateResult(
+      albumName: song.album ?? song.title,
+      albumArtist: song.albumArtist ?? song.artist,
+      albumArtPath: file.path,
+      filePaths: [filePath],
+    );
+  }
+
+  Future<AlbumArtUpdateResult> removeCustomArtworkForSong(Song song) async {
+    final filePath = song.filePath;
+    if (filePath == null || filePath.isEmpty) {
+      throw const AlbumArtImportException(
+        'Song has no file path.',
+      );
+    }
+
+    final currentPath = song.albumArt;
+    if (currentPath == null || !isCustomArtworkPath(currentPath)) {
+      throw const AlbumArtImportException('No custom album art is set yet.');
+    }
+
+    await _songRepository.updateAlbumArtPath(filePath, null);
+
+    try {
+      final file = File(currentPath);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {
+      // Best effort cleanup.
+    }
+
+    return AlbumArtUpdateResult(
+      albumName: song.album ?? song.title,
+      albumArtist: song.albumArtist ?? song.artist,
+      albumArtPath: null,
+      filePaths: [filePath],
     );
   }
 

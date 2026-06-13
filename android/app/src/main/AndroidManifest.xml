@@ -22,6 +22,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Visualizer API requires RECORD_AUDIO to read the output mix -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- System-level floating mini-player overlay -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
         android:label="Flick"
         android:name="${applicationName}"

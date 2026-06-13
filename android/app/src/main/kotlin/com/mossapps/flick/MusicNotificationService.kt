@@ -57,6 +57,8 @@ class MusicNotificationService : Service() {
     private var cachedAlbumArt: Bitmap? = null
     private var cachedAlbumArtPath: String? = null
 
+    private var floatingOverlay: FloatingPlayerOverlay? = null
+
     private val actionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             android.util.Log.d("MusicNotification", "Received action: ${intent?.action}")
@@ -162,6 +164,20 @@ class MusicNotificationService : Service() {
             if (it.hasExtra("isShuffle")) isShuffleMode = it.getBooleanExtra("isShuffle", false)
             if (it.hasExtra("isFavorite")) isFavorite = it.getBooleanExtra("isFavorite", false)
             if (it.hasExtra("color")) currentColor = it.getIntExtra("color", 0)
+
+            it.getStringExtra("floating")?.let { action ->
+                when (action) {
+                    "show" -> showFloatingOverlay()
+                    "hide" -> hideFloatingOverlay()
+                }
+            }
+        }
+
+        if (floatingOverlay?.shown == true) {
+            floatingOverlay?.update(
+                currentTitle, currentArtist, getAlbumArtBitmap(), isPlaying,
+                currentDuration, currentPosition
+            )
         }
 
         syncAudioFocusState()
@@ -213,6 +229,7 @@ class MusicNotificationService : Service() {
         }
         mediaSession.release()
         isForegroundServiceStarted = false
+        hideFloatingOverlay()
     }
 
     private fun shutdownForTaskRemoval() {
@@ -522,6 +539,17 @@ class MusicNotificationService : Service() {
 
         val notification = buildNotification()
         notificationManager.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun showFloatingOverlay() {
+        if (floatingOverlay == null) {
+            floatingOverlay = FloatingPlayerOverlay(applicationContext)
+        }
+        floatingOverlay?.show(currentTitle, currentArtist, getAlbumArtBitmap(), isPlaying, currentDuration, currentPosition)
+    }
+
+    private fun hideFloatingOverlay() {
+        floatingOverlay?.hide()
     }
 
     private fun sendCommandToFlutter(command: String, args: Map<String, Any>? = null) {

@@ -294,8 +294,10 @@ class PlayerService {
   final PlaylistService _playlistService = PlaylistService();
   final RustAudioService _rustAudioService = RustAudioService();
   final Uac2Service _uac2Service = Uac2Service.instance;
-  final ColorExtractionService _colorExtractionService = ColorExtractionService();
-  final AlbumColorModePreferenceService _albumColorModePreferenceService = AlbumColorModePreferenceService();
+  final ColorExtractionService _colorExtractionService =
+      ColorExtractionService();
+  final AlbumColorModePreferenceService _albumColorModePreferenceService =
+      AlbumColorModePreferenceService();
   bool _priorityAnchorActive = false;
   late final AudioSessionManager _sessionManager;
   late final AudioEngineManager _playbackManager;
@@ -323,9 +325,12 @@ class PlayerService {
   final ValueNotifier<bool> bitPerfectProcessingLockedNotifier = ValueNotifier(
     false,
   );
-  final ValueNotifier<bool> gaplessPlaybackEnabledNotifier = ValueNotifier(true);
-  final ValueNotifier<MilestoneType?> pendingMilestoneNotifier =
-      ValueNotifier(null);
+  final ValueNotifier<bool> gaplessPlaybackEnabledNotifier = ValueNotifier(
+    true,
+  );
+  final ValueNotifier<MilestoneType?> pendingMilestoneNotifier = ValueNotifier(
+    null,
+  );
   final MilestoneService _milestoneService = MilestoneService();
   bool get _usingRustBackend => usingRustBackendNotifier.value;
   set _usingRustBackend(bool value) => usingRustBackendNotifier.value = value;
@@ -376,9 +381,13 @@ class PlayerService {
   );
 
   // Playback Mode State
-  final ValueNotifier<ShuffleMode> shuffleModeNotifier = ValueNotifier(ShuffleMode.off);
+  final ValueNotifier<ShuffleMode> shuffleModeNotifier = ValueNotifier(
+    ShuffleMode.off,
+  );
   ValueNotifier<bool> get isShuffleNotifier => _isShuffleCompat;
-  late final ValueNotifier<bool> _isShuffleCompat = _ShuffleBoolNotifier(shuffleModeNotifier);
+  late final ValueNotifier<bool> _isShuffleCompat = _ShuffleBoolNotifier(
+    shuffleModeNotifier,
+  );
   final ValueNotifier<LoopMode> loopModeNotifier = ValueNotifier(LoopMode.all);
 
   // A-B Repeat
@@ -388,7 +397,9 @@ class PlayerService {
   // Playback Context
   PlaybackContext _playbackContext = PlaybackContext.unknown;
   PlaybackContext get playbackContext => _playbackContext;
-  final ValueNotifier<PlaybackContext> playbackContextNotifier = ValueNotifier(PlaybackContext.unknown);
+  final ValueNotifier<PlaybackContext> playbackContextNotifier = ValueNotifier(
+    PlaybackContext.unknown,
+  );
 
   // Advance List Order
   AdvanceListOrder _advanceListOrder = AdvanceListOrder.alphabetical;
@@ -434,7 +445,9 @@ class PlayerService {
   String? _lastNotificationColorSongId;
   int? _lastNotificationColor;
 
-  final ValueNotifier<int> favoriteNotificationToggleNotifier = ValueNotifier(0);
+  final ValueNotifier<int> favoriteNotificationToggleNotifier = ValueNotifier(
+    0,
+  );
 
   final ValueNotifier<bool> playbackDesyncedNotifier = ValueNotifier(false);
   Song? _engineCurrentTrack;
@@ -488,9 +501,15 @@ class PlayerService {
       unawaited(_handleBitPerfectPreferenceChanged());
     });
     selectedPlaybackModeNotifier.addListener(_updateBitPerfectProcessingLocked);
-    initializedPlaybackModeNotifier.addListener(_updateBitPerfectProcessingLocked);
-    _uac2Service.bitPerfectEnabledNotifier.addListener(_updateBitPerfectProcessingLocked);
-    _uac2Service.dapBitPerfectEnabledNotifier.addListener(_updateBitPerfectProcessingLocked);
+    initializedPlaybackModeNotifier.addListener(
+      _updateBitPerfectProcessingLocked,
+    );
+    _uac2Service.bitPerfectEnabledNotifier.addListener(
+      _updateBitPerfectProcessingLocked,
+    );
+    _uac2Service.dapBitPerfectEnabledNotifier.addListener(
+      _updateBitPerfectProcessingLocked,
+    );
     _bitPerfectLockedListener = () {
       unawaited(reapplyEqualizer());
     };
@@ -890,7 +909,9 @@ class PlayerService {
     _uac2Service.dapBitPerfectEnabledNotifier.value = enabled;
     rust_audio.audioSetDapBitPerfectEnabled(enabled: enabled);
     await _sessionManager.syncRouteSelection(
-      reason: enabled ? 'Bit-perfect (DAP Internal) enabled' : 'Bit-perfect (DAP Internal) disabled',
+      reason: enabled
+          ? 'Bit-perfect (DAP Internal) enabled'
+          : 'Bit-perfect (DAP Internal) disabled',
     );
   }
 
@@ -955,7 +976,9 @@ class PlayerService {
       final session = await AudioSession.instance;
       await session.setActive(true);
     } catch (e) {
-      debugPrint('[AudioFocus] Failed to activate audio session for Rust engine: $e');
+      debugPrint(
+        '[AudioFocus] Failed to activate audio session for Rust engine: $e',
+      );
     }
   }
 
@@ -1034,7 +1057,7 @@ class PlayerService {
   }
 
   AndroidAudioEngine _createAndroidEngine() {
-    return AndroidAudioEngine(
+    final engine = AndroidAudioEngine(
       playerProvider: _ensureAndroidPlayer,
       sourcesBuilder: _buildAudioSources,
       sourceBuilder: _buildAudioSourceForSong,
@@ -1047,6 +1070,11 @@ class PlayerService {
       shouldFastStartCurrentTrackOnly: () =>
           loopModeNotifier.value != LoopMode.all,
     );
+    engine.onTrackEnded = () {
+      if (_usingRustBackend) return;
+      unawaited(_onSongFinished());
+    };
+    return engine;
   }
 
   Future<bool> _ensureRustBackendAvailable() async {
@@ -1345,7 +1373,8 @@ class PlayerService {
         ) ??
         (outputSignature?.startsWith('android-uac2:') == true
             ? 'usb_direct'
-            : outputSignature?.startsWith('android-shared:usb-dsd-native:') == true
+            : outputSignature?.startsWith('android-shared:usb-dsd-native:') ==
+                  true
             ? 'usb_dsd_native'
             : 'resampled_fallback');
     final engineRequestedSampleRate = _intValue(
@@ -1472,8 +1501,7 @@ class PlayerService {
         : switch (outputStrategy) {
             'usb_dsd_native' when passthroughAllowed =>
               'Rust engine via USB direct native DSD (verified)',
-            'usb_dsd_native' =>
-              'Rust engine via USB direct native DSD',
+            'usb_dsd_native' => 'Rust engine via USB direct native DSD',
             'usb_direct' when passthroughAllowed =>
               'Rust engine via libusb direct USB (verified)',
             'usb_direct' => 'Rust engine via libusb direct USB',
@@ -1601,8 +1629,7 @@ class PlayerService {
           directUsbState?['bufferCapacityMs'],
     );
     final bufferTargetMs = _intValue(
-      directUsbState?['buffer_target_ms'] ??
-          directUsbState?['bufferTargetMs'],
+      directUsbState?['buffer_target_ms'] ?? directUsbState?['bufferTargetMs'],
     );
     final framesPerPacket = _intValue(
       directUsbState?['frames_per_packet'] ??
@@ -1621,7 +1648,8 @@ class PlayerService {
       directUsbState?['drift_ms_from_target'] ??
           directUsbState?['driftMsFromTarget'],
     );
-    final urbTransport = usesRustDiagnostics &&
+    final urbTransport =
+        usesRustDiagnostics &&
             pathManagement == AudioPathManagement.directUsbExperimental
         ? UrbTransportInfo(
             activeAltSetting: activeAltSetting,
@@ -2040,12 +2068,17 @@ class PlayerService {
     int? notificationColor;
     try {
       final colorMode = await _albumColorModePreferenceService.getMode();
-      if (colorMode != AlbumColorMode.off && song.albumArt != null && song.albumArt!.isNotEmpty) {
+      if (colorMode != AlbumColorMode.off &&
+          song.albumArt != null &&
+          song.albumArt!.isNotEmpty) {
         final songId = song.id;
-        if (songId == _lastNotificationColorSongId && _lastNotificationColor != null) {
+        if (songId == _lastNotificationColorSongId &&
+            _lastNotificationColor != null) {
           notificationColor = _lastNotificationColor;
         } else {
-          final color = await _colorExtractionService.extractDominantColor(song.albumArt);
+          final color = await _colorExtractionService.extractDominantColor(
+            song.albumArt,
+          );
           if (color != null) {
             notificationColor = color.toARGB32();
             _lastNotificationColor = notificationColor;
@@ -2123,7 +2156,7 @@ class PlayerService {
     if (_currentIndex < _playlist.length - 1) {
       _setCurrentIndex(_currentIndex + 1);
     } else if (shuffleModeNotifier.value == ShuffleMode.songsAndCategories ||
-               shuffleModeNotifier.value == ShuffleMode.categories) {
+        shuffleModeNotifier.value == ShuffleMode.categories) {
       await _advanceToRandomCategory();
       return;
     } else if (loopModeNotifier.value == LoopMode.all) {
@@ -2196,7 +2229,9 @@ class PlayerService {
     }
 
     // ignore: deprecated_member_use
-    _audioSourceSequence = just_audio.ConcatenatingAudioSource(children: sources);
+    _audioSourceSequence = just_audio.ConcatenatingAudioSource(
+      children: sources,
+    );
     return _audioSourceSequence!;
   }
 
@@ -2585,8 +2620,9 @@ class PlayerService {
       // and the Dart/Rust layers agree.
       preferredSampleRate = 48000;
     } else {
-      preferredSampleRate =
-          await _preferredSampleRateForFormatStrategy(formatPreference);
+      preferredSampleRate = await _preferredSampleRateForFormatStrategy(
+        formatPreference,
+      );
     }
     if (preferredSampleRate == null || preferredSampleRate <= 0) {
       return null;
@@ -3106,7 +3142,11 @@ class PlayerService {
   }
 
   /// Play a specific song.
-  Future<void> play(Song song, {List<Song>? playlist, PlaybackContext? context}) {
+  Future<void> play(
+    Song song, {
+    List<Song>? playlist,
+    PlaybackContext? context,
+  }) {
     debugPrint('[UI] tap(${song.id})');
     if (context != null) setPlaybackContext(context);
     return _enqueuePlaybackRequest(
@@ -3570,7 +3610,8 @@ class PlayerService {
       'next(): currentIndex=$_currentIndex, playlistLength=${_playlist.length}, loopMode=${loopModeNotifier.value}',
     );
 
-    if (shuffleModeNotifier.value == ShuffleMode.random && _playlist.length > 1) {
+    if (shuffleModeNotifier.value == ShuffleMode.random &&
+        _playlist.length > 1) {
       final rng = math.Random();
       int targetIndex;
       do {
@@ -3589,8 +3630,11 @@ class PlayerService {
     }
 
     final shuffle = shuffleModeNotifier.value;
-    if (shuffle == ShuffleMode.songsAndCategories || shuffle == ShuffleMode.categories) {
-      debugPrint('next(): category shuffle active, advancing to random category');
+    if (shuffle == ShuffleMode.songsAndCategories ||
+        shuffle == ShuffleMode.categories) {
+      debugPrint(
+        'next(): category shuffle active, advancing to random category',
+      );
       await _advanceToRandomCategory();
       return;
     }
@@ -3603,7 +3647,9 @@ class PlayerService {
     }
 
     if (loopModeNotifier.value.isAdvanceMode) {
-      debugPrint('next(): ${loopModeNotifier.value}, advancing to next category');
+      debugPrint(
+        'next(): ${loopModeNotifier.value}, advancing to next category',
+      );
       await _advanceForMode(loopModeNotifier.value);
       return;
     }
@@ -3799,10 +3845,7 @@ class PlayerService {
           seq.insertAll(0, newSources.sublist(0, newIdx));
         }
         if (newIdx + 1 < newSources.length) {
-          seq.insertAll(
-            newIdx + 1,
-            newSources.sublist(newIdx + 1),
-          );
+          seq.insertAll(newIdx + 1, newSources.sublist(newIdx + 1));
         }
 
         await _updateLoopMode();
@@ -4003,7 +4046,9 @@ class PlayerService {
       if (keepCount < _playlist.length) {
         _playlist.removeRange(keepCount, _playlist.length);
         _playlistQueueEntryIds.removeRange(
-            keepCount, _playlistQueueEntryIds.length);
+          keepCount,
+          _playlistQueueEntryIds.length,
+        );
       }
     }
 
@@ -4280,7 +4325,9 @@ class PlayerService {
     if (_activeTier != VolumeTier.hardware) return;
     final healthy = await _uac2Service.verifyHardwareVolumeHealth();
     if (healthy == false) {
-      debugPrint('[VolFlow] HW volume health check failed — falling back to software tier');
+      debugPrint(
+        '[VolFlow] HW volume health check failed — falling back to software tier',
+      );
       _onHwVolumeResult(false);
     }
   }
@@ -4325,12 +4372,22 @@ class PlayerService {
     }
     _playbackStateSubscription?.cancel();
     unawaited(_playbackManager.dispose());
-    selectedPlaybackModeNotifier.removeListener(_updateBitPerfectProcessingLocked);
-    initializedPlaybackModeNotifier.removeListener(_updateBitPerfectProcessingLocked);
-    _uac2Service.bitPerfectEnabledNotifier.removeListener(_updateBitPerfectProcessingLocked);
-    _uac2Service.dapBitPerfectEnabledNotifier.removeListener(_updateBitPerfectProcessingLocked);
+    selectedPlaybackModeNotifier.removeListener(
+      _updateBitPerfectProcessingLocked,
+    );
+    initializedPlaybackModeNotifier.removeListener(
+      _updateBitPerfectProcessingLocked,
+    );
+    _uac2Service.bitPerfectEnabledNotifier.removeListener(
+      _updateBitPerfectProcessingLocked,
+    );
+    _uac2Service.dapBitPerfectEnabledNotifier.removeListener(
+      _updateBitPerfectProcessingLocked,
+    );
     if (_bitPerfectLockedListener != null) {
-      bitPerfectProcessingLockedNotifier.removeListener(_bitPerfectLockedListener!);
+      bitPerfectProcessingLockedNotifier.removeListener(
+        _bitPerfectLockedListener!,
+      );
     }
     _sessionManager.dispose();
     audioOutputDiagnosticsNotifier.dispose();
@@ -4423,7 +4480,7 @@ class PlayerService {
         await seek(Duration.zero);
         return;
       }
-      await play(nextSongs.first, playlist: nextSongs);
+      await _playInternal(nextSongs.first, playlist: nextSongs);
     } catch (e) {
       debugPrint('_advanceForMode($mode): error: $e');
       await _pauseInternal();
@@ -4439,11 +4496,13 @@ class PlayerService {
     final nextName = _pickNext(sorted, currentAlbum);
     if (nextName == null) return null;
     final nextGroup = groups.firstWhere((g) => g.albumName == nextName);
-    setPlaybackContext(PlaybackContext(
-      source: PlaybackSource.album,
-      sourceId: nextName,
-      sourceName: nextName,
-    ));
+    setPlaybackContext(
+      PlaybackContext(
+        source: PlaybackSource.album,
+        sourceId: nextName,
+        sourceName: nextName,
+      ),
+    );
     return nextGroup.songs;
   }
 
@@ -4454,11 +4513,13 @@ class PlayerService {
     final sorted = _sortCategories(artistMap.keys.toList());
     final nextName = _pickNext(sorted, currentArtist);
     if (nextName == null) return null;
-    setPlaybackContext(PlaybackContext(
-      source: PlaybackSource.artist,
-      sourceId: nextName,
-      sourceName: nextName,
-    ));
+    setPlaybackContext(
+      PlaybackContext(
+        source: PlaybackSource.artist,
+        sourceId: nextName,
+        sourceName: nextName,
+      ),
+    );
     return artistMap[nextName];
   }
 
@@ -4471,12 +4532,15 @@ class PlayerService {
     if (nextUri == null) return null;
     final songs = await _songRepository.getSongsByFolder(nextUri);
     if (songs.isEmpty) return null;
-    final folderName = Uri.tryParse(nextUri)?.pathSegments.lastOrNull ?? nextUri;
-    setPlaybackContext(PlaybackContext(
-      source: PlaybackSource.folder,
-      sourceId: nextUri,
-      sourceName: folderName,
-    ));
+    final folderName =
+        Uri.tryParse(nextUri)?.pathSegments.lastOrNull ?? nextUri;
+    setPlaybackContext(
+      PlaybackContext(
+        source: PlaybackSource.folder,
+        sourceId: nextUri,
+        sourceName: folderName,
+      ),
+    );
     return songs;
   }
 
@@ -4492,18 +4556,21 @@ class PlayerService {
     final songIdSet = playlist.songIds.toSet();
     final songs = allSongs.where((s) => songIdSet.contains(s.id)).toList();
     if (songs.isEmpty) return null;
-    setPlaybackContext(PlaybackContext(
-      source: PlaybackSource.playlist,
-      sourceId: nextId,
-      sourceName: playlist.name,
-    ));
+    setPlaybackContext(
+      PlaybackContext(
+        source: PlaybackSource.playlist,
+        sourceId: nextId,
+        sourceName: playlist.name,
+      ),
+    );
     return songs;
   }
 
   List<String> _sortCategories(List<String> items) {
     switch (_advanceListOrder) {
       case AdvanceListOrder.alphabetical:
-        return List.of(items)..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        return List.of(items)
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       case AdvanceListOrder.dateAdded:
         return items;
       case AdvanceListOrder.random:
@@ -4521,7 +4588,8 @@ class PlayerService {
 
   Future<void> _advanceToRandomCategory() async {
     final ctx = _playbackContext;
-    if (ctx.source == PlaybackSource.unknown || ctx.source == PlaybackSource.allSongs) {
+    if (ctx.source == PlaybackSource.unknown ||
+        ctx.source == PlaybackSource.allSongs) {
       await _pauseInternal();
       await seek(Duration.zero);
       return;
@@ -4529,13 +4597,17 @@ class PlayerService {
 
     try {
       final allIds = await _getAllCategoryIds(ctx.source);
-      var available = allIds.where((id) => !_playedCategoryIds.contains(id)).toList();
+      var available = allIds
+          .where((id) => !_playedCategoryIds.contains(id))
+          .toList();
 
       if (available.isEmpty) {
         if (loopModeNotifier.value == LoopMode.all) {
           _playedCategoryIds.clear();
           if (ctx.sourceId != null) _playedCategoryIds.add(ctx.sourceId!);
-          available = allIds.where((id) => !_playedCategoryIds.contains(id)).toList();
+          available = allIds
+              .where((id) => !_playedCategoryIds.contains(id))
+              .toList();
         }
         if (available.isEmpty) {
           await _pauseInternal();
@@ -4553,9 +4625,12 @@ class PlayerService {
         return;
       }
 
-      final shouldShuffle = shuffleModeNotifier.value == ShuffleMode.songsAndCategories;
-      final ordered = shouldShuffle ? (List<Song>.of(songs)..shuffle(rng)) : songs;
-      await play(ordered.first, playlist: ordered);
+      final shouldShuffle =
+          shuffleModeNotifier.value == ShuffleMode.songsAndCategories;
+      final ordered = shouldShuffle
+          ? (List<Song>.of(songs)..shuffle(rng))
+          : songs;
+      await _playInternal(ordered.first, playlist: ordered);
     } catch (e) {
       debugPrint('_advanceToRandomCategory error: $e');
       await _pauseInternal();
@@ -4582,25 +4657,46 @@ class PlayerService {
     }
   }
 
-  Future<List<Song>?> _getCategorySongsById(PlaybackSource source, String id) async {
+  Future<List<Song>?> _getCategorySongsById(
+    PlaybackSource source,
+    String id,
+  ) async {
     switch (source) {
       case PlaybackSource.album:
         final groups = await _songRepository.getAlbumGroups();
         final group = groups.where((g) => g.albumName == id).firstOrNull;
         if (group == null) return null;
-        setPlaybackContext(PlaybackContext(source: PlaybackSource.album, sourceId: id, sourceName: id));
+        setPlaybackContext(
+          PlaybackContext(
+            source: PlaybackSource.album,
+            sourceId: id,
+            sourceName: id,
+          ),
+        );
         return group.songs;
       case PlaybackSource.artist:
         final artistMap = await _songRepository.getSongsByArtist();
         final songs = artistMap[id];
         if (songs == null) return null;
-        setPlaybackContext(PlaybackContext(source: PlaybackSource.artist, sourceId: id, sourceName: id));
+        setPlaybackContext(
+          PlaybackContext(
+            source: PlaybackSource.artist,
+            sourceId: id,
+            sourceName: id,
+          ),
+        );
         return songs;
       case PlaybackSource.folder:
         final songs = await _songRepository.getSongsByFolder(id);
         if (songs.isEmpty) return null;
         final folderName = Uri.tryParse(id)?.pathSegments.lastOrNull ?? id;
-        setPlaybackContext(PlaybackContext(source: PlaybackSource.folder, sourceId: id, sourceName: folderName));
+        setPlaybackContext(
+          PlaybackContext(
+            source: PlaybackSource.folder,
+            sourceId: id,
+            sourceName: folderName,
+          ),
+        );
         return songs;
       case PlaybackSource.playlist:
         final playlist = await _playlistService.getPlaylist(id);
@@ -4609,7 +4705,13 @@ class PlayerService {
         final songIdSet = playlist.songIds.toSet();
         final songs = allSongs.where((s) => songIdSet.contains(s.id)).toList();
         if (songs.isEmpty) return null;
-        setPlaybackContext(PlaybackContext(source: PlaybackSource.playlist, sourceId: id, sourceName: playlist.name));
+        setPlaybackContext(
+          PlaybackContext(
+            source: PlaybackSource.playlist,
+            sourceId: id,
+            sourceName: playlist.name,
+          ),
+        );
         return songs;
       case PlaybackSource.allSongs:
       case PlaybackSource.unknown:

@@ -81,6 +81,8 @@ class AndroidAudioEngine implements AudioEngine {
   bool _awaitingInitialSeek = false;
   bool _loadedSingleTrackOnly = false;
 
+  VoidCallback? onTrackEnded;
+
   static const int fastStartPlaylistThreshold = 24;
 
   @override
@@ -146,6 +148,14 @@ class AndroidAudioEngine implements AudioEngine {
     _subscriptions.add(
       player.currentIndexStream.listen((index) {
         _syncTrackFromIndex(index);
+      }),
+    );
+
+    _subscriptions.add(
+      player.processingStateStream.listen((state) {
+        if (state == just_audio.ProcessingState.completed) {
+          onTrackEnded?.call();
+        }
       }),
     );
   }

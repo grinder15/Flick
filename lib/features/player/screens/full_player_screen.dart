@@ -20,7 +20,10 @@ import 'package:flick/features/songs/widgets/album_art_picker_bottom_sheet.dart'
 import 'package:flick/models/album_color_mode.dart';
 import 'package:flick/models/player_screen_mode.dart';
 import 'package:flick/models/player_action_button.dart';
+import 'package:flick/models/shuffle_mode.dart';
 import 'package:flick/models/song.dart';
+import 'package:flick/features/player/widgets/shuffle_mode_sheet.dart';
+import 'package:flick/features/player/widgets/loop_mode_sheet.dart';
 import 'package:flick/services/player_service.dart';
 import 'package:flick/services/external_playback_service.dart';
 import 'package:flick/services/favorites_service.dart';
@@ -3972,7 +3975,6 @@ class _AnimatedSongScene extends StatelessWidget {
           playerService: playerService,
           formatDuration: formatDuration,
           currentSong: song,
-          isShuffleNotifier: playerService.isShuffleNotifier,
           onPrevious: onPrevious,
           onNext: onNext,
           timelineHorizontalPadding: immersivePlaybackPadding,
@@ -6234,7 +6236,6 @@ class _PlayerControls extends StatelessWidget {
   final PlayerService playerService;
   final String Function(Duration) formatDuration;
   final Song? currentSong;
-  final ValueNotifier<bool> isShuffleNotifier;
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
   final double timelineHorizontalPadding;
@@ -6245,7 +6246,6 @@ class _PlayerControls extends StatelessWidget {
     required this.playerService,
     required this.formatDuration,
     required this.currentSong,
-    required this.isShuffleNotifier,
     required this.onPrevious,
     required this.onNext,
     this.timelineHorizontalPadding = 0,
@@ -6291,36 +6291,53 @@ class _PlayerControls extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       // Shuffle
-                      ValueListenableBuilder<bool>(
-                        valueListenable: isShuffleNotifier,
-                        builder: (context, isShuffle, _) {
-                          return Container(
-                            width: context.responsive(40.0, 44.0, 48.0),
-                            height: context.responsive(40.0, 44.0, 48.0),
-                            decoration: BoxDecoration(
-                              color: isShuffle
-                                  ? activeAccent.withValues(alpha: 0.25)
-                                  : buttonSurface.withValues(alpha: 0.6),
-                              shape: BoxShape.circle,
-                              border: isShuffle
-                                  ? Border.all(
-                                      color: activeAccent.withValues(
-                                        alpha: 0.6,
-                                      ),
-                                      width: 1.5,
-                                    )
-                                  : null,
-                            ),
-                            child: IconButton(
-                              onPressed: () {
-                                AppHaptics.tap();
-                                playerService.toggleShuffle();
-                              },
-                              iconSize: context.responsive(18.0, 20.0, 22.0),
-                              padding: EdgeInsets.zero,
-                              icon: Icon(
-                                LucideIcons.shuffle,
-                                color: isShuffle
+                      ValueListenableBuilder<ShuffleMode>(
+                        valueListenable: playerService.shuffleModeNotifier,
+                        builder: (context, shuffleMode, _) {
+                          final isActive = shuffleMode.isActive;
+                          final icon = switch (shuffleMode) {
+                            ShuffleMode.categories => LucideIcons.layers,
+                            ShuffleMode.random => LucideIcons.dices,
+                            _ => LucideIcons.shuffle,
+                          };
+                          return GestureDetector(
+                            onTap: () {
+                              AppHaptics.tap();
+                              playerService.toggleShuffle();
+                              final next = playerService.shuffleModeNotifier.value;
+                              ScaffoldMessenger.of(context)
+                                ..hideCurrentSnackBar()
+                                ..showSnackBar(SnackBar(
+                                  content: Text('Shuffle: ${next.label}'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 1),
+                                ));
+                            },
+                            onLongPress: () {
+                              AppHaptics.tap();
+                              ShuffleModeSheet.show(context, playerService);
+                            },
+                            child: Container(
+                              width: context.responsive(40.0, 44.0, 48.0),
+                              height: context.responsive(40.0, 44.0, 48.0),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? activeAccent.withValues(alpha: 0.25)
+                                    : buttonSurface.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                                border: isActive
+                                    ? Border.all(
+                                        color: activeAccent.withValues(
+                                          alpha: 0.6,
+                                        ),
+                                        width: 1.5,
+                                      )
+                                    : null,
+                              ),
+                              child: Icon(
+                                icon,
+                                size: context.responsive(18.0, 20.0, 22.0),
+                                color: isActive
                                     ? activeAccent
                                     : Colors.white.withValues(alpha: 0.7),
                               ),
@@ -6381,51 +6398,57 @@ class _PlayerControls extends StatelessWidget {
                       ValueListenableBuilder<LoopMode>(
                         valueListenable: playerService.loopModeNotifier,
                         builder: (context, loopMode, _) {
-                          IconData icon = LucideIcons.repeat;
-                          Color color = Colors.white.withValues(alpha: 0.7);
-                          if (loopMode == LoopMode.all) {
-                            color = activeAccent;
-                          }
-                          if (loopMode == LoopMode.one) {
-                            icon = LucideIcons.repeat1;
-                            color = activeAccent;
-                          }
-                          return Container(
-                            width: context.responsive(40.0, 44.0, 48.0),
-                            height: context.responsive(40.0, 44.0, 48.0),
-                            decoration: BoxDecoration(
-                              color: buttonSurface.withValues(alpha: 0.6),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                IconButton(
-                                  onPressed: () {
-                                    AppHaptics.tap();
-                                    playerService.toggleLoopMode();
-                                  },
-                                  iconSize: context.responsive(
-                                    18.0,
-                                    20.0,
-                                    22.0,
+                          final icon = LoopModeSheet.iconFor(loopMode);
+                          final isActive = loopMode != LoopMode.off;
+                          final color = isActive
+                              ? activeAccent
+                              : Colors.white.withValues(alpha: 0.7);
+                          return GestureDetector(
+                            onTap: () {
+                              AppHaptics.tap();
+                              playerService.toggleLoopMode();
+                              final next = playerService.loopModeNotifier.value;
+                              ScaffoldMessenger.of(context)
+                                ..hideCurrentSnackBar()
+                                ..showSnackBar(SnackBar(
+                                  content: Text('Repeat: ${next.label}'),
+                                  behavior: SnackBarBehavior.floating,
+                                  duration: const Duration(seconds: 1),
+                                ));
+                            },
+                            onLongPress: () {
+                              AppHaptics.tap();
+                              LoopModeSheet.show(context, playerService);
+                            },
+                            child: Container(
+                              width: context.responsive(40.0, 44.0, 48.0),
+                              height: context.responsive(40.0, 44.0, 48.0),
+                              decoration: BoxDecoration(
+                                color: buttonSurface.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Icon(
+                                    icon,
+                                    size: context.responsive(18.0, 20.0, 22.0),
+                                    color: color,
                                   ),
-                                  padding: EdgeInsets.zero,
-                                  icon: Icon(icon, color: color),
-                                ),
-                                if (loopMode == LoopMode.all)
-                                  Positioned(
-                                    bottom: 6,
-                                    child: Container(
-                                      width: 4,
-                                      height: 4,
-                                      decoration: BoxDecoration(
-                                        color: activeAccent,
-                                        shape: BoxShape.circle,
+                                  if (loopMode == LoopMode.all)
+                                    Positioned(
+                                      bottom: 6,
+                                      child: Container(
+                                        width: 4,
+                                        height: 4,
+                                        decoration: BoxDecoration(
+                                          color: activeAccent,
+                                          shape: BoxShape.circle,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                           );
                         },

@@ -318,6 +318,16 @@ class Uac2PreferencesService {
     }
   }
 
+  Future<bool> hasUsbSoftwareVolume() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.containsKey(_keyUsbSoftwareVolume);
+    } catch (e) {
+      debugPrint('Failed to check USB software volume key: $e');
+      return false;
+    }
+  }
+
   Future<void> setKillIsochronousUsbOnQuit(bool enabled) async {
     try {
       final prefs = await SharedPreferences.getInstance();

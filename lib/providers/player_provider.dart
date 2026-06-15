@@ -4,10 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'lastfm_provider.dart';
+import 'listenbrainz_provider.dart';
 import '../models/playback_context.dart';
 import '../models/shuffle_mode.dart';
 import '../models/song.dart';
 import '../services/player_service.dart';
+import 'package:flick/core/utils/dev_log.dart';
 
 // Re-export LoopMode from player_service
 export '../services/player_service.dart' show LoopMode;
@@ -284,7 +286,19 @@ class PlayerNotifier extends Notifier<PlayerState> {
             albumArtist: null,
             durationSeconds: song.duration.inSeconds,
           )
-          .catchError((e) => debugPrint('[LastFm] onTrackStarted error: $e')),
+          .catchError((e) => devLog('[LastFm] onTrackStarted error: $e')),
+    );
+    unawaited(
+      ref
+          .read(listenBrainzScrobbleProvider.notifier)
+          .onTrackStarted(
+            artist: song.artist,
+            track: song.title,
+            album: song.album,
+            albumArtist: null,
+            durationSeconds: song.duration.inSeconds,
+          )
+          .catchError((e) => devLog('[ListenBrainz] onTrackStarted error: $e')),
     );
   }
 
@@ -307,7 +321,20 @@ class PlayerNotifier extends Notifier<PlayerState> {
             listenedSeconds: listenedSeconds,
             trackDurationSeconds: trackDurationSeconds,
           )
-          .catchError((e) => debugPrint('[LastFm] onTrackEnded error: $e')),
+          .catchError((e) => devLog('[LastFm] onTrackEnded error: $e')),
+    );
+    unawaited(
+      ref
+          .read(listenBrainzScrobbleProvider.notifier)
+          .onTrackEnded(
+            artist: endedSong.artist,
+            track: endedSong.title,
+            album: endedSong.album,
+            albumArtist: null,
+            listenedSeconds: listenedSeconds,
+            trackDurationSeconds: trackDurationSeconds,
+          )
+          .catchError((e) => devLog('[ListenBrainz] onTrackEnded error: $e')),
     );
   }
 

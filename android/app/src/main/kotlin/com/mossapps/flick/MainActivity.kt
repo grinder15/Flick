@@ -482,6 +482,24 @@ class MainActivity: FlutterActivity() {
                         result.error("INVALID_ARGUMENT", "folderTreeUri and filePath are required", null)
                     }
                 }
+                "removeFromMediaStore" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath != null) {
+                        mainScope.launch {
+                            try {
+                                val removed = withContext(Dispatchers.IO) {
+                                    removeFromMediaStore(filePath)
+                                }
+                                result.success(removed)
+                            } catch (e: Exception) {
+                                Log.w("MainActivity", "[MethodChannel] removeFromMediaStore error: ${e.message}", e)
+                                result.success(false)
+                            }
+                        }
+                    } else {
+                        result.error("INVALID_ARGUMENT", "filePath is required", null)
+                    }
+                }
                 "writeFileBytesViaSaf" -> {
                     val folderTreeUri = call.argument<String>("folderTreeUri")
                     val filePath = call.argument<String>("filePath")
@@ -855,6 +873,11 @@ class MainActivity: FlutterActivity() {
                 "setKillIsochronousUsbOnQuit" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: true
                     killIsochronousUsbOnQuit = enabled
+                    result.success(true)
+                }
+                "setDeveloperMode" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    nativeSetRustDeveloperMode(enabled)
                     result.success(true)
                 }
                 "markDirectUsbFallback" -> {
@@ -1299,50 +1322,87 @@ class MainActivity: FlutterActivity() {
     private fun deleteDocumentViaSaf(folderTreeUri: String, filePath: String): Boolean {
         return try {
             val fileUri = Uri.parse(filePath)
+
             if (fileUri.scheme == "content") {
-                DocumentsContract.deleteDocument(contentResolver, fileUri)
-            } else {
+                return try {
+                    DocumentsContract.deleteDocument(contentResolver, fileUri)
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "content URI deletion failed: ${e.message}")
+                    false
+                }
+            }
+
+            if (removeFromMediaStore(filePath)) return true
+
+            try {
                 val treeUri = Uri.parse(folderTreeUri)
                 val treeDocId = DocumentsContract.getTreeDocumentId(treeUri)
                 val decodedId = Uri.decode(treeDocId)
                 val parts = decodedId.split(":", limit = 2)
-                if (parts.isEmpty()) return false
+                if (parts.isNotEmpty()) {
+                    val volumeId = parts[0]
+                    val relativeFolderPath = parts.getOrNull(1)?.trim('/') ?: ""
+                    val basePath = when (volumeId.lowercase()) {
+                        "primary" -> Environment.getExternalStorageDirectory().absolutePath
+                        "home" -> Environment.getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_DOCUMENTS
+                        ).absolutePath
+                        else -> "/storage/$volumeId"
+                    }
 
-                val volumeId = parts[0]
-                val relativeFolderPath = parts.getOrNull(1)?.trim('/') ?: ""
-                val basePath = when (volumeId.lowercase()) {
-                    "primary" -> Environment.getExternalStorageDirectory().absolutePath
-                    "home" -> Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOCUMENTS
-                    ).absolutePath
-                    else -> "/storage/$volumeId"
+                    val folderBase = if (relativeFolderPath.isEmpty()) {
+                        File(basePath)
+                    } else {
+                        File("$basePath/$relativeFolderPath")
+                    }
+                    val canonicalBase = folderBase.canonicalPath.trimEnd('/')
+                    val canonicalFile = File(filePath).canonicalPath.trimEnd('/')
+
+                    if (canonicalFile.startsWith("$canonicalBase/") || canonicalFile == canonicalBase) {
+                        val relativePath = if (canonicalFile == canonicalBase) {
+                            ""
+                        } else {
+                            canonicalFile.removePrefix("$canonicalBase/")
+                        }
+
+                        val childDocId = if (relativePath.isEmpty()) treeDocId else "$treeDocId/$relativePath"
+                        val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocId)
+                        if (DocumentsContract.deleteDocument(contentResolver, childUri)) return true
+                    }
                 }
-
-                val folderBase = if (relativeFolderPath.isEmpty()) {
-                    File(basePath)
-                } else {
-                    File("$basePath/$relativeFolderPath")
-                }
-                val canonicalBase = folderBase.canonicalPath.trimEnd('/')
-                val canonicalFile = File(filePath).canonicalPath.trimEnd('/')
-
-                if (!canonicalFile.startsWith("$canonicalBase/") && canonicalFile != canonicalBase) {
-                    Log.w("MainActivity", "deleteDocumentViaSaf: file $filePath is not under tree $folderTreeUri")
-                    return false
-                }
-
-                val relativePath = if (canonicalFile == canonicalBase) {
-                    ""
-                } else {
-                    canonicalFile.removePrefix("$canonicalBase/")
-                }
-
-                val childDocId = if (relativePath.isEmpty()) treeDocId else "$treeDocId/$relativePath"
-                val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocId)
-                DocumentsContract.deleteDocument(contentResolver, childUri)
+            } catch (safEx: Exception) {
+                Log.w("MainActivity", "SAF deletion failed, trying File.delete: ${safEx.message}")
             }
+
+            try {
+                val file = File(filePath)
+                if (file.exists()) {
+                    if (file.delete()) return true
+                } else {
+                    return true
+                }
+            } catch (fileEx: Exception) {
+                Log.w("MainActivity", "File.delete failed: ${fileEx.message}")
+            }
+
+            false
         } catch (e: Exception) {
             Log.w("MainActivity", "deleteDocumentViaSaf failed: ${e.message}", e)
+            false
+        }
+    }
+
+    private fun removeFromMediaStore(filePath: String): Boolean {
+        return try {
+            val uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            val rowsDeleted = contentResolver.delete(
+                uri,
+                "${MediaStore.Audio.Media.DATA} = ?",
+                arrayOf(filePath)
+            )
+            rowsDeleted > 0
+        } catch (e: Exception) {
+            Log.w("MainActivity", "removeFromMediaStore failed: ${e.message}", e)
             false
         }
     }
@@ -3946,4 +4006,5 @@ class MainActivity: FlutterActivity() {
     private external fun nativeWaitRustDirectUsbSessionStopped(timeoutMs: Int): Boolean
     private external fun nativeIsRustDirectUsbSessionActive(): Boolean
     private external fun nativeMarkRustDirectUsbFallback(reason: String?): Boolean
+    private external fun nativeSetRustDeveloperMode(enabled: Boolean)
 }

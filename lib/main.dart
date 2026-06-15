@@ -10,6 +10,7 @@ import 'package:flick/data/database.dart';
 import 'package:flick/services/external_playback_service.dart';
 import 'package:flick/services/permission_service.dart';
 import 'package:flick/services/player_service.dart';
+import 'package:flick/core/utils/dev_log.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,12 +39,12 @@ Future<void> _bootstrapAppAfterFirstFrame() async {
   unawaited(_setOptimalDisplayMode());
   unawaited(
     _requestNotificationPermission().catchError(
-      (Object e) => debugPrint('Notification permission request failed: $e'),
+      (Object e) => devLog('Notification permission request failed: $e'),
     ),
   );
   unawaited(
     PlayerService().prepareForAppLaunch().catchError(
-      (Object e) => debugPrint('Audio prewarm failed: $e'),
+      (Object e) => devLog('Audio prewarm failed: $e'),
     ),
   );
 }
@@ -52,7 +53,7 @@ Future<void> _setOptimalDisplayMode() async {
   try {
     await FlutterDisplayMode.setHighRefreshRate();
   } catch (e) {
-    debugPrint('Display mode not supported: $e');
+    devLog('Display mode not supported: $e');
   }
 }
 
@@ -70,6 +71,6 @@ Future<void> _restoreLastPlayedSong() async {
     await playerService.restorePlaybackModes();
     await playerService.restoreLastPlayed();
   } catch (e) {
-    debugPrint('Failed to restore last played song: $e');
+    devLog('Failed to restore last played song: $e');
   }
 }

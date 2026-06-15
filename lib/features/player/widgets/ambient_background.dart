@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/models/song.dart';
 import 'package:flick/services/album_art_service.dart';
+import 'package:flick/core/utils/dev_log.dart';
 
 // ---------------------------------------------------------------------------
 // AmbientBackground
@@ -179,7 +180,7 @@ class _AmbientBackgroundState extends State<AmbientBackground> {
         _currentPath = resolvedPath;
       });
     } catch (e) {
-      debugPrint('[AmbientBackground] blur failed: $e');
+      devLog('[AmbientBackground] blur failed: $e');
     } finally {
       _computing = false;
     }

@@ -1,61 +1,60 @@
-import 'package:flutter/foundation.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
-import 'package:flick/services/lastfm/lastfm_auth_service.dart';
-import 'package:flick/services/lastfm/lastfm_api_client.dart';
-import 'package:flick/services/lastfm/lastfm_credentials.dart';
-import 'package:flick/services/lastfm/lastfm_models.dart';
-import 'package:flick/services/lastfm/lastfm_scrobble_queue.dart';
-import 'package:flick/services/lastfm/lastfm_scrobble_service.dart';
 import 'package:flick/core/utils/dev_log.dart';
+import 'package:flick/services/listenbrainz/listenbrainz_api_client.dart';
+import 'package:flick/services/listenbrainz/listenbrainz_auth_service.dart';
+import 'package:flick/services/listenbrainz/listenbrainz_credentials.dart';
+import 'package:flick/services/listenbrainz/listenbrainz_models.dart';
+import 'package:flick/services/listenbrainz/listenbrainz_scrobble_queue.dart';
+import 'package:flick/services/listenbrainz/listenbrainz_scrobble_service.dart';
 
-part 'lastfm_provider.g.dart';
+part 'listenbrainz_provider.g.dart';
 
 @Riverpod(keepAlive: true)
-LastFmCredentials lastFmCredentials(Ref ref) {
-  return LastFmCredentials();
+ListenBrainzCredentials listenbrainzCredentials(Ref ref) {
+  return ListenBrainzCredentials();
 }
 
 @Riverpod(keepAlive: true)
-LastFmApiClient lastFmApiClient(Ref ref) {
-  final credentials = ref.watch(lastFmCredentialsProvider);
-  return LastFmApiClient(credentials: credentials);
+ListenBrainzApiClient listenbrainzApiClient(Ref ref) {
+  final credentials = ref.watch(listenbrainzCredentialsProvider);
+  return ListenBrainzApiClient(credentials: credentials);
 }
 
 @Riverpod(keepAlive: true)
-LastFmAuthService lastFmAuthService(Ref ref) {
-  final credentials = ref.watch(lastFmCredentialsProvider);
-  final client = ref.watch(lastFmApiClientProvider);
-  return LastFmAuthService(client: client, credentials: credentials);
+ListenBrainzAuthService listenbrainzAuthService(Ref ref) {
+  final credentials = ref.watch(listenbrainzCredentialsProvider);
+  final client = ref.watch(listenbrainzApiClientProvider);
+  return ListenBrainzAuthService(client: client, credentials: credentials);
 }
 
 @Riverpod(keepAlive: true)
-LastFmScrobbleService lastFmScrobbleService(Ref ref) {
-  final auth = ref.watch(lastFmAuthServiceProvider);
-  return LastFmScrobbleService(auth: auth);
+ListenBrainzScrobbleService listenbrainzScrobbleService(Ref ref) {
+  final auth = ref.watch(listenbrainzAuthServiceProvider);
+  return ListenBrainzScrobbleService(auth: auth);
 }
 
 @Riverpod(keepAlive: true)
-LastFmScrobbleQueue lastFmScrobbleQueue(Ref ref) {
-  final service = ref.watch(lastFmScrobbleServiceProvider);
-  return LastFmScrobbleQueue(service: service);
+ListenBrainzScrobbleQueue listenbrainzScrobbleQueue(Ref ref) {
+  final service = ref.watch(listenbrainzScrobbleServiceProvider);
+  return ListenBrainzScrobbleQueue(service: service);
 }
 
-/// Watches the current Last.fm session (null = not connected).
+/// Watches the current ListenBrainz session (null = not connected).
 @riverpod
-Future<LastFmSession?> lastFmSession(Ref ref) async {
-  final auth = ref.watch(lastFmAuthServiceProvider);
+Future<ListenBrainzSession?> listenbrainzSession(Ref ref) async {
+  final auth = ref.watch(listenbrainzAuthServiceProvider);
   return auth.getSession();
 }
 
-/// Handles Last.fm scrobbling lifecycle hooks from playback events.
+/// Handles ListenBrainz scrobbling lifecycle hooks from playback events.
 @Riverpod(keepAlive: true)
-class LastFmScrobbleNotifier extends _$LastFmScrobbleNotifier {
+class ListenBrainzScrobbleNotifier extends _$ListenBrainzScrobbleNotifier {
   DateTime? _playbackStart;
-  ScrobbleEntry? _currentEntry;
+  ListenBrainzListenEntry? _currentEntry;
   bool _hasScrobbledCurrent = false;
 
-  /// Monotonic counter to cancel stale now-playing calls during rapid
+  /// Monotonic counter to cancel stale playing-now calls during rapid
   /// track changes (e.g. gapless transitions).
   int _trackGeneration = 0;
 
@@ -79,19 +78,18 @@ class LastFmScrobbleNotifier extends _$LastFmScrobbleNotifier {
       return;
     }
 
-    _currentEntry = ScrobbleEntry(
-      artist: artist,
-      track: track,
-      album: album,
-      albumArtist: albumArtist,
-      timestamp: _playbackStart!.millisecondsSinceEpoch ~/ 1000,
+    _currentEntry = ListenBrainzListenEntry(
+      artistName: artist,
+      trackName: track,
+      releaseName: album,
+      listenedAt: _playbackStart!.millisecondsSinceEpoch ~/ 1000,
       durationSeconds: durationSeconds,
     );
 
-    // Skip now-playing if a newer onTrackStarted already fired
+    // Skip playing-now if a newer onTrackStarted already fired
     if (gen != _trackGeneration) return;
 
-    final scrobbler = ref.read(lastFmScrobbleServiceProvider);
+    final scrobbler = ref.read(listenbrainzScrobbleServiceProvider);
     await scrobbler.updateNowPlaying(_currentEntry!);
   }
 
@@ -153,35 +151,34 @@ class LastFmScrobbleNotifier extends _$LastFmScrobbleNotifier {
     final start = _playbackStart;
     var entry = _currentEntry;
 
-    // Prefer fresh fallback metadata (from track-end) over potentially stale _currentEntry.
-    // This handles the case where player metadata is corrected between track-start and track-end.
+    // Prefer fresh fallback metadata (from track-end) over potentially stale
+    // _currentEntry. This handles the case where player metadata is corrected
+    // between track-start and track-end.
     if (fallbackArtist != null && fallbackTrack != null) {
-      final timestamp =
-          DateTime.now()
+      final timestamp = DateTime.now()
               .subtract(Duration(seconds: listenedSeconds))
               .millisecondsSinceEpoch ~/
           1000;
-      entry = ScrobbleEntry(
-        artist: fallbackArtist,
-        track: fallbackTrack,
-        album: fallbackAlbum,
-        albumArtist: fallbackAlbumArtist,
-        timestamp: timestamp,
+      entry = ListenBrainzListenEntry(
+        artistName: fallbackArtist,
+        trackName: fallbackTrack,
+        releaseName: fallbackAlbum,
+        listenedAt: timestamp,
         durationSeconds: trackDurationSeconds,
       );
     } else if (entry == null || start == null) {
       return;
     }
 
-    final scrobbler = ref.read(lastFmScrobbleServiceProvider);
-    final queue = ref.read(lastFmScrobbleQueueProvider);
+    final scrobbler = ref.read(listenbrainzScrobbleServiceProvider);
+    final queue = ref.read(listenbrainzScrobbleQueueProvider);
 
     final durationSeconds =
         (trackDurationSeconds != null && trackDurationSeconds > 0)
-        ? trackDurationSeconds
-        : entry.durationSeconds;
+            ? trackDurationSeconds
+            : entry.durationSeconds;
     if (durationSeconds == null || durationSeconds <= 0) {
-      devLog('[LastFm] scrobble skipped: missing or zero duration');
+      devLog('[ListenBrainz] scrobble skipped: missing or zero duration');
       return;
     }
 
@@ -199,7 +196,7 @@ class LastFmScrobbleNotifier extends _$LastFmScrobbleNotifier {
       await queue.flush();
     } catch (e) {
       // Offline or transient failure. Keep queued for later retry.
-      devLog('[LastFm] flush failed: $e');
+      devLog('[ListenBrainz] flush failed: $e');
     }
   }
 

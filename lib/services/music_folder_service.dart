@@ -561,4 +561,15 @@ class MusicFolderService {
       return false;
     }
   }
+
+  static Future<bool> removeFromMediaStore(String filePath) async {
+    try {
+      return await _channel.invokeMethod<bool>('removeFromMediaStore', {
+        'filePath': filePath,
+      }) ?? false;
+    } catch (e) {
+      debugPrint('removeFromMediaStore failed: $e');
+      return false;
+    }
+  }
 }

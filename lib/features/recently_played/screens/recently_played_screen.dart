@@ -14,7 +14,13 @@ import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/display_mode_wrapper.dart';
 import 'package:flick/widgets/common/glass_dialog.dart';
 
-/// Recently Played screen with timeline-style layout.
+/// Number of history entries fetched per page.
+const int _kPageSize = 50;
+
+/// Pixels from the bottom of the list that trigger the next page load.
+const double _kLoadMoreThreshold = 300;
+
+/// Recently Played screen with a grouped list layout and paginated loading.
 class RecentlyPlayedScreen extends StatefulWidget {
   const RecentlyPlayedScreen({super.key});
 
@@ -26,17 +32,23 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
   final PlayerService _playerService = PlayerService();
   final RecentlyPlayedRepository _recentlyPlayedRepository =
       RecentlyPlayedRepository();
+  final ScrollController _scrollController = ScrollController();
 
-  bool _isLoading = true;
+  List<RecentlyPlayedEntry> _entries = [];
   Map<String, List<RecentlyPlayedEntry>> _groupedHistory = {};
+  bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _totalCount = 0;
   StreamSubscription<void>? _historySubscription;
 
   @override
   void initState() {
     super.initState();
-    // Defer data loading to avoid jank during navigation
+    _scrollController.addListener(_onScroll);
+    // Defer data loading to avoid jank during navigation.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _loadHistory();
+      _loadInitialHistory();
       _watchHistory();
     });
   }
@@ -44,36 +56,135 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
   @override
   void dispose() {
     _historySubscription?.cancel();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     super.dispose();
   }
 
   void _watchHistory() {
     _historySubscription = _recentlyPlayedRepository.watchHistory().listen((_) {
-      _loadHistory();
+      _resetPagination();
+      _loadInitialHistory();
     });
   }
 
-  Future<void> _loadHistory() async {
+  Future<void> _loadInitialHistory() async {
     if (!mounted) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _hasMore = true;
+    });
 
     try {
-      final grouped = await _recentlyPlayedRepository.getGroupedHistory();
+      final count = await _recentlyPlayedRepository.getHistoryCount();
+      final entries = await _recentlyPlayedRepository.getRecentHistoryPaginated(
+        offset: 0,
+        limit: _kPageSize,
+      );
       if (mounted) {
         setState(() {
-          _groupedHistory = grouped;
+          _entries = entries;
+          _groupedHistory = _groupEntries(entries);
+          _totalCount = count;
+          _hasMore = entries.length < count;
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
+          _entries = [];
           _groupedHistory = {};
+          _totalCount = 0;
+          _hasMore = false;
           _isLoading = false;
         });
       }
     }
+  }
+
+  Future<void> _loadMoreHistory() async {
+    if (!mounted || _isLoadingMore || !_hasMore) return;
+
+    setState(() => _isLoadingMore = true);
+
+    try {
+      final nextEntries = await _recentlyPlayedRepository
+          .getRecentHistoryPaginated(
+            offset: _entries.length,
+            limit: _kPageSize,
+          );
+      if (mounted) {
+        setState(() {
+          _entries.addAll(nextEntries);
+          _groupedHistory = _groupEntries(_entries);
+          _hasMore = _entries.length < _totalCount;
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
+      }
+    }
+  }
+
+  void _resetPagination() {
+    _entries = [];
+    _groupedHistory = {};
+    _hasMore = true;
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - _kLoadMoreThreshold) {
+      _loadMoreHistory();
+    }
+  }
+
+  Map<String, List<RecentlyPlayedEntry>> _groupEntries(
+    List<RecentlyPlayedEntry> entries,
+  ) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final thisWeekStart = today.subtract(Duration(days: today.weekday - 1));
+    final lastWeekStart = thisWeekStart.subtract(const Duration(days: 7));
+    final thisMonthStart = DateTime(now.year, now.month, 1);
+
+    final grouped = <String, List<RecentlyPlayedEntry>>{};
+
+    for (final entry in entries) {
+      final playedDate = DateTime(
+        entry.playedAt.year,
+        entry.playedAt.month,
+        entry.playedAt.day,
+      );
+
+      final String groupKey;
+      if (playedDate == today) {
+        groupKey = 'Today';
+      } else if (playedDate == yesterday) {
+        groupKey = 'Yesterday';
+      } else if (playedDate.isAfter(thisWeekStart) ||
+          playedDate == thisWeekStart) {
+        groupKey = 'This Week';
+      } else if (playedDate.isAfter(lastWeekStart) ||
+          playedDate == lastWeekStart) {
+        groupKey = 'Last Week';
+      } else if (playedDate.isAfter(thisMonthStart) ||
+          playedDate == thisMonthStart) {
+        groupKey = 'This Month';
+      } else {
+        groupKey = 'Earlier';
+      }
+
+      grouped.putIfAbsent(groupKey, () => []).add(entry);
+    }
+
+    return grouped;
   }
 
   Future<void> _clearHistory() async {
@@ -171,7 +282,7 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
                   ),
                 ),
                 Text(
-                  'Your listening history',
+                  '$_totalCount ${_totalCount == 1 ? 'song' : 'songs'} played',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: context.adaptiveTextTertiary,
                   ),
@@ -281,7 +392,6 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
   }
 
   Widget _buildHistoryList() {
-    // Define the order we want sections to appear
     const sectionOrder = [
       'Today',
       'Yesterday',
@@ -291,7 +401,6 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
       'Earlier',
     ];
 
-    // Sort sections according to our defined order
     final sortedSections = _groupedHistory.entries.toList()
       ..sort((a, b) {
         final aIndex = sectionOrder.indexOf(a.key);
@@ -299,73 +408,37 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
         return aIndex.compareTo(bIndex);
       });
 
+    // Compute how many list items we need, including section headers and
+    // the optional bottom loading indicator.
+    var itemCount = 0;
+    for (final section in sortedSections) {
+      itemCount += 1 + section.value.length;
+    }
+    if (_isLoadingMore) itemCount += 1;
+
     return ListView.builder(
+      controller: _scrollController,
       padding: EdgeInsets.only(
         left: AppConstants.spacingMd,
         right: AppConstants.spacingMd,
         bottom: AppConstants.navBarHeight + 120,
       ),
-      itemCount: sortedSections.length,
-      itemBuilder: (context, sectionIndex) {
-        final section = sortedSections[sectionIndex];
-        return _buildTimeSection(section.key, section.value);
-      },
-    );
-  }
+      itemCount: itemCount,
+      itemBuilder: (context, index) {
+        var currentIndex = 0;
+        for (final section in sortedSections) {
+          if (index == currentIndex) {
+            return _buildSectionHeader(section.key, section.value.length);
+          }
+          currentIndex++;
 
-  Widget _buildTimeSection(String title, List<RecentlyPlayedEntry> entries) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Section header
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppConstants.spacingSm,
-            vertical: AppConstants.spacingMd,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: context.adaptiveTextSecondary,
-                ),
+          if (index < currentIndex + section.value.length) {
+            final entryIndex = index - currentIndex;
+            final entry = section.value[entryIndex];
+            return _RecentlyPlayedTile(
+              key: ValueKey(
+                'recent_${entry.song.id}_${entry.playedAt.millisecondsSinceEpoch}',
               ),
-              const SizedBox(width: AppConstants.spacingSm),
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: context.adaptiveTextSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                '${entries.length} ${entries.length == 1 ? 'song' : 'songs'}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: context.adaptiveTextTertiary,
-                ),
-              ),
-            ],
-          ),
-        ),
-        // 2-column grid
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            childAspectRatio: 0.85,
-            crossAxisSpacing: AppConstants.spacingMd,
-            mainAxisSpacing: AppConstants.spacingMd,
-          ),
-          itemCount: entries.length,
-          itemBuilder: (context, index) {
-            final entry = entries[index];
-            return _RecentlyPlayedCard(
               song: entry.song,
               playedAt: entry.playedAt,
               onTap: () async {
@@ -378,34 +451,95 @@ class _RecentlyPlayedScreenState extends State<RecentlyPlayedScreen> {
                 }
               },
             );
-          },
+          }
+          currentIndex += section.value.length;
+        }
+
+        // Bottom loading indicator
+        if (_isLoadingMore && index == currentIndex) {
+          return _buildLoadMoreIndicator();
+        }
+
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
+  Widget _buildSectionHeader(String title, int count) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppConstants.spacingSm,
+        AppConstants.spacingLg,
+        AppConstants.spacingSm,
+        AppConstants.spacingMd,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: context.adaptiveTextSecondary,
+            ),
+          ),
+          const SizedBox(width: AppConstants.spacingSm),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: context.adaptiveTextSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            '$count ${count == 1 ? 'song' : 'songs'}',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: context.adaptiveTextTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreIndicator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingLg),
+      child: Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.5,
+            color: context.adaptiveTextSecondary,
+          ),
         ),
-        const SizedBox(height: AppConstants.spacingLg),
-      ],
+      ),
     );
   }
 }
 
-class _RecentlyPlayedCard extends StatefulWidget {
+class _RecentlyPlayedTile extends StatefulWidget {
   final Song song;
   final DateTime playedAt;
   final VoidCallback onTap;
 
-  const _RecentlyPlayedCard({
+  const _RecentlyPlayedTile({
+    super.key,
     required this.song,
     required this.playedAt,
     required this.onTap,
   });
 
   @override
-  State<_RecentlyPlayedCard> createState() => _RecentlyPlayedCardState();
+  State<_RecentlyPlayedTile> createState() => _RecentlyPlayedTileState();
 }
 
-class _RecentlyPlayedCardState extends State<_RecentlyPlayedCard>
+class _RecentlyPlayedTileState extends State<_RecentlyPlayedTile>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
-  late Animation<double> _tiltAnimation;
 
   @override
   void initState() {
@@ -416,11 +550,7 @@ class _RecentlyPlayedCardState extends State<_RecentlyPlayedCard>
     );
     _scaleAnimation = Tween<double>(
       begin: 1.0,
-      end: 0.95,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
-    _tiltAnimation = Tween<double>(
-      begin: 0.0,
-      end: 0.02,
+      end: 0.98,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
   }
 
@@ -434,20 +564,32 @@ class _RecentlyPlayedCardState extends State<_RecentlyPlayedCard>
     final now = DateTime.now();
     final diff = now.difference(time);
 
-    if (diff.inMinutes < 60) {
+    if (diff.inMinutes < 1) {
+      return 'Just now';
+    } else if (diff.inMinutes < 60) {
       return '${diff.inMinutes}m ago';
     } else if (diff.inHours < 24) {
       return '${diff.inHours}h ago';
+    } else if (diff.inDays < 7) {
+      return '${diff.inDays}d ago';
     } else {
-      return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+      return '${time.day.toString().padLeft(2, '0')}/'
+          '${time.month.toString().padLeft(2, '0')}/'
+          '${time.year}';
     }
+  }
+
+  String _formatTimestamp(DateTime time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   @override
   Widget build(BuildContext context) {
     final devicePixelRatio = MediaQuery.of(context).devicePixelRatio;
-    final cardWidth = context.scaleSize(AppConstants.cardWidthMd);
-    final artworkTargetWidth = (cardWidth * devicePixelRatio).round();
+    final artSize = context.scaleSize(56);
+    final artworkTargetSize = (artSize * devicePixelRatio).round();
 
     return GestureDetector(
       onTapDown: (_) => _controller.forward(),
@@ -459,73 +601,95 @@ class _RecentlyPlayedCardState extends State<_RecentlyPlayedCard>
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
-          return Transform(
+          return Transform.scale(
+            scale: _scaleAnimation.value,
             alignment: Alignment.center,
-            transform: Matrix4.diagonal3Values(
-              _scaleAnimation.value,
-              _scaleAnimation.value,
-              1.0,
-            )..rotateZ(_tiltAnimation.value),
             child: child,
           );
         },
         child: RepaintBoundary(
-          child: Material(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-            child: InkWell(
-              onTap: widget.onTap,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: AppConstants.spacingSm),
+            child: Material(
+              color: AppColors.surface,
               borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-              child: ClipRRect(
+              child: InkWell(
+                onTap: widget.onTap,
                 borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Album art
-                    Expanded(
-                      child: Container(
-                        width: double.infinity,
-                        decoration: const BoxDecoration(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppConstants.spacingMd),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: artSize,
+                        height: artSize,
+                        decoration: BoxDecoration(
                           color: AppColors.surfaceLight,
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(AppConstants.radiusLg),
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusMd,
                           ),
                         ),
                         child: ClipRRect(
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(AppConstants.radiusLg),
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusMd,
                           ),
                           child: CachedImageWidget(
                             imagePath: widget.song.albumArt,
                             audioSourcePath: widget.song.filePath,
                             fit: BoxFit.cover,
                             useThumbnail: true,
-                            thumbnailWidth: artworkTargetWidth,
-                            thumbnailHeight: artworkTargetWidth,
+                            thumbnailWidth: artworkTargetSize,
+                            thumbnailHeight: artworkTargetSize,
                             placeholder: _buildPlaceholder(context),
                             errorWidget: _buildPlaceholder(context),
                           ),
                         ),
                       ),
-                    ),
-                    // Song info
-                    Padding(
-                      padding: const EdgeInsets.all(AppConstants.spacingSm),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(width: AppConstants.spacingMd),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.song.title,
+                              style: Theme.of(context).textTheme.titleSmall
+                                  ?.copyWith(
+                                    color: context.adaptiveTextPrimary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: AppConstants.spacingXxs),
+                            Text(
+                              widget.song.artist,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: context.adaptiveTextTertiary,
+                                  ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: AppConstants.spacingXs),
+                            Row(
+                              children: [
+                                _MetadataChip(text: widget.song.fileType),
+                                if (widget.song.resolution != null &&
+                                    widget.song.resolution != 'Unknown') ...[
+                                  const SizedBox(width: AppConstants.spacingXs),
+                                  _MetadataChip(text: widget.song.resolution!),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: AppConstants.spacingSm),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Text(
-                            widget.song.title,
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(
-                                  color: context.adaptiveTextPrimary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
                           Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
                                 LucideIcons.clock,
@@ -535,23 +699,26 @@ class _RecentlyPlayedCardState extends State<_RecentlyPlayedCard>
                                 color: context.adaptiveTextTertiary,
                               ),
                               const SizedBox(width: 4),
-                              Expanded(
-                                child: Text(
-                                  _formatTime(widget.playedAt),
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
-                                        color: context.adaptiveTextTertiary,
-                                      ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                              Text(
+                                _formatTime(widget.playedAt),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: context.adaptiveTextSecondary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                               ),
                             ],
                           ),
+                          const SizedBox(height: AppConstants.spacingXxs),
+                          Text(
+                            _formatTimestamp(widget.playedAt),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: context.adaptiveTextTertiary),
+                          ),
                         ],
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -565,8 +732,37 @@ class _RecentlyPlayedCardState extends State<_RecentlyPlayedCard>
     return Center(
       child: Icon(
         LucideIcons.music,
-        size: context.responsiveIcon(AppConstants.containerSizeSm),
+        size: context.responsiveIcon(AppConstants.iconSizeLg),
         color: context.adaptiveTextTertiary.withValues(alpha: 0.5),
+      ),
+    );
+  }
+}
+
+class _MetadataChip extends StatelessWidget {
+  final String text;
+
+  const _MetadataChip({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppConstants.spacingXs,
+        vertical: 2,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.glassBackground,
+        borderRadius: BorderRadius.circular(AppConstants.radiusXs),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: Text(
+        text,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          fontSize: AppConstants.fontSizeXs,
+          color: context.adaptiveTextTertiary,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }

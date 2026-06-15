@@ -27,6 +27,7 @@ import 'package:flick/widgets/common/display_mode_wrapper.dart';
 import 'package:flick/widgets/common/cached_image_widget.dart';
 import 'package:flick/widgets/common/glass_bottom_sheet.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flick/core/utils/dev_log.dart';
 
 /// Main songs screen with orbital scrolling.
 class SongsScreen extends ConsumerStatefulWidget {
@@ -1147,7 +1148,7 @@ void _openFolderDetail(FolderGroup folder) {
       try {
         await ref.read(favoritesServiceProvider).addFavorite(song.id);
       } catch (error, stackTrace) {
-        debugPrint('Failed to add favorite for ${song.id}: $error');
+        devLog('Failed to add favorite for ${song.id}: $error');
         debugPrintStack(stackTrace: stackTrace);
         if (!mounted) return;
         _showSongActionSnackBar('Failed to add "${song.title}" to favorites');

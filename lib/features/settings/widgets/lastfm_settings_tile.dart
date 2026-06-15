@@ -8,6 +8,7 @@ import 'package:flick/core/theme/adaptive_color_provider.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/utils/responsive.dart';
 import 'package:flick/providers/lastfm_provider.dart';
+import 'package:flick/core/utils/dev_log.dart';
 
 /// Self-contained Last.fm connect/disconnect tile.
 class LastFmSettingsTile extends ConsumerStatefulWidget {
@@ -35,25 +36,25 @@ class _LastFmSettingsTileState extends ConsumerState<LastFmSettingsTile>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    debugPrint('[LastFm] App lifecycle changed: $state, _awaitingCallback=$_awaitingCallback');
+    devLog('[LastFm] App lifecycle changed: $state, _awaitingCallback=$_awaitingCallback');
     if (state == AppLifecycleState.resumed && _awaitingCallback) {
-      debugPrint('[LastFm] App resumed after auth, completing authentication');
+      devLog('[LastFm] App resumed after auth, completing authentication');
       _awaitingCallback = false;
       _completeAuth();
     }
   }
 
   Future<void> _startAuth() async {
-    debugPrint('[LastFm] _startAuth: Starting authentication flow');
+    devLog('[LastFm] _startAuth: Starting authentication flow');
     final auth = ref.read(lastFmAuthServiceProvider);
 
     // Check if API credentials are configured
-    debugPrint('[LastFm] _startAuth: Checking API credentials');
+    devLog('[LastFm] _startAuth: Checking API credentials');
     final hasCredentials = await auth.hasValidApiCredentials();
-    debugPrint('[LastFm] _startAuth: Has valid credentials: $hasCredentials');
+    devLog('[LastFm] _startAuth: Has valid credentials: $hasCredentials');
     
     if (!hasCredentials) {
-      debugPrint('[LastFm] _startAuth: Missing credentials, showing error');
+      devLog('[LastFm] _startAuth: Missing credentials, showing error');
       _showError(
         'Please configure your Last.fm API key and shared secret first.',
       );
@@ -61,17 +62,17 @@ class _LastFmSettingsTileState extends ConsumerState<LastFmSettingsTile>
     }
 
     try {
-      debugPrint('[LastFm] _startAuth: Calling getTokenAndLaunchAuth');
+      devLog('[LastFm] _startAuth: Calling getTokenAndLaunchAuth');
       await auth.getTokenAndLaunchAuth();
-      debugPrint('[LastFm] _startAuth: Successfully launched auth, mounted=$mounted');
+      devLog('[LastFm] _startAuth: Successfully launched auth, mounted=$mounted');
       
       if (mounted) {
         setState(() => _awaitingCallback = true);
-        debugPrint('[LastFm] _startAuth: Set _awaitingCallback=true');
+        devLog('[LastFm] _startAuth: Set _awaitingCallback=true');
       }
     } catch (e, stackTrace) {
-      debugPrint('[LastFm] _startAuth: ERROR - $e');
-      debugPrint('[LastFm] _startAuth: Stack trace: $stackTrace');
+      devLog('[LastFm] _startAuth: ERROR - $e');
+      devLog('[LastFm] _startAuth: Stack trace: $stackTrace');
       
       if (mounted) {
         // Provide more specific error message for network issues
@@ -82,22 +83,22 @@ class _LastFmSettingsTileState extends ConsumerState<LastFmSettingsTile>
         
         _showError(errorMessage);
       } else {
-        debugPrint('[LastFm] _startAuth: Widget not mounted, skipping error display');
+        devLog('[LastFm] _startAuth: Widget not mounted, skipping error display');
       }
     }
   }
 
   Future<void> _completeAuth() async {
-    debugPrint('[LastFm] _completeAuth: Starting token exchange');
+    devLog('[LastFm] _completeAuth: Starting token exchange');
     final auth = ref.read(lastFmAuthServiceProvider);
     try {
       await auth.exchangeTokenForSession();
-      debugPrint('[LastFm] _completeAuth: Token exchange successful');
+      devLog('[LastFm] _completeAuth: Token exchange successful');
       ref.invalidate(lastFmSessionProvider);
       _showSuccess('Last.fm connected!');
     } catch (e, stackTrace) {
-      debugPrint('[LastFm] _completeAuth: ERROR - $e');
-      debugPrint('[LastFm] _completeAuth: Stack trace: $stackTrace');
+      devLog('[LastFm] _completeAuth: ERROR - $e');
+      devLog('[LastFm] _completeAuth: Stack trace: $stackTrace');
       _showError(
         'Authorization failed. Make sure you approved access on Last.fm.',
       );
@@ -594,45 +595,45 @@ class _LastFmSettingsTileState extends ConsumerState<LastFmSettingsTile>
                             flex: 2,
                             child: ElevatedButton(
                               onPressed: () async {
-                                debugPrint('[LastFm] Save & Connect button pressed');
+                                devLog('[LastFm] Save & Connect button pressed');
                                 
                                 if (apiKeyController.text.isEmpty ||
                                     sharedSecretController.text.isEmpty) {
-                                  debugPrint('[LastFm] Empty credentials provided');
+                                  devLog('[LastFm] Empty credentials provided');
                                   _showError(
                                     'Please enter both API key and shared secret',
                                   );
                                   return;
                                 }
                                 
-                                debugPrint('[LastFm] Saving credentials...');
+                                devLog('[LastFm] Saving credentials...');
                                 await auth.setApiCredentials(
                                   apiKeyController.text,
                                   sharedSecretController.text,
                                 );
-                                debugPrint('[LastFm] Credentials saved, mounted=$mounted');
+                                devLog('[LastFm] Credentials saved, mounted=$mounted');
                                 
                                 if (mounted) {
                                   Navigator.pop(ctx);
-                                  debugPrint('[LastFm] Dialog closed');
+                                  devLog('[LastFm] Dialog closed');
                                   
                                   _showSuccess(
                                     'Credentials saved successfully!',
                                   );
                                   
                                   if (autoConnectAfterSave && mounted) {
-                                    debugPrint('[LastFm] Auto-connect enabled, waiting 300ms...');
+                                    devLog('[LastFm] Auto-connect enabled, waiting 300ms...');
                                     // Small delay to ensure dialog is fully closed
                                     await Future.delayed(
                                       const Duration(milliseconds: 300),
                                     );
-                                    debugPrint('[LastFm] Delay complete, mounted=$mounted');
+                                    devLog('[LastFm] Delay complete, mounted=$mounted');
                                     
                                     if (mounted) {
-                                      debugPrint('[LastFm] Calling _startAuth()');
+                                      devLog('[LastFm] Calling _startAuth()');
                                       await _startAuth();
                                     } else {
-                                      debugPrint('[LastFm] Widget unmounted, skipping auth');
+                                      devLog('[LastFm] Widget unmounted, skipping auth');
                                     }
                                   }
                                 }

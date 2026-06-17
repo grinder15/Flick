@@ -291,26 +291,30 @@ class _ManualSectionCardState extends State<_ManualSectionCard> {
               ),
             ),
           ),
-          AnimatedCrossFade(
+          AnimatedSize(
             duration: AppConstants.animationNormal,
-            crossFadeState: _expanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            firstChild: const SizedBox.shrink(),
-            secondChild: Padding(
-              padding: const EdgeInsets.only(
-                left: AppConstants.spacingLg,
-                right: AppConstants.spacingLg,
-                bottom: AppConstants.spacingMd,
-              ),
-              child: Column(
-                children: [
-                  for (final entry in widget.section.entries) ...[
-                    _ManualEntryCard(entry: entry),
-                    const SizedBox(height: AppConstants.spacingSm),
-                  ],
-                ],
-              ),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: AnimatedOpacity(
+              duration: AppConstants.animationNormal,
+              opacity: _expanded ? 1.0 : 0.0,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.only(
+                        left: AppConstants.spacingLg,
+                        right: AppConstants.spacingLg,
+                        bottom: AppConstants.spacingMd,
+                      ),
+                      child: Column(
+                        children: [
+                          for (final entry in widget.section.entries) ...[
+                            _ManualEntryCard(entry: entry),
+                            const SizedBox(height: AppConstants.spacingSm),
+                          ],
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ),
         ],

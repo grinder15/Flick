@@ -56,7 +56,6 @@ class RustAudioService {
   bool _highResModeEnabled = false;
   String? _currentPath;
   String? _nextPath;
-  bool _crossfadeActive = false;
 
   /// Check if native audio engine is available on this platform.
   bool get isNativeAvailable => rust_audio.audioIsNativeAvailable();
@@ -272,7 +271,6 @@ class RustAudioService {
     _stopProgressUpdates();
     _currentPath = null;
     _nextPath = null;
-    _crossfadeActive = false;
   }
 
   /// Seek to a position in seconds.
@@ -506,20 +504,17 @@ class RustAudioService {
           }
         },
         trackEnded: (path) {
-          if (_crossfadeActive) {
-            _crossfadeActive = false;
-          } else if (_nextPath != null) {
+          // Track finished, next track should auto-start if queued
+          if (_nextPath != null) {
             _currentPath = _nextPath;
             _nextPath = null;
           } else {
+            // Update from Rust engine to ensure sync
             _currentPath = rust_audio.audioGetCurrentPath();
           }
           onTrackEnded?.call(path);
         },
         crossfadeStarted: (fromPath, toPath) {
-          _currentPath = toPath;
-          _nextPath = null;
-          _crossfadeActive = true;
           onCrossfadeStarted?.call(fromPath, toPath);
         },
         error: (message) {

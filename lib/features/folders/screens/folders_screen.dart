@@ -79,6 +79,7 @@ class _FolderTreeNode {
   final String name;
   final List<Song> songs;
   final List<_FolderTreeNode> children;
+  final int songCount;
 
   const _FolderTreeNode({
     required this.folderUri,
@@ -86,6 +87,7 @@ class _FolderTreeNode {
     required this.name,
     required this.songs,
     required this.children,
+    required this.songCount,
   });
 
   List<Song> get allSongs {
@@ -427,6 +429,27 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
   Widget _buildFoldersTree() {
     final songsAsync = ref.watch(songsProvider);
     final allSongs = songsAsync.value?.songs ?? const [];
+    final roots = _resolveTree(allSongs);
+
+    return _FolderTreeView(
+      roots: roots,
+      onFolderTap: (node) => _openTreeFolder(node),
+      onSongTap: (node, song) => _playTreeSong(node, song),
+    );
+  }
+
+  List<_FolderTreeNode>? _treeRoots;
+  List<MusicFolder>? _treeRootsForFolders;
+  Object? _treeRootsSongsId;
+  int _treeRootsSongsLen = -1;
+
+  List<_FolderTreeNode> _resolveTree(List<Song> allSongs) {
+    if (_treeRoots != null &&
+        identical(_treeRootsForFolders, _folders) &&
+        identical(_treeRootsSongsId, allSongs) &&
+        _treeRootsSongsLen == allSongs.length) {
+      return _treeRoots!;
+    }
 
     final roots = <_FolderTreeNode>[];
     for (final folder in _folders) {
@@ -440,17 +463,17 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
         case FolderRootSortOption.name:
           return a.name.compareTo(b.name);
         case FolderRootSortOption.songCount:
-          final countCompare = b.allSongs.length.compareTo(a.allSongs.length);
+          final countCompare = b.songCount.compareTo(a.songCount);
           if (countCompare != 0) return countCompare;
           return a.name.compareTo(b.name);
       }
     });
 
-    return _FolderTreeView(
-      roots: roots,
-      onFolderTap: (node) => _openTreeFolder(node),
-      onSongTap: (node, song) => _playTreeSong(node, song),
-    );
+    _treeRoots = roots;
+    _treeRootsForFolders = _folders;
+    _treeRootsSongsId = allSongs;
+    _treeRootsSongsLen = allSongs.length;
+    return roots;
   }
 
   _FolderTreeNode _buildTreeNode(
@@ -467,8 +490,11 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
 
     final children = grouped.subfolders.map((sub) {
       final childName = decodeUriDisplayComponent(sub.key.split('/').last);
-      return _buildTreeNode(folderUri, sub.key, childName, folderSongs);
+      return _buildTreeNode(folderUri, sub.key, childName, sub.songs);
     }).toList();
+
+    final childSongCount =
+        children.fold<int>(0, (sum, node) => sum + node.songCount);
 
     return _FolderTreeNode(
       folderUri: folderUri,
@@ -476,6 +502,7 @@ class _FoldersScreenState extends ConsumerState<FoldersScreen> {
       name: name,
       songs: grouped.songs,
       children: children,
+      songCount: grouped.songs.length + childSongCount,
     );
   }
 
@@ -1630,7 +1657,13 @@ class _FolderTreeView extends StatefulWidget {
 class _FolderTreeViewState extends State<_FolderTreeView> {
   final Set<String> _expandedKeys = {};
 
+  static const double _indentStep = 20.0;
+  static const double _guideOffset = 10.0;
+
   String _nodeKey(_FolderTreeNode node) => '${node.folderUri}::${node.key}';
+
+  Color _guideColor(BuildContext context) =>
+      context.adaptiveTextTertiary.withValues(alpha: 0.25);
 
   void _toggleNode(_FolderTreeNode node) {
     final key = _nodeKey(node);
@@ -1647,13 +1680,22 @@ class _FolderTreeViewState extends State<_FolderTreeView> {
   Widget build(BuildContext context) {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(
-        AppConstants.spacingLg,
+        AppConstants.spacingMd,
         0,
-        AppConstants.spacingLg,
+        AppConstants.spacingMd,
         AppConstants.navBarHeight + 120,
       ),
       itemCount: widget.roots.length,
-      itemBuilder: (context, index) => _buildNode(widget.roots[index], 0),
+      itemBuilder: (context, index) {
+        final node = widget.roots[index];
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom:
+                index == widget.roots.length - 1 ? 0 : AppConstants.spacingSm,
+          ),
+          child: _buildNode(node, 0),
+        );
+      },
     );
   }
 
@@ -1661,49 +1703,141 @@ class _FolderTreeViewState extends State<_FolderTreeView> {
     final key = _nodeKey(node);
     final isExpanded = _expandedKeys.contains(key);
     final hasChildren = node.children.isNotEmpty || node.songs.isNotEmpty;
-    final indent = depth * 16.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Material(
+        _FolderTreeRow(
+          node: node,
+          depth: depth,
+          isExpanded: isExpanded,
+          hasChildren: hasChildren,
+          step: _indentStep,
+          offset: _guideOffset,
+          guideColor: _guideColor(context),
+          onToggle: hasChildren ? () => _toggleNode(node) : null,
+          onOpen: () => widget.onFolderTap(node),
+        ),
+        AnimatedSize(
+          duration: AppConstants.animationNormal,
+          curve: Curves.easeInOut,
+          alignment: Alignment.topLeft,
+          child: isExpanded
+              ? _TreeLevelLine(
+                  x: depth * _indentStep + _guideOffset,
+                  color: _guideColor(context),
+                  child: _buildChildrenColumn(node, depth),
+                )
+              : const SizedBox(width: double.infinity, height: 0),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChildrenColumn(_FolderTreeNode node, int depth) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final child in node.children) _buildNode(child, depth + 1),
+        for (final song in node.songs)
+          _FolderTreeSongTile(
+            song: song,
+            depth: depth + 1,
+            step: _indentStep,
+            offset: _guideOffset,
+            color: _guideColor(context),
+            onTap: () => widget.onSongTap(node, song),
+          ),
+      ],
+    );
+  }
+}
+
+/// A folder row in the tree: glass container with an animated expand chevron,
+/// a folder icon that opens when expanded, and a horizontal tick that connects
+/// it to its parent's guide line.
+class _FolderTreeRow extends StatelessWidget {
+  final _FolderTreeNode node;
+  final int depth;
+  final bool isExpanded;
+  final bool hasChildren;
+  final double step;
+  final double offset;
+  final Color guideColor;
+  final VoidCallback? onToggle;
+  final VoidCallback onOpen;
+
+  const _FolderTreeRow({
+    required this.node,
+    required this.depth,
+    required this.isExpanded,
+    required this.hasChildren,
+    required this.step,
+    required this.offset,
+    required this.guideColor,
+    required this.onToggle,
+    required this.onOpen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: depth > 0
+          ? _TreeTickPainter(
+              (depth - 1) * step + offset,
+              depth * step,
+              guideColor,
+            )
+          : null,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: depth * step,
+          top: AppConstants.spacingXxs,
+          bottom: AppConstants.spacingXxs,
+        ),
+        child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-            onTap: () => widget.onFolderTap(node),
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: indent + AppConstants.spacingSm,
-                right: AppConstants.spacingSm,
+            borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+            onTap: onOpen,
+            child: AnimatedContainer(
+              duration: AppConstants.animationFast,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.spacingSm,
+                vertical: AppConstants.spacingXs,
+              ),
+              decoration: BoxDecoration(
+                color: isExpanded
+                    ? AppColors.glassBackgroundStrong
+                    : AppColors.glassBackground,
+                borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                border: Border.all(
+                  color: isExpanded
+                      ? AppColors.glassBorderStrong
+                      : AppColors.glassBorder,
+                ),
               ),
               child: Row(
                 children: [
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    icon: Icon(
-                      hasChildren
-                          ? (isExpanded
-                              ? LucideIcons.chevronDown
-                              : LucideIcons.chevronRight)
-                          : LucideIcons.minus,
-                      color: context.adaptiveTextTertiary,
-                      size: 18,
-                    ),
-                    onPressed:
-                        hasChildren ? () => _toggleNode(node) : null,
-                  ),
+                  _buildChevron(context),
+                  const SizedBox(width: AppConstants.spacingXs),
                   Icon(
-                    LucideIcons.folder,
-                    color: context.adaptiveTextSecondary,
-                    size: 20,
+                    isExpanded ? LucideIcons.folderOpen : LucideIcons.folder,
+                    size: 18,
+                    color: isExpanded
+                        ? context.adaptiveTextPrimary
+                        : context.adaptiveTextSecondary,
                   ),
                   const SizedBox(width: AppConstants.spacingSm),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
                           node.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context)
                               .textTheme
                               .bodyLarge
@@ -1711,61 +1845,202 @@ class _FolderTreeViewState extends State<_FolderTreeView> {
                                 color: context.adaptiveTextPrimary,
                                 fontWeight: FontWeight.w600,
                               ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          _subtitle,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          '${node.allSongs.length} songs',
                           style: Theme.of(context)
                               .textTheme
                               .bodySmall
                               ?.copyWith(
                                 color: context.adaptiveTextTertiary,
                               ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
+                  if (node.children.isNotEmpty) _buildCountBadge(context),
                 ],
               ),
             ),
           ),
         ),
-        if (isExpanded) ...[
-          for (final child in node.children) _buildNode(child, depth + 1),
-          for (final song in node.songs)
-            _FolderTreeSongTile(
-              song: song,
-              depth: depth + 1,
-              onTap: () => widget.onSongTap(node, song),
+      ),
+    );
+  }
+
+  String get _subtitle {
+    if (node.children.isNotEmpty) {
+      final count = node.children.length;
+      return '$count ${count == 1 ? 'subfolder' : 'subfolders'}';
+    }
+    if (node.songs.isNotEmpty) {
+      final count = node.songs.length;
+      return '$count ${count == 1 ? 'song' : 'songs'}';
+    }
+    return 'Empty';
+  }
+
+  Widget _buildChevron(BuildContext context) {
+    if (!hasChildren) {
+      return SizedBox(
+        width: 24,
+        height: 24,
+        child: Center(
+          child: Container(
+            width: 4,
+            height: 4,
+            decoration: BoxDecoration(
+              color: context.adaptiveTextTertiary.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
             ),
-        ],
-      ],
+          ),
+        ),
+      );
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onToggle,
+      child: SizedBox(
+        width: 24,
+        height: 24,
+        child: Center(
+          child: AnimatedRotation(
+            turns: isExpanded ? 0.25 : 0.0,
+            duration: AppConstants.animationFast,
+            child: Icon(
+              LucideIcons.chevronRight,
+              size: 18,
+              color: context.adaptiveTextSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCountBadge(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.glassBackgroundStrong,
+        borderRadius: BorderRadius.circular(AppConstants.radiusRound),
+        border: Border.all(color: AppColors.glassBorder),
+      ),
+      child: Text(
+        '${node.songCount}',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: context.adaptiveTextSecondary,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
     );
   }
 }
 
+/// A song leaf in the tree, indented and tick-connected to its parent's line.
 class _FolderTreeSongTile extends StatelessWidget {
   final Song song;
   final int depth;
+  final double step;
+  final double offset;
+  final Color color;
   final VoidCallback onTap;
 
   const _FolderTreeSongTile({
     required this.song,
     required this.depth,
+    required this.step,
+    required this.offset,
+    required this.color,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final indent = depth * 16.0 + AppConstants.spacingLg + 18;
-    return Padding(
-      padding: EdgeInsets.only(left: indent),
-      child: _SongTile(song: song, onTap: onTap),
+    return CustomPaint(
+      painter: _TreeTickPainter(
+        (depth - 1) * step + offset,
+        depth * step,
+        color,
+      ),
+      child: Padding(
+        padding: EdgeInsets.only(left: depth * step),
+        child: _SongTile(song: song, onTap: onTap),
+      ),
     );
   }
+}
+
+/// Draws a single vertical guide line at [x] spanning its child's height.
+class _TreeLevelLine extends StatelessWidget {
+  final double x;
+  final Color color;
+  final Widget child;
+
+  const _TreeLevelLine({
+    required this.x,
+    required this.color,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _VerticalLinePainter(x, color),
+      child: child,
+    );
+  }
+}
+
+class _VerticalLinePainter extends CustomPainter {
+  final double x;
+  final Color color;
+
+  _VerticalLinePainter(this.x, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawLine(
+      Offset(x, 0),
+      Offset(x, size.height),
+      Paint()
+        ..color = color
+        ..strokeWidth = 1.0,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_VerticalLinePainter old) => true;
+}
+
+/// Draws a horizontal tick from [fromX] to [toX] at vertical center.
+class _TreeTickPainter extends CustomPainter {
+  final double fromX;
+  final double toX;
+  final Color color;
+
+  _TreeTickPainter(this.fromX, this.toX, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height / 2;
+    canvas.drawLine(
+      Offset(fromX, y),
+      Offset(toX, y),
+      Paint()
+        ..color = color
+        ..strokeWidth = 1.0,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_TreeTickPainter old) =>
+      old.fromX != fromX || old.toX != toX || old.color != color;
 }
 
 class _FolderRootSortSheet extends StatefulWidget {

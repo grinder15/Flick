@@ -344,6 +344,7 @@ class PlayerService {
   bool _rustListenersAttached = false;
   bool _audioSessionConfigured = false;
   bool _wasPlayingBeforeAudioInterruption = false;
+  bool _crossfadeAdvancePending = false;
   VoidCallback? _rustStateListener;
   VoidCallback? _rustPositionListener;
   VoidCallback? _rustDurationListener;
@@ -2077,6 +2078,8 @@ class PlayerService {
     };
     _rustAudioService.onCrossfadeStarted = (fromPath, toPath) {
       _debugLog('[crossfade] ENGINE TRIGGERED: $fromPath -> $toPath');
+      _crossfadeAdvancePending = true;
+      unawaited(_onCrossfadeStarted(fromPath, toPath));
     };
     _rustAudioService.onError = (message) {
       _debugLog('[PlayerService] Rust backend error: $message');
@@ -2299,6 +2302,12 @@ class PlayerService {
       '_onSongFinished: loopMode=${loopModeNotifier.value}, currentIndex=$_currentIndex, playlistLength=${_playlist.length}, usingRustBackend=$_usingRustBackend, endedPath=$endedPath',
     );
 
+    if (_crossfadeAdvancePending) {
+      _crossfadeAdvancePending = false;
+      _debugLog('_onSongFinished: crossfade advance already handled');
+      return;
+    }
+
     if (_isGaplessActive || _isCrossfadeActive) {
       await _handleGaplessTrackEnded();
       return;
@@ -2328,6 +2337,43 @@ class PlayerService {
     } else {
       _debugLog('_onSongFinished: Calling next()');
       await _nextInternal();
+    }
+  }
+
+  Future<void> _onCrossfadeStarted(String fromPath, String toPath) async {
+    if (_playlist.isEmpty) return;
+
+    if (loopModeNotifier.value == LoopMode.stopAfterCurrent) {
+      return;
+    }
+
+    if (_currentIndex < _playlist.length - 1) {
+      _setCurrentIndex(_currentIndex + 1);
+    } else if (shuffleModeNotifier.value == ShuffleMode.songsAndCategories ||
+        shuffleModeNotifier.value == ShuffleMode.categories) {
+      await _advanceToRandomCategory();
+      return;
+    } else if (loopModeNotifier.value == LoopMode.all) {
+      _setCurrentIndex(0);
+    } else if (loopModeNotifier.value.isAdvanceMode) {
+      await _advanceForMode(loopModeNotifier.value);
+      return;
+    } else {
+      return;
+    }
+
+    final currentSong = _songAtCurrentIndex();
+    if (currentSong != null) {
+      currentSongNotifier.value = currentSong;
+      _playbackManager.updateTrack(currentSong);
+    }
+    _consumeQueueEntryAt(_currentIndex);
+    _updatePriorityAnchor();
+
+    unawaited(_queueNextTrackForGapless());
+
+    if (isPlayingNotifier.value && currentSong != null) {
+      _updateNotificationState();
     }
   }
 

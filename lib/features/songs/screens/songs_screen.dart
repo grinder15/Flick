@@ -18,6 +18,7 @@ import 'package:flick/features/songs/widgets/orbit_scroll.dart';
 import 'package:flick/features/songs/widgets/song_fast_index_overlay.dart';
 import 'package:flick/features/songs/widgets/song_actions_bottom_sheet.dart';
 import 'package:flick/features/songs/widgets/sort_filter_bottom_sheet.dart';
+import 'package:flick/features/onboarding/tutorial_targets.dart';
 import 'package:flick/data/repositories/song_repository.dart';
 import 'package:flick/features/albums/screens/album_detail_screen.dart';
 import 'package:flick/providers/providers.dart';
@@ -164,43 +165,46 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
                     padding: const EdgeInsets.symmetric(
                       horizontal: AppConstants.spacingLg,
                     ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            AppColors.surfaceLight.withValues(alpha: 0.75),
-                            AppColors.surface.withValues(alpha: 0.85),
+                    child: TutorialTargetAnchor(
+                      target: TutorialTarget.songsSearchBar,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              AppColors.surfaceLight.withValues(alpha: 0.75),
+                              AppColors.surface.withValues(alpha: 0.85),
+                            ],
+                          ),
+                          borderRadius: BorderRadius.circular(
+                            AppConstants.radiusXl,
+                          ),
+                          border: Border.all(
+                            color: AppColors.glassBorder,
+                            width: 1,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 16,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 4),
+                            ),
                           ],
                         ),
-                        borderRadius: BorderRadius.circular(
-                          AppConstants.radiusXl,
+                        child: GlassSearchBar(
+                          controller: _searchController,
+                          hintText: 'Search songs, artists...',
+                          showBackground: false,
+                          onChanged: (value) {
+                            setState(() {
+                              _searchQuery = value.toLowerCase();
+                              _selectedIndex = 0;
+                              _lastSyncedSong = null;
+                            });
+                          },
                         ),
-                        border: Border.all(
-                          color: AppColors.glassBorder,
-                          width: 1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 16,
-                            spreadRadius: 1,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: GlassSearchBar(
-                        controller: _searchController,
-                        hintText: 'Search songs, artists...',
-                        showBackground: false,
-                        onChanged: (value) {
-                          setState(() {
-                            _searchQuery = value.toLowerCase();
-                            _selectedIndex = 0;
-                            _lastSyncedSong = null;
-                          });
-                        },
                       ),
                     ),
                   ),
@@ -1382,55 +1386,61 @@ class _SongsScreenState extends ConsumerState<SongsScreen>
                 onTap: () => _shufflePlayFromLibrary(songsAsync),
               ),
               const SizedBox(width: AppConstants.spacingSm),
-              Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      AppColors.surfaceLight.withValues(alpha: 0.75),
-                      AppColors.surface.withValues(alpha: 0.85),
+              TutorialTargetAnchor(
+                target: TutorialTarget.songsSortButton,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        AppColors.surfaceLight.withValues(alpha: 0.75),
+                        AppColors.surface.withValues(alpha: 0.85),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(AppConstants.radiusMd),
+                    border:
+                        Border.all(color: AppColors.glassBorder, width: 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        blurRadius: 12,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 2),
+                      ),
                     ],
                   ),
-                  borderRadius: BorderRadius.circular(AppConstants.radiusMd),
-                  border: Border.all(color: AppColors.glassBorder, width: 1),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 12,
-                      spreadRadius: 1,
-                      offset: const Offset(0, 2),
+                  child: IconButton(
+                    onPressed: () {
+                      SortFilterBottomSheet.show(
+                        context,
+                        currentSort: currentSort,
+                        currentFilter: currentFilter,
+                        onSortChanged: (option) {
+                          ref
+                              .read(songsProvider.notifier)
+                              .setSortOption(option);
+                          setState(() {
+                            _selectedIndex = 0;
+                            _lastSyncedSong = null;
+                          });
+                        },
+                        onFilterChanged: (filter) {
+                          ref
+                              .read(songsProvider.notifier)
+                              .setFileTypeFilter(filter);
+                          setState(() {
+                            _selectedIndex = 0;
+                            _lastSyncedSong = null;
+                          });
+                        },
+                      );
+                    },
+                    icon: Icon(
+                      Icons.sort_rounded,
+                      color: context.adaptiveTextSecondary,
+                      size: context.responsiveIcon(AppConstants.iconSizeMd),
                     ),
-                  ],
-                ),
-                child: IconButton(
-                  onPressed: () {
-                    SortFilterBottomSheet.show(
-                      context,
-                      currentSort: currentSort,
-                      currentFilter: currentFilter,
-                      onSortChanged: (option) {
-                        ref.read(songsProvider.notifier).setSortOption(option);
-                        setState(() {
-                          _selectedIndex = 0;
-                          _lastSyncedSong = null;
-                        });
-                      },
-                      onFilterChanged: (filter) {
-                        ref
-                            .read(songsProvider.notifier)
-                            .setFileTypeFilter(filter);
-                        setState(() {
-                          _selectedIndex = 0;
-                          _lastSyncedSong = null;
-                        });
-                      },
-                    );
-                  },
-                  icon: Icon(
-                    Icons.sort_rounded,
-                    color: context.adaptiveTextSecondary,
-                    size: context.responsiveIcon(AppConstants.iconSizeMd),
                   ),
                 ),
               ),

@@ -51,7 +51,7 @@ class _TabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const tabs = ['Mini Player', '2×2 Flagship'];
+        const tabs = ['Mini Player', '4×3 Flagship'];
     return Row(
       children: List.generate(tabs.length * 2 - 1, (i) {
         if (i.isOdd) {
@@ -242,39 +242,88 @@ class _MiniPlayerTab extends ConsumerWidget {
   }
 }
 
-class _FlagshipTab extends StatelessWidget {
+class _FlagshipTab extends ConsumerWidget {
   const _FlagshipTab();
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingXxl),
-        child: Column(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(appPreferencesProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SettingsSectionHeader('Content'),
+        SettingsCard(
           children: [
-            Icon(
-              LucideIcons.layoutGrid,
-              size: 48,
-              color: context.adaptiveTextTertiary,
-            ),
-            const SizedBox(height: AppConstants.spacingLg),
-            Text(
-              '2×2 Flagship Widget',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: context.adaptiveTextPrimary,
-                  ),
-            ),
-            const SizedBox(height: AppConstants.spacingSm),
-            Text(
-              'Coming soon — a bigger widget with album art\nand transport controls.',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: context.adaptiveTextTertiary,
-                  ),
+            ToggleSetting(
+              icon: LucideIcons.mic,
+              title: 'Artist Name',
+              subtitle: 'Show artist below song title',
+              value: prefs.widgetFlagshipShowArtist,
+              onChanged: (v) {
+                ref
+                    .read(appPreferencesProvider.notifier)
+                    .setWidgetFlagshipShowArtist(v);
+                WidgetSyncService.instance.pushCustomization(prefs.copyWith(
+                  widgetFlagshipShowArtist: v,
+                ));
+              },
             ),
           ],
         ),
-      ),
+        const SizedBox(height: AppConstants.spacingLg),
+        const SettingsSectionHeader('Accent Color'),
+        SettingsCard(
+          children: [
+            _AccentOption(
+              label: 'White',
+              color: Colors.white,
+              value: 'white',
+              groupValue: prefs.widgetFlagshipAccent,
+              onChanged: (v) => _updateFlagshipAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Amber',
+              color: const Color(0xFFFFB300),
+              value: 'amber',
+              groupValue: prefs.widgetFlagshipAccent,
+              onChanged: (v) => _updateFlagshipAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Blue',
+              color: const Color(0xFF64B5F6),
+              value: 'blue',
+              groupValue: prefs.widgetFlagshipAccent,
+              onChanged: (v) => _updateFlagshipAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Green',
+              color: const Color(0xFF81C784),
+              value: 'green',
+              groupValue: prefs.widgetFlagshipAccent,
+              onChanged: (v) => _updateFlagshipAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Purple',
+              color: const Color(0xFFCE93D8),
+              value: 'purple',
+              groupValue: prefs.widgetFlagshipAccent,
+              onChanged: (v) => _updateFlagshipAccent(ref, v),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _updateFlagshipAccent(WidgetRef ref, String value) {
+    ref.read(appPreferencesProvider.notifier).setWidgetFlagshipAccent(value);
+    final prefs = ref.read(appPreferencesProvider);
+    WidgetSyncService.instance.pushCustomization(
+      prefs.copyWith(widgetFlagshipAccent: value),
     );
   }
 }
@@ -390,86 +439,6 @@ class _AccentOption extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: context.adaptiveTextPrimary,
                       ),
-                ),
-              ),
-              Icon(
-                selected
-                    ? Icons.check_circle_rounded
-                    : Icons.radio_button_unchecked,
-                color: selected
-                    ? context.adaptiveTextPrimary
-                    : context.adaptiveTextTertiary,
-                size: 20,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ThemeOption extends StatelessWidget {
-  const _ThemeOption({
-    required this.icon,
-    required this.label,
-    required this.description,
-    required this.value,
-    required this.groupValue,
-    required this.onChanged,
-  });
-
-  final IconData icon;
-  final String label;
-  final String description;
-  final String value;
-  final String groupValue;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final selected = value == groupValue;
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => onChanged(value),
-        child: Padding(
-          padding: const EdgeInsets.all(AppConstants.spacingLg),
-          child: Row(
-            children: [
-              Container(
-                width: AppConstants.containerSizeMd,
-                height: AppConstants.containerSizeMd,
-                decoration: BoxDecoration(
-                  color: AppColors.glassBackgroundStrong,
-                  borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-                ),
-                child: Icon(
-                  icon,
-                  color: selected
-                      ? context.adaptiveTextPrimary
-                      : context.adaptiveTextTertiary,
-                  size: AppConstants.iconSizeLg,
-                ),
-              ),
-              const SizedBox(width: AppConstants.spacingMd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: context.adaptiveTextPrimary,
-                          ),
-                    ),
-                    Text(
-                      description,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: context.adaptiveTextTertiary,
-                          ),
-                    ),
-                  ],
                 ),
               ),
               Icon(

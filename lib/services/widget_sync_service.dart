@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:home_widget/home_widget.dart';
 
@@ -19,7 +18,6 @@ class WidgetSyncService {
   static const String miniPlayerProvider = 'com.mossapps.flick.widgets.MiniPlayerWidgetProvider';
   static const String flagshipProvider = 'com.mossapps.flick.widgets.FlagshipWidgetProvider';
 
-  static const String keyFlagshipTheme = 'flick_widget_flagship_theme';
   static const String keyFlagshipAccent = 'flick_widget_flagship_accent';
   static const String keyFlagshipShowArtist = 'flick_widget_flagship_show_artist';
 
@@ -44,6 +42,8 @@ class WidgetSyncService {
   Timer? _debounce;
   String? _lastPushedSongId;
   bool? _lastPushedIsPlaying;
+  bool? _lastPushedIsShuffle;
+  int? _lastPushedLoopMode;
 
   Future<void> _ensureInit() async {
     if (_initialized) return;
@@ -51,11 +51,20 @@ class WidgetSyncService {
     await HomeWidget.setAppGroupId(_appGroup);
   }
 
+  Future<void> _updateAll() async {
+    await HomeWidget.updateWidget(qualifiedAndroidName: miniPlayerProvider);
+    await HomeWidget.updateWidget(qualifiedAndroidName: flagshipProvider);
+  }
+
   void schedulePush(PlayerState state) {
     final songChanged = state.currentSong?.id != _lastPushedSongId;
     final playingChanged = state.isPlaying != _lastPushedIsPlaying;
+    // ponytail: shuffle/loop must push immediately, else a stale 2s debounce
+    // captured before the toggle reverts the widget after a tap
+    final shuffleChanged = state.isShuffle != _lastPushedIsShuffle;
+    final loopChanged = state.loopMode.index != _lastPushedLoopMode;
 
-    if (songChanged || playingChanged) {
+    if (songChanged || playingChanged || shuffleChanged || loopChanged) {
       _debounce?.cancel();
       unawaited(_push(state));
     } else if (_debounce?.isActive != true) {
@@ -96,12 +105,12 @@ class WidgetSyncService {
         state.upNext.length,
       );
 
-      await HomeWidget.updateWidget(
-        qualifiedAndroidName: miniPlayerProvider,
-      );
+      await _updateAll();
 
       _lastPushedSongId = song?.id;
       _lastPushedIsPlaying = state.isPlaying;
+      _lastPushedIsShuffle = state.isShuffle;
+      _lastPushedLoopMode = state.loopMode.index;
     } catch (e, st) {
       devLog('WidgetSyncService push failed: $e\n$st');
     }
@@ -111,28 +120,19 @@ class WidgetSyncService {
     try {
       await _ensureInit();
       await HomeWidget.saveWidgetData<bool>(keyIsPlaying, false);
-      await HomeWidget.updateWidget(
-        qualifiedAndroidName: miniPlayerProvider,
-      );
+      await _updateAll();
     } catch (e, st) {
       devLog('WidgetSyncService pushPaused failed: $e\n$st');
     }
   }
 
   Future<void> pushKilled() async {
+    // ponytail: keep last song visible when app is killed — only mark paused
+    // so the widget shows the last track with a play button; tapping play relaunches the app
     try {
       await _ensureInit();
-      await HomeWidget.saveWidgetData<bool>(keyHasSong, false);
       await HomeWidget.saveWidgetData<bool>(keyIsPlaying, false);
-      await HomeWidget.saveWidgetData<String>(keyTitle, '');
-      await HomeWidget.saveWidgetData<String>(keyArtist, '');
-      await HomeWidget.saveWidgetData<String>(keyAlbumArt, '');
-      await HomeWidget.saveWidgetData<String>(keySongId, '');
-      await HomeWidget.saveWidgetData<int>(keyPositionMs, 0);
-      await HomeWidget.saveWidgetData<int>(keyDurationMs, 0);
-      await HomeWidget.updateWidget(
-        qualifiedAndroidName: miniPlayerProvider,
-      );
+      await _updateAll();
     } catch (e, st) {
       devLog('WidgetSyncService pushKilled failed: $e\n$st');
     }
@@ -157,10 +157,6 @@ class WidgetSyncService {
 
       // Flagship widget customization
       await HomeWidget.saveWidgetData<String>(
-        keyFlagshipTheme,
-        prefs.widgetFlagshipTheme,
-      );
-      await HomeWidget.saveWidgetData<String>(
         keyFlagshipAccent,
         prefs.widgetFlagshipAccent,
       );
@@ -169,9 +165,7 @@ class WidgetSyncService {
         prefs.widgetFlagshipShowArtist,
       );
 
-      await HomeWidget.updateWidget(
-        qualifiedAndroidName: miniPlayerProvider,
-      );
+      await _updateAll();
     } catch (e, st) {
       devLog('WidgetSyncService pushCustomization failed: $e\n$st');
     }

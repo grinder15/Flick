@@ -41,21 +41,21 @@ class TutorialTargetAnchor extends ConsumerStatefulWidget {
 
 class _TutorialTargetAnchorState extends ConsumerState<TutorialTargetAnchor> {
   late final GlobalKey _key = GlobalKey();
+  late final TutorialTargetRegistry _registry;
 
   @override
   void initState() {
     super.initState();
+    _registry = ref.read(tutorialTargetRegistryProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      ref
-          .read(tutorialTargetRegistryProvider)
-          .register(widget.target, _key);
+      _registry.register(widget.target, _key);
     });
   }
 
   @override
   void dispose() {
-    ref.read(tutorialTargetRegistryProvider).unregister(widget.target);
+    _registry.unregister(widget.target);
     super.dispose();
   }
 

@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flick/core/constants/app_constants.dart';
 import 'package:flick/core/theme/app_colors.dart';
 import 'package:flick/core/theme/adaptive_color_provider.dart';
+import 'package:flick/models/audio_engine_type.dart';
 import 'package:flick/features/settings/screens/equalizer_screen.dart';
 import 'package:flick/features/settings/screens/uac2_settings_screen.dart';
 import 'package:flick/features/settings/widgets/settings_widgets.dart';
@@ -197,6 +198,29 @@ class _CrossfadeSection extends ConsumerWidget {
                   enabled: effectiveEnabled,
                 ),
               ],
+            ),
+            ListenableBuilder(
+              listenable: playerService.initializedPlaybackModeNotifier,
+              builder: (context, _) {
+                if (playerService.currentEngineType ==
+                    AudioEngineType.normalAndroid) {
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppConstants.spacingMd,
+                    vertical: AppConstants.spacingXs,
+                  ),
+                  child: Text(
+                    'Crossfade is most reliable on the Standard engine. '
+                    'On the high-quality (Rust) engine it can be unstable — '
+                    'switch to Standard for consistent crossfades.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.adaptiveTextTertiary,
+                        ),
+                  ),
+                );
+              },
             ),
           ],
         );

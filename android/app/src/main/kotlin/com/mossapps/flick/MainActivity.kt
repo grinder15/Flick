@@ -1662,89 +1662,134 @@ class MainActivity: FlutterActivity() {
     }
 
     // Phase 1: Fast Scan (Filesystem only)
-    private fun fastScanAudioFiles(
+    private data class TreeDocEntry(
+        val documentId: String,
+        val name: String,
+        val mimeType: String?,
+        val size: Long,
+        val lastModified: Long,
+    )
+
+    // Walks a granted SAF tree with one contentResolver.query() per directory
+    // (single IPC returning all columns) instead of per-attribute DocumentFile
+    // calls. .nomedia short-circuits a subtree when [respectNomedia] is true.
+    private fun listTreeDocuments(
         uriString: String,
-        filterNonMusicFilesAndFolders: Boolean
-    ): List<Map<String, Any?>> {
-        val uri = Uri.parse(uriString)
-        val documentFile = DocumentFile.fromTreeUri(this, uri) ?: return emptyList()
+        respectNomedia: Boolean,
+    ): List<TreeDocEntry> {
+        val treeUri = Uri.parse(uriString)
+        val rootDocId = try {
+            DocumentsContract.getTreeDocumentId(treeUri)
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+            DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+        )
+        val result = mutableListOf<TreeDocEntry>()
+        val visited = HashSet<String>() // ponytail: cycle guard for misbehaving providers
 
-        val audioExtensions =
-            setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "oga", "ogx", "opus", "wma", "alac", "aif", "aiff", "cue", "wv", "dsf", "dff")
-        val result = mutableListOf<Map<String, Any?>>()
-
-        fun scanDirectory(dir: DocumentFile) {
-            val children = dir.listFiles()
-            if (filterNonMusicFilesAndFolders &&
-                children.any { child -> child.name == ".nomedia" }
-            ) {
+        fun scanDir(docId: String) {
+            if (!visited.add(docId)) return
+            val childrenUri = try {
+                DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
+            } catch (e: Exception) {
                 return
             }
-
-            for (file in children) {
-                if (file.isDirectory) {
-                    scanDirectory(file)
-                } else if (file.isFile) {
-                    val name = file.name ?: continue
-                    val extension = name.substringAfterLast('.', "").lowercase()
-                    if (!filterNonMusicFilesAndFolders || extension in audioExtensions) {
-                        result.add(mapOf(
-                            "uri" to file.uri.toString(),
-                            "name" to name,
-                            "size" to file.length(),
-                            "lastModified" to file.lastModified(),
-                            "mimeType" to file.type,
-                            "extension" to extension
-                        ))
+            val entries = mutableListOf<TreeDocEntry>()
+            var hasNomedia = false
+            try {
+                contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
+                    val idIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                    val nameIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                    val mimeIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                    val sizeIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+                    val modIdx = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
+                    while (c.moveToNext()) {
+                        val name = if (nameIdx >= 0) c.getString(nameIdx) else null
+                        if (name == null) continue
+                        if (respectNomedia && name == ".nomedia") hasNomedia = true
+                        val childDocId = if (idIdx >= 0) c.getString(idIdx) else null
+                        if (childDocId == null) continue
+                        entries.add(
+                            TreeDocEntry(
+                                documentId = childDocId,
+                                name = name,
+                                mimeType = if (mimeIdx >= 0) c.getString(mimeIdx) else null,
+                                size = if (sizeIdx >= 0 && !c.isNull(sizeIdx)) c.getLong(sizeIdx) else 0L,
+                                lastModified = if (modIdx >= 0 && !c.isNull(modIdx)) c.getLong(modIdx) else 0L,
+                            ),
+                        )
                     }
+                }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "listTreeDocuments query failed: ${e.message}", e)
+            }
+            if (hasNomedia) return
+            for (e in entries) {
+                if (e.mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
+                    scanDir(e.documentId)
+                } else {
+                    result.add(e)
                 }
             }
         }
 
-        scanDirectory(documentFile)
+        scanDir(rootDocId)
         return result
+    }
+
+    private fun fastScanAudioFiles(
+        uriString: String,
+        filterNonMusicFilesAndFolders: Boolean
+    ): List<Map<String, Any?>> {
+        val audioExtensions =
+            setOf("mp3", "flac", "wav", "aac", "m4a", "ogg", "oga", "ogx", "opus", "wma", "alac", "aif", "aiff", "cue", "wv", "dsf", "dff")
+        val treeUri = Uri.parse(uriString)
+
+        return listTreeDocuments(uriString, filterNonMusicFilesAndFolders)
+            .filter { entry ->
+                !filterNonMusicFilesAndFolders ||
+                    entry.name.substringAfterLast('.', "").lowercase() in audioExtensions
+            }
+            .map { entry ->
+                val extension = entry.name.substringAfterLast('.', "").lowercase()
+                mapOf(
+                    "uri" to DocumentsContract.buildDocumentUriUsingTree(treeUri, entry.documentId).toString(),
+                    "name" to entry.name,
+                    "size" to entry.size,
+                    "lastModified" to entry.lastModified,
+                    "mimeType" to entry.mimeType,
+                    "extension" to extension,
+                )
+            }
     }
 
     private fun scanPlaylistFiles(
         uriString: String,
         filterNonMusicFilesAndFolders: Boolean
     ): List<Map<String, Any?>> {
-        val uri = Uri.parse(uriString)
-        val documentFile = DocumentFile.fromTreeUri(this, uri) ?: return emptyList()
         val playlistExtensions = setOf("m3u", "m3u8")
-        val result = mutableListOf<Map<String, Any?>>()
+        val treeUri = Uri.parse(uriString)
 
-        fun scanDirectory(dir: DocumentFile) {
-            val children = dir.listFiles()
-            if (filterNonMusicFilesAndFolders &&
-                children.any { child -> child.name == ".nomedia" }
-            ) {
-                return
+        return listTreeDocuments(uriString, filterNonMusicFilesAndFolders)
+            .filter { entry ->
+                entry.name.substringAfterLast('.', "").lowercase() in playlistExtensions
             }
-
-            for (file in children) {
-                if (file.isDirectory) {
-                    scanDirectory(file)
-                } else if (file.isFile) {
-                    val name = file.name ?: continue
-                    val extension = name.substringAfterLast('.', "").lowercase()
-                    if (extension in playlistExtensions) {
-                        result.add(
-                            mapOf(
-                                "uri" to file.uri.toString(),
-                                "name" to name,
-                                "size" to file.length(),
-                                "lastModified" to file.lastModified(),
-                                "extension" to extension,
-                            )
-                        )
-                    }
-                }
+            .map { entry ->
+                val extension = entry.name.substringAfterLast('.', "").lowercase()
+                mapOf(
+                    "uri" to DocumentsContract.buildDocumentUriUsingTree(treeUri, entry.documentId).toString(),
+                    "name" to entry.name,
+                    "size" to entry.size,
+                    "lastModified" to entry.lastModified,
+                    "extension" to extension,
+                )
             }
-        }
-
-        scanDirectory(documentFile)
-        return result
     }
 
     // Phase 2: Metadata Extraction (Targeted)

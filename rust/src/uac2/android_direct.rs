@@ -151,26 +151,76 @@ const KNOWN_DSD_QUIRKS: &[DsdQuirk] = &[
     },
 ];
 
-fn lookup_dsd_quirk(
+/// Resolve a DSD quirk by merging the legacy table with the unified
+/// `QUIRK_DATABASE`. Returns an owned `DsdQuirk` so callers can read every
+/// field (`big_endian`, `bit_reverse`, `preferred_subslot`) in one shot.
+fn resolve_dsd_quirk(
     vendor_id: u16,
     product_id: u16,
     product_name: &str,
-) -> Option<&'static DsdQuirk> {
+) -> Option<DsdQuirk> {
     for quirk in KNOWN_DSD_QUIRKS {
         if quirk.vendor_id == vendor_id
             && quirk.product_id == product_id
             && product_name.contains(quirk.product_name_contains)
         {
-            return Some(quirk);
+            return Some(*quirk);
         }
     }
-    // Also check the unified QuirkDatabase.
+    use crate::uac2::quirk::UsbAudioQuirk;
     let entry = crate::uac2::quirk::QUIRK_DATABASE.lookup(vendor_id, product_id, product_name);
-    if !entry.is_empty() {
-        // Convert UsbAudioQuirk entries to DsdQuirk for backward compat.
-        // This is a compatibility shim until DsdQuirk is fully migrated.
+    let mut subslot = 4u8;
+    let mut big_endian = false;
+    let mut bit_reverse = false;
+    let mut found = false;
+    for q in &entry {
+        match q {
+            UsbAudioQuirk::DsdSubslotSize(n) => {
+                subslot = *n;
+                found = true;
+            }
+            UsbAudioQuirk::DsdBigEndian => {
+                big_endian = true;
+                found = true;
+            }
+            UsbAudioQuirk::DsdBitReverse => {
+                bit_reverse = true;
+                found = true;
+            }
+            _ => {}
+        }
     }
-    None
+    if !found {
+        return None;
+    }
+    Some(DsdQuirk {
+        vendor_id,
+        product_id,
+        product_name_contains: "",
+        preferred_subslot: subslot,
+        big_endian,
+        bit_reverse,
+    })
+}
+
+/// Resolve the DSD quirk for a live USB device, reading the product name from
+/// the string descriptor so legacy name-contains matching still works. Used at
+/// enumeration/candidate-selection where only `Device`/`DeviceHandle` are on
+/// hand. A failed descriptor read yields an empty name → VID/PID-only match.
+fn resolve_dsd_quirk_for_device(
+    device: &Device<Context>,
+    handle: &DeviceHandle<Context>,
+) -> Option<DsdQuirk> {
+    let descriptor = device.device_descriptor().ok()?;
+    let product_name = descriptor
+        .product_string_index()
+        .and_then(|idx| handle.read_string_descriptor_ascii(idx).ok())
+        .unwrap_or_default();
+    resolve_dsd_quirk(
+        descriptor.vendor_id(),
+        descriptor.product_id(),
+        &product_name,
+    )
 }
 
 fn lookup_dac_quirk(
@@ -2948,6 +2998,7 @@ fn build_android_usb_capability_model(
     let mut supported_channels = Vec::new();
     let mut stream_rate_cache =
         std::collections::HashMap::<(u8, Option<u8>), Vec<SamplingFrequencySubrange>>::new();
+    let dsd_subslot_override = resolve_dsd_quirk_for_device(device, handle).map(|q| q.preferred_subslot);
 
     for interface in config_descriptor.interfaces() {
         for descriptor in interface.descriptors() {
@@ -2957,9 +3008,14 @@ fn build_android_usb_capability_model(
                 continue;
             }
 
-            let Some(stream_format) = parse_android_streaming_interface_format(&descriptor) else {
+            let Some(mut stream_format) = parse_android_streaming_interface_format(&descriptor) else {
                 continue;
             };
+            if stream_format.format_tag == FORMAT_TAG_DSD {
+                if let Some(ss) = dsd_subslot_override {
+                    stream_format.subslot_size = ss;
+                }
+            }
             let sample_rate_ranges = stream_rate_cache
                 .entry((descriptor.interface_number(), stream_format.terminal_link))
                 .or_insert_with(|| {
@@ -4224,6 +4280,7 @@ fn prepare_iso_transfer_payload(
     bytes_per_frame: usize,
     dsd_transport: DsdTransportMode,
     dsd_big_endian: bool,
+    dsd_bit_reverse: bool,
 ) -> Result<Option<IsoTransferPayload>, String> {
     let packet_sizes = scheduler.next_transfer_packet_bytes();
     let total_bytes: usize = packet_sizes.iter().sum();
@@ -4275,6 +4332,7 @@ fn prepare_iso_transfer_payload(
         dsd_transport,
         candidate.channels,
         dsd_big_endian,
+        dsd_bit_reverse,
     )?;
 
     Ok(Some(IsoTransferPayload {
@@ -4469,13 +4527,13 @@ fn run_usb_output_loop(
         claimed_interfaces,
     } = claimed_handle;
     let playback_format = state.playback_format.unwrap();
-    let dsd_big_endian = lookup_dsd_quirk(
+    let dsd_quirk = resolve_dsd_quirk(
         state.device.vendor_id,
         state.device.product_id,
         &state.device.product_name,
-    )
-    .map(|q| q.big_endian)
-    .unwrap_or(false);
+    );
+    let dsd_big_endian = dsd_quirk.map(|q| q.big_endian).unwrap_or(false);
+    let dsd_bit_reverse = dsd_quirk.map(|q| q.bit_reverse).unwrap_or(false);
     let slot_bytes = candidate.subslot_size as usize;
     if slot_bytes == 0 {
         let message = "Android USB direct selected an invalid zero-byte subslot".to_string();
@@ -4593,6 +4651,7 @@ fn run_usb_output_loop(
                 bytes_per_frame,
                 playback_format.dsd_transport,
                 dsd_big_endian,
+                dsd_bit_reverse,
             ) {
                 Ok(Some(payload)) => payload,
                 Ok(None) => continue,
@@ -4714,6 +4773,7 @@ fn run_usb_output_loop(
                     bytes_per_frame,
                     playback_format.dsd_transport,
                     dsd_big_endian,
+                    dsd_bit_reverse,
                 ) {
                     Ok(Some(payload)) => {
                         record_prepared_iso_transfer(
@@ -4950,6 +5010,7 @@ fn select_stream_candidate(
         .map_err(|error| format!("Failed to read active USB config descriptor: {}", error))?;
     let mut candidates = Vec::new();
     let prefer_padded_24bit_transport = device_prefers_padded_24bit_transport(device);
+    let dsd_subslot_override = resolve_dsd_quirk_for_device(device, handle).map(|q| q.preferred_subslot);
     let mut stream_rate_cache =
         std::collections::HashMap::<(u8, Option<u8>), Vec<SamplingFrequencySubrange>>::new();
     for interface in config_descriptor.interfaces() {
@@ -4960,10 +5021,15 @@ fn select_stream_candidate(
                 continue;
             }
 
-            let stream_format = match parse_android_streaming_interface_format(&descriptor) {
+            let mut stream_format = match parse_android_streaming_interface_format(&descriptor) {
                 Some(format) => format,
                 None => continue,
             };
+            if stream_format.format_tag == FORMAT_TAG_DSD {
+                if let Some(ss) = dsd_subslot_override {
+                    stream_format.subslot_size = ss;
+                }
+            }
 
             let compatibility_penalty =
                 transport_compatibility_penalty(&stream_format, playback_format);
@@ -6249,6 +6315,7 @@ fn encode_usb_pcm_slots(
     dsd_transport: DsdTransportMode,
     channels: u16,
     big_endian: bool,
+    bit_reverse: bool,
 ) -> Result<(), String> {
     let ss = subslot_size as usize;
     if ss == 0 {
@@ -6270,7 +6337,8 @@ fn encode_usb_pcm_slots(
         }
         if ss == 1 {
             for (i, &sample) in input.iter().enumerate() {
-                output[i] = (sample & 0xFF) as u8;
+                let b = (sample & 0xFF) as u8;
+                output[i] = if bit_reverse { b.reverse_bits() } else { b };
             }
         } else {
             let chunk_samples = ss * ch;
@@ -6281,7 +6349,8 @@ fn encode_usb_pcm_slots(
                 for chan in 0..ch {
                     for b in 0..ss {
                         let in_idx = in_base + chan + b * ch;
-                        let dsd_byte = (input[in_idx] & 0xFF) as u8;
+                        let raw = (input[in_idx] & 0xFF) as u8;
+                        let dsd_byte = if bit_reverse { raw.reverse_bits() } else { raw };
                         let out_b = if big_endian { b } else { ss - 1 - b };
                         let out_idx = out_base + chan * ss + out_b;
                         output[out_idx] = dsd_byte;
@@ -6741,5 +6810,90 @@ fn iso_transfer_status_label(status: i32) -> &'static str {
         LIBUSB_TRANSFER_CANCELLED => "cancelled",
         LIBUSB_TRANSFER_ERROR => "error",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod dsd_bitperfect_tests {
+    use super::*;
+
+    // Native DSD_U32: input is byte-interleaved [c0_b0, c1_b0, c0_b1, c1_b1, ...].
+    // c0 bytes = 10,11,12,13 ; c1 bytes = 20,21,22,23.
+    const NATIVE_IN: [i32; 8] = [10, 20, 11, 21, 12, 22, 13, 23];
+
+    #[test]
+    fn native_dsd_u32_big_endian_groups_channels() {
+        let mut out = [0u8; 8];
+        encode_usb_pcm_slots(
+            &NATIVE_IN, &mut out, 4, 1, DsdTransportMode::Native, 2, true, false,
+        )
+        .unwrap();
+        // BE: each channel word is b0(MSB)..b3(LSB), channel 0 then channel 1.
+        assert_eq!(out, [10, 11, 12, 13, 20, 21, 22, 23]);
+    }
+
+    #[test]
+    fn native_dsd_u32_little_endian_reverses_byte_order() {
+        let mut out = [0u8; 8];
+        encode_usb_pcm_slots(
+            &NATIVE_IN, &mut out, 4, 1, DsdTransportMode::Native, 2, false, false,
+        )
+        .unwrap();
+        assert_eq!(out, [13, 12, 11, 10, 23, 22, 21, 20]);
+    }
+
+    #[test]
+    fn native_dsd_bit_reverse_flips_each_byte() {
+        let mut out = [0u8; 8];
+        encode_usb_pcm_slots(
+            &NATIVE_IN, &mut out, 4, 1, DsdTransportMode::Native, 2, true, true,
+        )
+        .unwrap();
+        let bytes: [u8; 8] = [10, 11, 12, 13, 20, 21, 22, 23];
+        let expect: Vec<u8> = bytes.iter().map(|b| b.reverse_bits()).collect();
+        assert_eq!(out.to_vec(), expect);
+    }
+
+    #[test]
+    fn native_dsd_u8_passes_low_byte() {
+        let input = [0x100u32 as i32, 0x205u32 as i32];
+        let mut out = [0u8; 2];
+        encode_usb_pcm_slots(
+            &input, &mut out, 1, 1, DsdTransportMode::Native, 2, false, false,
+        )
+        .unwrap();
+        assert_eq!(out, [0x00, 0x05]);
+    }
+
+    #[test]
+    fn dop_word_32bit_emits_marker_in_msb() {
+        // marker 0x05 in bits 31:24, dsd0=0x11 @16, dsd1=0x22 @8, low byte 0.
+        let w = (0x05u32 << 24) | (0x11 << 16) | (0x22 << 8);
+        let mut out = [0u8; 4];
+        encode_dop_slots(&[w as i32], &mut out, 4, 32);
+        assert_eq!(out, [0x00, 0x22, 0x11, 0x05]);
+    }
+
+    #[test]
+    fn dop_word_24bit_emits_three_bytes_marker_last() {
+        let w = (0xFAu32 << 24) | (0x11 << 16) | (0x22 << 8);
+        let mut out = [0u8; 3];
+        encode_dop_slots(&[w as i32], &mut out, 3, 24);
+        assert_eq!(out, [0x22, 0x11, 0xFA]);
+    }
+
+    #[test]
+    fn unified_quirk_db_resolves_dsd_fields() {
+        // Dawn Pro is in both the legacy table and the unified DB; resolution
+        // must surface big_endian + subslot 4 from either source.
+        let q = resolve_dsd_quirk(12230, 61546, "MOONDROP Dawn Pro").unwrap();
+        assert!(q.big_endian);
+        assert_eq!(q.preferred_subslot, 4);
+        assert!(!q.bit_reverse);
+    }
+
+    #[test]
+    fn unknown_device_has_no_dsd_quirk() {
+        assert!(resolve_dsd_quirk(0x0001, 0x0002, "Mystery DAC").is_none());
     }
 }

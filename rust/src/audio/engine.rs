@@ -1411,7 +1411,8 @@ pub fn create_audio_engine(
         } else if desired_strategy == OutputStrategy::DsdDoP {
             if let Some(rate) = dsd_rate {
                 let carrier = rate.dop_carrier_rate();
-                let _ = crate::uac2::set_android_usb_dop_mode(true, carrier, 24);
+                let dop_bits = rate.dop_bits_per_frame();
+                let _ = crate::uac2::set_android_usb_dop_mode(true, carrier, dop_bits);
             }
         }
         match create_android_usb_backend(

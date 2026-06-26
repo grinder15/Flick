@@ -235,6 +235,24 @@ Future<void> audioSetFx({
   width: width,
 );
 
+/// Enable/disable the impulse-response convolver and set its wet/dry mix
+/// (0.0 = dry, 1.0 = full IR).
+Future<void> audioSetConvolver({required bool enabled, required double mix}) =>
+    RustLib.instance.api.crateApiAudioApiAudioSetConvolver(
+      enabled: enabled,
+      mix: mix,
+    );
+
+/// Decode an impulse-response file, resample it to the engine rate and load it
+/// into the convolver. Decoding runs on this thread (not the audio callback);
+/// a failure leaves the previously-loaded IR untouched.
+Future<void> audioLoadIr({required String path}) =>
+    RustLib.instance.api.crateApiAudioApiAudioLoadIr(path: path);
+
+/// Drop any loaded IR and disable the convolver.
+Future<void> audioClearIr() =>
+    RustLib.instance.api.crateApiAudioApiAudioClearIr();
+
 /// Configure crossfade settings.
 ///
 /// The engine's own `is_crossfade_allowed()` trigger gate (plus the Dart-side

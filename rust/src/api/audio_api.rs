@@ -1189,6 +1189,26 @@ pub fn audio_set_fx(
     })
 }
 
+/// Enable/disable the impulse-response convolver and set its wet/dry mix
+/// (0.0 = dry, 1.0 = full IR).
+pub fn audio_set_convolver(enabled: bool, mix: f32) -> Result<(), String> {
+    with_audio_engine(|handle| handle.set_convolver(enabled, mix))
+}
+
+/// Decode an impulse-response file, resample it to the engine rate and load it
+/// into the convolver. Decoding runs on this thread (not the audio callback);
+/// a failure leaves the previously-loaded IR untouched.
+pub fn audio_load_ir(path: String) -> Result<(), String> {
+    let rate = with_audio_engine(|handle| Ok(handle.sample_rate()))?;
+    let coeffs = crate::audio::ir_loader::load_ir(std::path::Path::new(&path), rate)?;
+    with_audio_engine(|handle| handle.set_convolver_ir(coeffs))
+}
+
+/// Drop any loaded IR and disable the convolver.
+pub fn audio_clear_ir() -> Result<(), String> {
+    with_audio_engine(|handle| handle.send_command(crate::audio::commands::AudioCommand::ClearConvolverIr))
+}
+
 /// Configure crossfade settings.
 ///
 /// The engine's own `is_crossfade_allowed()` trigger gate (plus the Dart-side

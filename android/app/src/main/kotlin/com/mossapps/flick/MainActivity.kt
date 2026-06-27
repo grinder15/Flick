@@ -688,7 +688,7 @@ class MainActivity: FlutterActivity() {
                     val intent = Intent(this, MusicNotificationService::class.java).apply {
                         title?.let { putExtra("title", it) }
                         artist?.let { putExtra("artist", it) }
-                        albumArtPath?.let { putExtra("albumArtPath", it) }
+                        putExtra("albumArtPath", albumArtPath)
                         isPlaying?.let { putExtra("isPlaying", it) }
                         duration?.let { putExtra("duration", it) }
                         position?.let { putExtra("position", it) }

@@ -54,8 +54,10 @@ class MiniPlayerWidgetProvider : AppWidgetProvider() {
                     views.setImageViewResource(R.id.widget_art_bg, R.drawable.widget_default_art)
                 }
                 views.setViewVisibility(R.id.widget_art_bg, View.VISIBLE)
+                views.setViewVisibility(R.id.widget_scrim, View.VISIBLE)
             } else {
                 views.setViewVisibility(R.id.widget_art_bg, View.GONE)
+                views.setViewVisibility(R.id.widget_scrim, View.GONE)
             }
             views.setOnClickPendingIntent(R.id.widget_art_bg, WidgetIntents.openApp(context, 10))
 

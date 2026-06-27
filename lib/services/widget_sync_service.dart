@@ -17,6 +17,7 @@ class WidgetSyncService {
 
   static const String miniPlayerProvider = 'com.mossapps.flick.widgets.MiniPlayerWidgetProvider';
   static const String flagshipProvider = 'com.mossapps.flick.widgets.FlagshipWidgetProvider';
+  static const String compactProvider = 'com.mossapps.flick.widgets.CompactWidgetProvider';
 
   static const String keyFlagshipAccent = 'flick_widget_flagship_accent';
   static const String keyFlagshipShowArtist = 'flick_widget_flagship_show_artist';
@@ -54,6 +55,7 @@ class WidgetSyncService {
   Future<void> _updateAll() async {
     await HomeWidget.updateWidget(qualifiedAndroidName: miniPlayerProvider);
     await HomeWidget.updateWidget(qualifiedAndroidName: flagshipProvider);
+    await HomeWidget.updateWidget(qualifiedAndroidName: compactProvider);
   }
 
   void schedulePush(PlayerState state) {

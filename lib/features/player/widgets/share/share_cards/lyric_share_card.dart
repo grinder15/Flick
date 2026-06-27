@@ -49,11 +49,11 @@ class LyricShareCard extends StatelessWidget {
                   displayLyric,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 26,
+                    fontSize: 34,
                     fontWeight: FontWeight.w700,
                     height: 1.2,
                   ),
-                  maxLines: 3,
+                  maxLines: 4,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 20),

@@ -13,10 +13,16 @@ import '../../../core/theme/app_colors.dart';
 /// The streak is a contiguous run ending today (see `MilestoneService`), so
 /// the active days in the window are simply the last `streak` columns.
 class StreakPopup extends StatefulWidget {
-  const StreakPopup({super.key, required this.streak, this.onDismiss});
+  const StreakPopup({
+    super.key,
+    required this.streak,
+    this.onDismiss,
+    this.onSnooze,
+  });
 
   final int streak;
   final VoidCallback? onDismiss;
+  final VoidCallback? onSnooze;
 
   @override
   State<StreakPopup> createState() => _StreakPopupState();
@@ -29,6 +35,7 @@ class _StreakPopupState extends State<StreakPopup>
 
   late final AnimationController _reveal;
   late final AnimationController _pulse;
+  late final AnimationController _flame;
 
   @override
   void initState() {
@@ -41,7 +48,12 @@ class _StreakPopupState extends State<StreakPopup>
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     );
+    _flame = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
     _reveal.forward();
+    _flame.repeat(reverse: true);
     // Only pulse once the today cell has revealed.
     Future<void>.delayed(const Duration(milliseconds: 900), () {
       if (mounted) _pulse.repeat(reverse: true);
@@ -52,6 +64,7 @@ class _StreakPopupState extends State<StreakPopup>
   void dispose() {
     _reveal.dispose();
     _pulse.dispose();
+    _flame.dispose();
     super.dispose();
   }
 
@@ -63,6 +76,14 @@ class _StreakPopupState extends State<StreakPopup>
   bool _isChecked(int index) {
     final activeCount = widget.streak.clamp(0, _window);
     return index >= _window - activeCount;
+  }
+
+  String get _motivationalMessage {
+    final s = widget.streak;
+    if (s <= 1) return "Welcome back — let's start a streak.";
+    if (s < 7) return 'Keep it going. Open tomorrow to add another day.';
+    if (s < 30) return 'A week and counting — your dedication shows.';
+    return 'Incredible — over a month of daily listening.';
   }
 
   @override
@@ -78,7 +99,7 @@ class _StreakPopupState extends State<StreakPopup>
             sigmaY: AppConstants.glassBlurSigma,
           ),
           child: Container(
-            width: 320,
+            width: 340,
             padding: const EdgeInsets.fromLTRB(
               AppConstants.spacingLg,
               AppConstants.spacingXl,
@@ -99,13 +120,19 @@ class _StreakPopupState extends State<StreakPopup>
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
+                _buildFlameIcon(),
+                const SizedBox(height: AppConstants.spacingLg),
                 _buildHeader(context),
                 const SizedBox(height: AppConstants.spacingXl),
                 _buildDayRow(),
-                const SizedBox(height: AppConstants.spacingXl),
-                _buildActions(context),
+                const SizedBox(height: AppConstants.spacingLg),
+                _buildMessage(context),
+                const SizedBox(height: AppConstants.spacingLg),
+                _buildContinueButton(context),
+                const SizedBox(height: AppConstants.spacingXs),
+                _buildSnoozeButton(context),
               ],
             ),
           ),
@@ -114,48 +141,68 @@ class _StreakPopupState extends State<StreakPopup>
     );
   }
 
+  Widget _buildFlameIcon() {
+    return AnimatedBuilder(
+      animation: _flame,
+      builder: (context, child) {
+        final glow = 0.08 + 0.06 * _flame.value;
+        final scale = 1.0 + 0.04 * _flame.value;
+        return Transform.scale(
+          scale: scale,
+          child: Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.accent.withValues(alpha: 0.08),
+              border: Border.all(
+                color: AppColors.accent.withValues(alpha: 0.2),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.accent.withValues(alpha: glow),
+                  blurRadius: 20,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: const Icon(
+              LucideIcons.flame,
+              size: 30,
+              color: AppColors.accent,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildHeader(BuildContext context) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          'DAY STREAK',
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-            color: AppColors.textTertiary,
-            letterSpacing: 1.6,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: AppConstants.spacingXs),
         Row(
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               '${widget.streak}',
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(
+              style: Theme.of(context).textTheme.displayLarge?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: AppColors.textPrimary,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
             const SizedBox(width: AppConstants.spacingSm),
             Text(
-              widget.streak == 1 ? 'day' : 'days',
+              'day streak',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 color: AppColors.textSecondary,
               ),
             ),
           ],
-        ),
-        const SizedBox(height: AppConstants.spacingXs),
-        Text(
-          widget.streak <= 1
-              ? "Welcome back — let's start a streak."
-              : 'Keep it going. Open tomorrow to add another day.',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: AppColors.textSecondary,
-            height: 1.4,
-          ),
         ),
       ],
     );
@@ -192,21 +239,62 @@ class _StreakPopupState extends State<StreakPopup>
     return start.clamp(0.0, 0.85);
   }
 
-  Widget _buildActions(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        TextButton(
-          onPressed: () {
-            Navigator.of(context).pop();
-            widget.onDismiss?.call();
-          },
-          child: Text(
-            'Continue',
-            style: TextStyle(color: AppColors.accent),
+  Widget _buildMessage(BuildContext context) {
+    return Text(
+      _motivationalMessage,
+      textAlign: TextAlign.center,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        color: AppColors.textSecondary,
+        height: 1.4,
+      ),
+    );
+  }
+
+  Widget _buildContinueButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton(
+        onPressed: () {
+          Navigator.of(context).pop();
+          widget.onDismiss?.call();
+        },
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.accent,
+          foregroundColor: AppColors.background,
+          padding: const EdgeInsets.symmetric(vertical: AppConstants.spacingMd),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppConstants.radiusMd),
           ),
         ),
-      ],
+        child: const Text(
+          'Continue',
+          style: TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSnoozeButton(BuildContext context) {
+    return TextButton(
+      onPressed: () {
+        Navigator.of(context).pop();
+        widget.onSnooze?.call();
+      },
+      style: TextButton.styleFrom(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppConstants.spacingSm,
+          vertical: AppConstants.spacingXs,
+        ),
+        minimumSize: const Size(0, 0),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(
+        "Don't show again today",
+        style: TextStyle(
+          color: AppColors.textTertiary,
+          fontSize: 12,
+        ),
+      ),
     );
   }
 }

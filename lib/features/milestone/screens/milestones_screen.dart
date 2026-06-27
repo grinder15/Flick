@@ -134,26 +134,24 @@ class _MilestonesScreenState extends ConsumerState<MilestonesScreen> {
   }
 
   Widget _buildGrid(BuildContext context) {
+    final cats = MilestoneCategory.values;
     return ListView.builder(
       padding: const EdgeInsets.symmetric(
         horizontal: AppConstants.spacingLg,
         vertical: AppConstants.spacingMd,
       ),
-      itemCount: MilestoneType.values.length,
+      itemCount: cats.length,
       itemBuilder: (context, index) {
-        final type = MilestoneType.values[index];
-        final record = _records[type];
+        final cat = cats[index];
         return Padding(
           padding: EdgeInsets.only(
-            bottom: index < MilestoneType.values.length - 1
-                ? AppConstants.spacingMd
-                : 0,
+            bottom: index < cats.length - 1 ? AppConstants.spacingMd : 0,
           ),
-          child: _MilestoneTile(
-            type: type,
-            record: record,
-            current: _current[type.category] ?? 0,
-            onTap: () => _handleTileTap(type, record),
+          child: _CategorySection(
+            category: cat,
+            records: _records,
+            current: _current,
+            onTileTap: _handleTileTap,
           ),
         );
       },
@@ -224,6 +222,136 @@ class _MilestonesScreenState extends ConsumerState<MilestonesScreen> {
     );
   }
 }
+
+class _CategorySection extends StatefulWidget {
+  const _CategorySection({
+    required this.category,
+    required this.records,
+    required this.current,
+    required this.onTileTap,
+  });
+
+  final MilestoneCategory category;
+  final Map<MilestoneType, MilestoneRecord> records;
+  final Map<MilestoneCategory, int> current;
+  final void Function(MilestoneType, MilestoneRecord?) onTileTap;
+
+  @override
+  State<_CategorySection> createState() => _CategorySectionState();
+}
+
+class _CategorySectionState extends State<_CategorySection> {
+  bool _expanded = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final cat = widget.category;
+    final types = MilestoneType.values
+        .where((t) => t.category == cat)
+        .toList();
+    final unlocked = types.where((t) => widget.records[t] != null).length;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+        border: Border.all(color: AppColors.glassBorder, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _expanded = !_expanded),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.spacingMd),
+              child: Row(
+                children: [
+                  Icon(
+                    types.first.tierIcon,
+                    size: 20,
+                    color: context.adaptiveTextTertiary,
+                  ),
+                  const SizedBox(width: AppConstants.spacingMd),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _categoryLabel(cat),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: context.adaptiveTextPrimary,
+                              ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '$unlocked / ${types.length} unlocked',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: context.adaptiveTextTertiary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.25 : 0,
+                    duration: AppConstants.animationNormal,
+                    child: Icon(
+                      LucideIcons.chevronRight,
+                      size: 18,
+                      color: context.adaptiveTextTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: AppConstants.animationNormal,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: AnimatedOpacity(
+              duration: AppConstants.animationNormal,
+              opacity: _expanded ? 1.0 : 0.0,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppConstants.spacingMd,
+                        0,
+                        AppConstants.spacingMd,
+                        AppConstants.spacingMd,
+                      ),
+                      child: Column(
+                        children: [
+                          for (final type in types) ...[
+                            _MilestoneTile(
+                              type: type,
+                              record: widget.records[type],
+                              current: widget.current[type.category] ?? 0,
+                              onTap: () =>
+                                  widget.onTileTap(type, widget.records[type]),
+                            ),
+                            const SizedBox(height: AppConstants.spacingSm),
+                          ],
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _categoryLabel(MilestoneCategory cat) => switch (cat) {
+  MilestoneCategory.songs => 'Songs',
+  MilestoneCategory.hours => 'Listening Hours',
+  MilestoneCategory.dayStreak => 'Day Streak',
+  MilestoneCategory.uniqueArtists => 'Unique Artists',
+};
 
 class _MilestoneTile extends StatelessWidget {
   const _MilestoneTile({

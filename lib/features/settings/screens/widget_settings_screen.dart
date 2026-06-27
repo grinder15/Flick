@@ -17,7 +17,17 @@ class WidgetSettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
+  static const _tabCount = 2;
   int _tab = 0;
+  int _dir = 1;
+
+  void _switchTo(int i) {
+    if (i < 0 || i >= _tabCount || i == _tab) return;
+    setState(() {
+      _dir = i > _tab ? 1 : -1;
+      _tab = i;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,11 +38,48 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
         children: [
           _TabBar(
             selectedIndex: _tab,
-            onSelected: (i) => setState(() => _tab = i),
+            onSelected: _switchTo,
           ),
           const SizedBox(height: AppConstants.spacingLg),
-          if (_tab == 0) const _MiniPlayerTab(),
-          if (_tab == 1) const _FlagshipTab(),
+          GestureDetector(
+            onHorizontalDragEnd: (details) {
+              final v = details.primaryVelocity ?? 0;
+              if (v < -250) {
+                _switchTo(_tab + 1);
+              } else if (v > 250) {
+                _switchTo(_tab - 1);
+              }
+            },
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                alignment: Alignment.topCenter,
+                children: [
+                  ...previousChildren,
+                  ?currentChild,
+                ],
+              ),
+              transitionBuilder: (child, animation) {
+                final incoming = (child.key as ValueKey).value == _tab;
+                final beginX = (incoming ? _dir : -_dir).toDouble();
+                return SlideTransition(
+                  position: Tween<Offset>(
+                    begin: Offset(beginX, 0),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: FadeTransition(opacity: animation, child: child),
+                );
+              },
+              child: KeyedSubtree(
+                key: ValueKey(_tab),
+                child: _tab == 0
+                    ? const _MiniPlayerTab()
+                    : const _FlagshipTab(),
+              ),
+            ),
+          ),
           const SizedBox(height: AppConstants.navBarHeight + 40),
         ],
       ),

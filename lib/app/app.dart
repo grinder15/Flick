@@ -395,7 +395,10 @@ class _MainShellState extends ConsumerState<MainShell>
             scale: Tween<double>(begin: 0.9, end: 1.0).animate(
               CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
             ),
-            child: StreakPopup(streak: streak),
+            child: StreakPopup(
+              streak: streak,
+              onSnooze: () => MilestoneService().snoozeStreakPopup(),
+            ),
           ),
         );
       },

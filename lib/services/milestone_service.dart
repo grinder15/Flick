@@ -264,6 +264,7 @@ class MilestoneService {
   static const _accumulatedListenSecondsKey = 'accumulated_listen_seconds';
   static const _streakCurrentKey = 'streak_current';
   static const _streakLastActiveDayKey = 'streak_last_active_day';
+  static const _streakPopupSnoozedUntilKey = 'streak_popup_snoozed_until';
 
   final RecentlyPlayedRepository? _repository;
   final Future<int> Function()? _playCountOverride;
@@ -367,6 +368,20 @@ class MilestoneService {
   static int _dayKey(DateTime t) {
     final local = t.toUtc().add(t.timeZoneOffset);
     return local.year * 10000 + local.month * 100 + local.day;
+  }
+
+  /// Whether the streak popup was snoozed today (until the next calendar day).
+  Future<bool> isStreakPopupSnoozed() async {
+    final prefs = await SharedPreferences.getInstance();
+    final snoozedUntil = prefs.getInt(_streakPopupSnoozedUntilKey);
+    if (snoozedUntil == null) return false;
+    return snoozedUntil >= _dayKey(DateTime.now());
+  }
+
+  /// Snooze the streak popup until the next calendar day.
+  Future<void> snoozeStreakPopup() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_streakPopupSnoozedUntilKey, _dayKey(DateTime.now()));
   }
 
   Future<List<MilestoneRecord>> getShownMilestones() async {

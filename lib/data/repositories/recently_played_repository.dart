@@ -410,6 +410,26 @@ class RecentlyPlayedRepository {
     return await _isar.recentlyPlayedEntitys.count();
   }
 
+  /// Count distinct, non-empty artist names across the entire play history.
+  // ponytail: full scan over history+song entities, O(history). Runs only on
+  // milestone checks (per song completion / app launch), never in a hot loop.
+  Future<int> getDistinctArtistCount() async {
+    final entries = await _isar.recentlyPlayedEntitys.where().findAll();
+    if (entries.isEmpty) return 0;
+
+    final allSongEntities = await _songRepository.getAllSongEntities();
+    final songMap = {for (final e in allSongEntities) e.id: e};
+
+    final artists = <String>{};
+    for (final entry in entries) {
+      final entity = songMap[entry.songId];
+      if (entity == null) continue;
+      final name = entity.artist.trim();
+      if (name.isNotEmpty) artists.add(name);
+    }
+    return artists.length;
+  }
+
   /// Watch for changes in the history collection.
   Stream<void> watchHistory() {
     return _isar.recentlyPlayedEntitys.watchLazy();

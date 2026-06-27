@@ -18,7 +18,7 @@ class MilestoneCard extends StatefulWidget {
     super.key,
     required this.milestone,
     this.achievedAt,
-    this.nextLabel,
+    this.nextMilestone,
     this.nextRemaining,
     this.supportLabel = 'Support Flick',
     this.dismissLabel = 'Dismiss',
@@ -27,7 +27,7 @@ class MilestoneCard extends StatefulWidget {
 
   final MilestoneType milestone;
   final DateTime? achievedAt;
-  final String? nextLabel;
+  final MilestoneType? nextMilestone;
   final int? nextRemaining;
   final String supportLabel;
   final String dismissLabel;
@@ -216,7 +216,7 @@ class _MilestoneCardState extends State<MilestoneCard>
           ),
         ),
         if (widget.achievedAt != null ||
-            (widget.nextLabel != null && widget.nextRemaining != null)) ...[
+            (widget.nextMilestone != null && widget.nextRemaining != null)) ...[
           const SizedBox(height: AppConstants.spacingMd),
           Container(height: 1, color: AppColors.glassBorder),
           const SizedBox(height: AppConstants.spacingSm),
@@ -231,11 +231,11 @@ class _MilestoneCardState extends State<MilestoneCard>
     if (widget.achievedAt != null) {
       parts.add('Achieved ${_formatDate(widget.achievedAt!)}');
     }
-    if (widget.nextLabel != null && widget.nextRemaining != null) {
-      final unit = _unitFor(widget.nextLabel!, widget.nextRemaining!);
-      parts.add(
-        'Next: ${widget.nextLabel} — ${widget.nextRemaining} $unit to go',
-      );
+    final next = widget.nextMilestone;
+    if (next != null && widget.nextRemaining != null) {
+      final remaining = widget.nextRemaining!;
+      final unit = remaining == 1 ? next.category.unitSingular : next.unit;
+      parts.add('Next: ${next.shortLabel} — $remaining $unit to go');
     }
     return Text(
       parts.join(' · '),
@@ -266,13 +266,6 @@ class _MilestoneCardState extends State<MilestoneCard>
         ),
       ],
     );
-  }
-
-  static String _unitFor(String label, int remaining) {
-    if (remaining == 1) {
-      return label.contains('song') ? 'song' : 'hour';
-    }
-    return label.contains('song') ? 'songs' : 'hours';
   }
 
   static String _formatDate(DateTime dt) {

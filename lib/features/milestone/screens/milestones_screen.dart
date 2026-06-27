@@ -24,8 +24,7 @@ class _MilestonesScreenState extends ConsumerState<MilestonesScreen> {
   final _service = MilestoneService();
   bool _loading = true;
   Map<MilestoneType, MilestoneRecord> _records = {};
-  int _playCount = 0;
-  int _listenSeconds = 0;
+  Map<MilestoneCategory, int> _current = const {};
 
   @override
   void initState() {
@@ -36,11 +35,19 @@ class _MilestonesScreenState extends ConsumerState<MilestonesScreen> {
   Future<void> _refresh() async {
     setState(() => _loading = true);
     final records = await _service.getShownMilestones();
-    _playCount = await _service.getHistoryCount();
-    _listenSeconds = await _service.getAccumulatedListenSeconds();
+    final playCount = await _service.getHistoryCount();
+    final listenSeconds = await _service.getAccumulatedListenSeconds();
+    final streak = await _service.getCurrentDayStreak();
+    final artists = await _service.getUniqueArtistCount();
     if (!mounted) return;
     setState(() {
       _records = {for (final r in records) r.type: r};
+      _current = {
+        MilestoneCategory.songs: playCount,
+        MilestoneCategory.hours: listenSeconds ~/ 3600,
+        MilestoneCategory.dayStreak: streak,
+        MilestoneCategory.uniqueArtists: artists,
+      };
       _loading = false;
     });
   }
@@ -145,8 +152,7 @@ class _MilestonesScreenState extends ConsumerState<MilestonesScreen> {
           child: _MilestoneTile(
             type: type,
             record: record,
-            playCount: _playCount,
-            listenSeconds: _listenSeconds,
+            current: _current[type.category] ?? 0,
             onTap: () => _handleTileTap(type, record),
           ),
         );
@@ -187,7 +193,7 @@ class _MilestonesScreenState extends ConsumerState<MilestonesScreen> {
             child: MilestoneCard(
               milestone: type,
               achievedAt: achievedAt,
-              nextLabel: next.next?.shortLabel,
+              nextMilestone: next.next,
               nextRemaining: next.next == null ? null : next.remaining,
               supportLabel: 'Close',
               dismissLabel: 'Done',
@@ -199,11 +205,9 @@ class _MilestonesScreenState extends ConsumerState<MilestonesScreen> {
   }
 
   Future<void> _showLockedSheet(MilestoneType type) async {
-    final current = type.isSongBased ? _playCount : (_listenSeconds ~/ 3600);
+    final current = _current[type.category] ?? 0;
     final remaining = (type.threshold - current).clamp(0, type.threshold);
-    final unit = type.isSongBased
-        ? (remaining == 1 ? 'song' : 'songs')
-        : (remaining == 1 ? 'hour' : 'hours');
+    final unit = remaining == 1 ? type.category.unitSingular : type.unit;
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -225,15 +229,13 @@ class _MilestoneTile extends StatelessWidget {
   const _MilestoneTile({
     required this.type,
     required this.record,
-    required this.playCount,
-    required this.listenSeconds,
+    required this.current,
     required this.onTap,
   });
 
   final MilestoneType type;
   final MilestoneRecord? record;
-  final int playCount;
-  final int listenSeconds;
+  final int current;
   final VoidCallback onTap;
 
   bool get _unlocked => record != null;
@@ -242,18 +244,15 @@ class _MilestoneTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final tierColor = type.tierColor;
     final unlocked = _unlocked;
-    // Tinted icon badge — reuses the app's settings _CategoryTile pattern.
+    // Tinted icon badge — a dark tint of the tier color keeps each tier's
+    // identity while reading as a filled pill on the glass surface.
     final iconBg = unlocked
-        ? Color.alphaBlend(
-            tierColor.withValues(alpha: 0.85),
-            _darkBaseFor(type),
-          )
+        ? Color.alphaBlend(tierColor.withValues(alpha: 0.8), AppColors.surfaceDark)
         : AppColors.glassBackgroundStrong;
     final iconFg = unlocked ? Colors.white : AppColors.textTertiary;
 
-    final current = type.isSongBased ? playCount : (listenSeconds ~/ 3600);
     final progress = (current / type.threshold).clamp(0.0, 1.0);
-    final unit = type.isSongBased ? 'songs' : 'hours';
+    final unit = type.unit;
 
     return Material(
       color: Colors.transparent,
@@ -342,18 +341,6 @@ class _MilestoneTile extends StatelessWidget {
         ),
       ),
     );
-  }
-
-  /// Per-tier darker base color so the icon badge has the tier identity but
-  /// still reads as a "filled" pill on the dark glass surface (not washed out).
-  Color _darkBaseFor(MilestoneType type) {
-    return switch (type) {
-      MilestoneType.songs100 => const Color(0xFF2A1E14),
-      MilestoneType.songs500 => const Color(0xFF1F2429),
-      MilestoneType.songs1000 => const Color(0xFF2B2417),
-      MilestoneType.hours10 => const Color(0xFF152238),
-      MilestoneType.hours50 => const Color(0xFF251E36),
-    };
   }
 
   static String _formatDate(DateTime dt) {
@@ -474,8 +461,8 @@ class _LockedSheet extends StatelessWidget {
               const SizedBox(height: AppConstants.spacingXs),
               Text(
                 remaining > 0
-                    ? 'Listen to $remaining more $unit to unlock.'
-                    : 'You\'ve hit the threshold — keep listening!',
+                    ? '$remaining more $unit to unlock.'
+                    : 'You\'ve hit the threshold — keep it up!',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
             ],

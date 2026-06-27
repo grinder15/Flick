@@ -42,6 +42,10 @@ class AppPreferences {
   final String widgetFlagshipTheme;
   final String widgetFlagshipAccent;
   final bool widgetFlagshipShowArtist;
+  final int widgetCompactBgOpacity;
+  final bool widgetCompactShowAlbumArt;
+  final bool widgetCompactShowArtist;
+  final String widgetCompactAccent;
   final bool lyricsMatchAudioFilename;
   final String leftActionButton;
   final String rightActionButton;
@@ -105,6 +109,10 @@ class AppPreferences {
     this.widgetFlagshipTheme = 'art_dominant',
     this.widgetFlagshipAccent = 'white',
     this.widgetFlagshipShowArtist = true,
+    this.widgetCompactBgOpacity = 3,
+    this.widgetCompactShowAlbumArt = true,
+    this.widgetCompactShowArtist = true,
+    this.widgetCompactAccent = 'white',
     this.lyricsMatchAudioFilename = false,
     this.leftActionButton = 'lyrics',
     this.rightActionButton = 'favorites',
@@ -169,6 +177,10 @@ class AppPreferences {
     String? widgetFlagshipTheme,
     String? widgetFlagshipAccent,
     bool? widgetFlagshipShowArtist,
+    int? widgetCompactBgOpacity,
+    bool? widgetCompactShowAlbumArt,
+    bool? widgetCompactShowArtist,
+    String? widgetCompactAccent,
     bool? lyricsMatchAudioFilename,
     String? leftActionButton,
     String? rightActionButton,
@@ -246,6 +258,13 @@ class AppPreferences {
       widgetFlagshipAccent: widgetFlagshipAccent ?? this.widgetFlagshipAccent,
       widgetFlagshipShowArtist:
           widgetFlagshipShowArtist ?? this.widgetFlagshipShowArtist,
+      widgetCompactBgOpacity:
+          widgetCompactBgOpacity ?? this.widgetCompactBgOpacity,
+      widgetCompactShowAlbumArt:
+          widgetCompactShowAlbumArt ?? this.widgetCompactShowAlbumArt,
+      widgetCompactShowArtist:
+          widgetCompactShowArtist ?? this.widgetCompactShowArtist,
+      widgetCompactAccent: widgetCompactAccent ?? this.widgetCompactAccent,
       lyricsMatchAudioFilename:
           lyricsMatchAudioFilename ?? this.lyricsMatchAudioFilename,
       leftActionButton: leftActionButton ?? this.leftActionButton,
@@ -325,6 +344,10 @@ class AppPreferencesService {
   static const _widgetFlagshipThemeKey = 'widget_flagship_theme';
   static const _widgetFlagshipAccentKey = 'widget_flagship_accent';
   static const _widgetFlagshipShowArtistKey = 'widget_flagship_show_artist';
+  static const _widgetCompactBgOpacityKey = 'widget_compact_bg_opacity';
+  static const _widgetCompactShowAlbumArtKey = 'widget_compact_show_album_art';
+  static const _widgetCompactShowArtistKey = 'widget_compact_show_artist';
+  static const _widgetCompactAccentKey = 'widget_compact_accent';
   static const _lyricsMatchAudioFilenameKey = 'lyrics_match_audio_filename';
   static const _leftActionButtonKey = 'left_action_button';
   static const _rightActionButtonKey = 'right_action_button';
@@ -411,6 +434,14 @@ class AppPreferencesService {
           prefs.getString(_widgetFlagshipAccentKey) ?? 'white',
       widgetFlagshipShowArtist:
           prefs.getBool(_widgetFlagshipShowArtistKey) ?? true,
+      widgetCompactBgOpacity:
+          prefs.getInt(_widgetCompactBgOpacityKey) ?? 3,
+      widgetCompactShowAlbumArt:
+          prefs.getBool(_widgetCompactShowAlbumArtKey) ?? true,
+      widgetCompactShowArtist:
+          prefs.getBool(_widgetCompactShowArtistKey) ?? true,
+      widgetCompactAccent:
+          prefs.getString(_widgetCompactAccentKey) ?? 'white',
       lyricsMatchAudioFilename:
           prefs.getBool(_lyricsMatchAudioFilenameKey) ?? false,
       leftActionButton: prefs.getString(_leftActionButtonKey) ?? 'lyrics',
@@ -803,6 +834,46 @@ class AppPreferencesService {
   Future<void> setWidgetFlagshipShowArtist(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_widgetFlagshipShowArtistKey, value);
+  }
+
+  Future<int> getWidgetCompactBgOpacity() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_widgetCompactBgOpacityKey) ?? 3;
+  }
+
+  Future<void> setWidgetCompactBgOpacity(int value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_widgetCompactBgOpacityKey, value);
+  }
+
+  Future<bool> getWidgetCompactShowAlbumArt() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_widgetCompactShowAlbumArtKey) ?? true;
+  }
+
+  Future<void> setWidgetCompactShowAlbumArt(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_widgetCompactShowAlbumArtKey, value);
+  }
+
+  Future<bool> getWidgetCompactShowArtist() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_widgetCompactShowArtistKey) ?? true;
+  }
+
+  Future<void> setWidgetCompactShowArtist(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_widgetCompactShowArtistKey, value);
+  }
+
+  Future<String> getWidgetCompactAccent() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_widgetCompactAccentKey) ?? 'white';
+  }
+
+  Future<void> setWidgetCompactAccent(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_widgetCompactAccentKey, value);
   }
 
   Future<bool> getLyricsMatchAudioFilename() async {

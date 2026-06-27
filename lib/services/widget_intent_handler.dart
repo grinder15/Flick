@@ -83,6 +83,7 @@ class WidgetIntentHandler {
 
   static const _provider = 'com.mossapps.flick.widgets.MiniPlayerWidgetProvider';
   static const _flagshipProvider = 'com.mossapps.flick.widgets.FlagshipWidgetProvider';
+  static const _compactProvider = 'com.mossapps.flick.widgets.CompactWidgetProvider';
 
   Future<void> _pushWidgetState() async {
     try {
@@ -100,6 +101,7 @@ class WidgetIntentHandler {
       await HomeWidget.saveWidgetData('flick_widget_loop_mode', state.loopMode.index);
       await HomeWidget.updateWidget(qualifiedAndroidName: _provider);
       await HomeWidget.updateWidget(qualifiedAndroidName: _flagshipProvider);
+      await HomeWidget.updateWidget(qualifiedAndroidName: _compactProvider);
     } catch (e) {
       devLog('WidgetIntentHandler: failed to push widget state: $e');
     }

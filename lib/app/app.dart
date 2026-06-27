@@ -40,6 +40,7 @@ import 'package:flick/services/widget_sync_service.dart';
 import 'package:flick/services/widget_intent_handler.dart';
 import 'package:flick/models/nav_bar_config.dart';
 import 'package:flick/features/milestone/widgets/milestone_card.dart';
+import 'package:flick/features/milestone/widgets/streak_popup.dart';
 import 'package:flick/features/whats_new/widgets/whats_new_bottom_sheet.dart';
 import 'package:flick/core/utils/dev_log.dart';
 
@@ -201,6 +202,7 @@ class _MainShellState extends ConsumerState<MainShell>
     });
 
     _playerService.pendingMilestoneNotifier.addListener(_handleMilestone);
+    _playerService.streakPopupNotifier.addListener(_handleStreakPopup);
 
     ref.listenManual<NavBarConfig>(navBarConfigProvider, (previous, next) {
       if (previous == null || !mounted) return;
@@ -297,6 +299,7 @@ class _MainShellState extends ConsumerState<MainShell>
       }
 
       _maybeShowWhatsNew();
+      unawaited(_playerService.recordActivityDayAndCheckMilestones());
     });
 
     _playerService.playbackDesyncedNotifier.addListener(
@@ -361,13 +364,40 @@ class _MainShellState extends ConsumerState<MainShell>
             ),
             child: MilestoneCard(
               milestone: milestone,
-              nextLabel: next.next?.shortLabel,
+              nextMilestone: next.next,
               nextRemaining: next.next == null ? null : next.remaining,
               onSupportTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const SupportFlickScreen()),
                 );
               },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _handleStreakPopup() {
+    final streak = _playerService.streakPopupNotifier.value;
+    if (streak == null || streak < 1 || !mounted) return;
+    _playerService.streakPopupNotifier.value = null;
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Day streak',
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, anim1, anim2) => const SizedBox.shrink(),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: CurvedAnimation(parent: anim1, curve: Curves.easeOutCubic),
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.9, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOutBack),
+            ),
+            child: StreakPopup(
+              streak: streak,
+              onSnooze: () => MilestoneService().snoozeStreakPopup(),
             ),
           ),
         );
@@ -435,6 +465,7 @@ class _MainShellState extends ConsumerState<MainShell>
       _onPlaybackDesyncChanged,
     );
     _playerService.pendingMilestoneNotifier.removeListener(_handleMilestone);
+    _playerService.streakPopupNotifier.removeListener(_handleStreakPopup);
     WidgetsBinding.instance.removeObserver(this);
     _navBarVisibilitySubscription.close();
     _navBarAlwaysVisibleSubscription.close();

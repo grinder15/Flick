@@ -281,7 +281,7 @@ class _DuplicateCleanerScreenState
             itemCount: result.duplicateGroups.length,
             itemBuilder: (context, index) {
               final group = result.duplicateGroups[index];
-              return _buildDuplicateGroupCard(context, group);
+              return _DuplicateGroupCard(group: group);
             },
           ),
         ),
@@ -320,9 +320,79 @@ class _DuplicateCleanerScreenState
     );
   }
 
-  Widget _buildDuplicateGroupCard(BuildContext context, dynamic group) {
-    final songToKeep = group.songToKeep;
-    final songsToRemove = group.songsToRemove;
+  void _showRemoveAllConfirmation(BuildContext context) {
+    final result = ref.read(duplicateScanProvider).result!;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+        ),
+        title: const Text(
+          'Remove All Duplicates?',
+          style: TextStyle(
+            fontFamily: 'ProductSans',
+            fontWeight: FontWeight.w600,
+            color: AppColors.textPrimary,
+          ),
+        ),
+        content: Text(
+          'This will remove ${result.totalDuplicates} duplicate songs, keeping the best quality version of each. This action cannot be undone.',
+          style: const TextStyle(
+            fontFamily: 'ProductSans',
+            fontSize: 14,
+            color: AppColors.textSecondary,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(
+                fontFamily: 'ProductSans',
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              ref.read(duplicateScanProvider.notifier).removeAllDuplicates();
+            },
+            child: const Text(
+              'Remove',
+              style: TextStyle(
+                fontFamily: 'ProductSans',
+                color: Colors.red,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DuplicateGroupCard extends StatefulWidget {
+  const _DuplicateGroupCard({required this.group});
+
+  final dynamic group;
+
+  @override
+  State<_DuplicateGroupCard> createState() => _DuplicateGroupCardState();
+}
+
+class _DuplicateGroupCardState extends State<_DuplicateGroupCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final songToKeep = widget.group.songToKeep;
+    final songsToRemove = widget.group.songsToRemove;
 
     return Container(
       margin: const EdgeInsets.only(bottom: AppConstants.spacingMd),
@@ -331,52 +401,102 @@ class _DuplicateCleanerScreenState
         borderRadius: BorderRadius.circular(AppConstants.radiusLg),
         border: Border.all(color: AppColors.glassBorder, width: 1),
       ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.all(AppConstants.spacingMd),
-        childrenPadding: const EdgeInsets.only(
-          left: AppConstants.spacingMd,
-          right: AppConstants.spacingMd,
-          bottom: AppConstants.spacingMd,
-        ),
-        leading: Container(
-          width: context.scaleSize(AppConstants.containerSizeSm),
-          height: context.scaleSize(AppConstants.containerSizeSm),
-          decoration: BoxDecoration(
-            color: AppColors.glassBackgroundStrong,
-            borderRadius: BorderRadius.circular(AppConstants.radiusSm),
-          ),
-          child: Icon(
-            LucideIcons.copy,
-            color: context.adaptiveTextSecondary,
-            size: context.responsiveIcon(AppConstants.iconSizeMd),
-          ),
-        ),
-        title: Text(
-          songToKeep.title,
-          style: TextStyle(
-            fontFamily: 'ProductSans',
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-            color: context.adaptiveTextPrimary,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${songToKeep.artist} • ${songsToRemove.length + 1} copies',
-          style: TextStyle(
-            fontFamily: 'ProductSans',
-            fontSize: 13,
-            color: context.adaptiveTextTertiary,
-          ),
-        ),
+      child: Column(
         children: [
-          // Song to keep
-          _buildSongItem(context, songToKeep, isKeeping: true),
-          const SizedBox(height: AppConstants.spacingSm),
-
-          // Songs to remove
-          ...songsToRemove.map((song) => _buildSongItem(context, song)),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(AppConstants.radiusLg),
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.all(AppConstants.spacingMd),
+                child: Row(
+                  children: [
+                    Container(
+                      width: context.scaleSize(AppConstants.containerSizeSm),
+                      height: context.scaleSize(AppConstants.containerSizeSm),
+                      decoration: BoxDecoration(
+                        color: AppColors.glassBackgroundStrong,
+                        borderRadius: BorderRadius.circular(
+                          AppConstants.radiusSm,
+                        ),
+                      ),
+                      child: Icon(
+                        LucideIcons.copy,
+                        color: context.adaptiveTextSecondary,
+                        size: context.responsiveIcon(AppConstants.iconSizeMd),
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.spacingMd),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            songToKeep.title,
+                            style: TextStyle(
+                              fontFamily: 'ProductSans',
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: context.adaptiveTextPrimary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${songToKeep.artist} • ${songsToRemove.length + 1} copies',
+                            style: TextStyle(
+                              fontFamily: 'ProductSans',
+                              fontSize: 13,
+                              color: context.adaptiveTextTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.spacingSm),
+                    AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: AppConstants.animationNormal,
+                      child: Icon(
+                        LucideIcons.chevronDown,
+                        color: context.adaptiveTextSecondary,
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          AnimatedSize(
+            duration: AppConstants.animationNormal,
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topCenter,
+            child: AnimatedOpacity(
+              duration: AppConstants.animationNormal,
+              opacity: _expanded ? 1.0 : 0.0,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.only(
+                        left: AppConstants.spacingMd,
+                        right: AppConstants.spacingMd,
+                        bottom: AppConstants.spacingMd,
+                      ),
+                      child: Column(
+                        children: [
+                          _buildSongItem(context, songToKeep, isKeeping: true),
+                          const SizedBox(height: AppConstants.spacingSm),
+                          ...songsToRemove.map(
+                            (song) => _buildSongItem(context, song),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
         ],
       ),
     );
@@ -442,62 +562,6 @@ class _DuplicateCleanerScreenState
                     ),
                   ),
               ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showRemoveAllConfirmation(BuildContext context) {
-    final result = ref.read(duplicateScanProvider).result!;
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppConstants.radiusLg),
-        ),
-        title: const Text(
-          'Remove All Duplicates?',
-          style: TextStyle(
-            fontFamily: 'ProductSans',
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        content: Text(
-          'This will remove ${result.totalDuplicates} duplicate songs, keeping the best quality version of each. This action cannot be undone.',
-          style: const TextStyle(
-            fontFamily: 'ProductSans',
-            fontSize: 14,
-            color: AppColors.textSecondary,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(
-                fontFamily: 'ProductSans',
-                color: AppColors.textSecondary,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              ref.read(duplicateScanProvider.notifier).removeAllDuplicates();
-            },
-            child: const Text(
-              'Remove',
-              style: TextStyle(
-                fontFamily: 'ProductSans',
-                color: Colors.red,
-                fontWeight: FontWeight.w600,
-              ),
             ),
           ),
         ],

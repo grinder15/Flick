@@ -13,6 +13,14 @@
         android:scaleType="centerCrop"
         android:src="@drawable/widget_default_art" />
 
+    <ImageView
+        android:id="@+id/widget_scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#80000000"
+        android:contentDescription="@string/widget_open_app"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/widget_content"
         android:layout_width="match_parent"

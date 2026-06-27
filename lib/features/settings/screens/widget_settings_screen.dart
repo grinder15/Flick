@@ -17,7 +17,17 @@ class WidgetSettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
+  static const _tabCount = 3;
   int _tab = 0;
+  int _dir = 1;
+
+  void _switchTo(int i) {
+    if (i < 0 || i >= _tabCount || i == _tab) return;
+    setState(() {
+      _dir = i > _tab ? 1 : -1;
+      _tab = i;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,11 +38,50 @@ class _WidgetSettingsScreenState extends ConsumerState<WidgetSettingsScreen> {
         children: [
           _TabBar(
             selectedIndex: _tab,
-            onSelected: (i) => setState(() => _tab = i),
+            onSelected: _switchTo,
           ),
           const SizedBox(height: AppConstants.spacingLg),
-          if (_tab == 0) const _MiniPlayerTab(),
-          if (_tab == 1) const _FlagshipTab(),
+          GestureDetector(
+            onHorizontalDragEnd: (details) {
+              final v = details.primaryVelocity ?? 0;
+              if (v < -250) {
+                _switchTo(_tab + 1);
+              } else if (v > 250) {
+                _switchTo(_tab - 1);
+              }
+            },
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              layoutBuilder: (currentChild, previousChildren) => Stack(
+                alignment: Alignment.topCenter,
+                children: [
+                  ...previousChildren,
+                  ?currentChild,
+                ],
+              ),
+              transitionBuilder: (child, animation) {
+                final incoming = (child.key as ValueKey).value == _tab;
+                final beginX = (incoming ? _dir : -_dir).toDouble();
+                return SlideTransition(
+                  position: Tween<Offset>(
+                    begin: Offset(beginX, 0),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: FadeTransition(opacity: animation, child: child),
+                );
+              },
+              child: KeyedSubtree(
+                key: ValueKey(_tab),
+                child: _tab == 0
+                    ? const _MiniPlayerTab()
+                    : _tab == 1
+                    ? const _FlagshipTab()
+                    : const _CompactTab(),
+              ),
+            ),
+          ),
           const SizedBox(height: AppConstants.navBarHeight + 40),
         ],
       ),
@@ -51,7 +100,7 @@ class _TabBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-        const tabs = ['Mini Player', '4×3 Flagship'];
+        const tabs = ['Mini Player', '4×3 Flagship', '2×2'];
     return Row(
       children: List.generate(tabs.length * 2 - 1, (i) {
         if (i.isOdd) {
@@ -324,6 +373,157 @@ class _FlagshipTab extends ConsumerWidget {
     final prefs = ref.read(appPreferencesProvider);
     WidgetSyncService.instance.pushCustomization(
       prefs.copyWith(widgetFlagshipAccent: value),
+    );
+  }
+}
+
+class _CompactTab extends ConsumerWidget {
+  const _CompactTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final prefs = ref.watch(appPreferencesProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SettingsSectionHeader('Background'),
+        SettingsCard(
+          children: [
+            _OpacityOption(
+              label: 'Transparent',
+              value: 0,
+              groupValue: prefs.widgetCompactBgOpacity,
+              onChanged: (v) => _updateCompactOpacity(ref, v),
+            ),
+            const SettingsDivider(),
+            _OpacityOption(
+              label: 'Light',
+              value: 1,
+              groupValue: prefs.widgetCompactBgOpacity,
+              onChanged: (v) => _updateCompactOpacity(ref, v),
+            ),
+            const SettingsDivider(),
+            _OpacityOption(
+              label: 'Medium',
+              value: 2,
+              groupValue: prefs.widgetCompactBgOpacity,
+              onChanged: (v) => _updateCompactOpacity(ref, v),
+            ),
+            const SettingsDivider(),
+            _OpacityOption(
+              label: 'Dark',
+              value: 3,
+              groupValue: prefs.widgetCompactBgOpacity,
+              onChanged: (v) => _updateCompactOpacity(ref, v),
+            ),
+            const SettingsDivider(),
+            _OpacityOption(
+              label: 'Solid',
+              value: 4,
+              groupValue: prefs.widgetCompactBgOpacity,
+              onChanged: (v) => _updateCompactOpacity(ref, v),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppConstants.spacingLg),
+        const SettingsSectionHeader('Content'),
+        SettingsCard(
+          children: [
+            ToggleSetting(
+              icon: LucideIcons.image,
+              title: 'Album Art',
+              subtitle: 'Use album art as background',
+              value: prefs.widgetCompactShowAlbumArt,
+              onChanged: (v) {
+                ref
+                    .read(appPreferencesProvider.notifier)
+                    .setWidgetCompactShowAlbumArt(v);
+                WidgetSyncService.instance.pushCustomization(prefs.copyWith(
+                  widgetCompactShowAlbumArt: v,
+                ));
+              },
+            ),
+            const SettingsDivider(),
+            ToggleSetting(
+              icon: LucideIcons.mic,
+              title: 'Artist Name',
+              subtitle: 'Show artist below song title',
+              value: prefs.widgetCompactShowArtist,
+              onChanged: (v) {
+                ref
+                    .read(appPreferencesProvider.notifier)
+                    .setWidgetCompactShowArtist(v);
+                WidgetSyncService.instance.pushCustomization(prefs.copyWith(
+                  widgetCompactShowArtist: v,
+                ));
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: AppConstants.spacingLg),
+        const SettingsSectionHeader('Accent Color'),
+        SettingsCard(
+          children: [
+            _AccentOption(
+              label: 'White',
+              color: Colors.white,
+              value: 'white',
+              groupValue: prefs.widgetCompactAccent,
+              onChanged: (v) => _updateCompactAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Amber',
+              color: const Color(0xFFFFB300),
+              value: 'amber',
+              groupValue: prefs.widgetCompactAccent,
+              onChanged: (v) => _updateCompactAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Blue',
+              color: const Color(0xFF64B5F6),
+              value: 'blue',
+              groupValue: prefs.widgetCompactAccent,
+              onChanged: (v) => _updateCompactAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Green',
+              color: const Color(0xFF81C784),
+              value: 'green',
+              groupValue: prefs.widgetCompactAccent,
+              onChanged: (v) => _updateCompactAccent(ref, v),
+            ),
+            const SettingsDivider(),
+            _AccentOption(
+              label: 'Purple',
+              color: const Color(0xFFCE93D8),
+              value: 'purple',
+              groupValue: prefs.widgetCompactAccent,
+              onChanged: (v) => _updateCompactAccent(ref, v),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  void _updateCompactOpacity(WidgetRef ref, int value) {
+    ref
+        .read(appPreferencesProvider.notifier)
+        .setWidgetCompactBgOpacity(value);
+    final prefs = ref.read(appPreferencesProvider);
+    WidgetSyncService.instance.pushCustomization(
+      prefs.copyWith(widgetCompactBgOpacity: value),
+    );
+  }
+
+  void _updateCompactAccent(WidgetRef ref, String value) {
+    ref.read(appPreferencesProvider.notifier).setWidgetCompactAccent(value);
+    final prefs = ref.read(appPreferencesProvider);
+    WidgetSyncService.instance.pushCustomization(
+      prefs.copyWith(widgetCompactAccent: value),
     );
   }
 }

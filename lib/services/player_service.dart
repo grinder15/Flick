@@ -340,6 +340,9 @@ class PlayerService {
   final ValueNotifier<MilestoneType?> pendingMilestoneNotifier = ValueNotifier(
     null,
   );
+  // Carries the day streak recorded on launch, or null when no popup is
+  // pending. MainShell listens and shows the StreakPopup. Cleared on show.
+  final ValueNotifier<int?> streakPopupNotifier = ValueNotifier(null);
   final MilestoneService _milestoneService = MilestoneService();
   bool get _usingRustBackend => usingRustBackendNotifier.value;
   set _usingRustBackend(bool value) => usingRustBackendNotifier.value = value;
@@ -2053,6 +2056,25 @@ class PlayerService {
     if (milestone != null) {
       await _milestoneService.markMilestoneShown(milestone);
       pendingMilestoneNotifier.value = milestone;
+    }
+  }
+
+  /// Records that the user was active today (advancing the day-streak) and
+  /// checks for any milestone unlocked purely by opening the app — e.g. a
+  /// streak tier. Called once at startup after the milestone notifier is
+  /// wired so the celebration dialog can still fire.
+  Future<void> recordActivityDayAndCheckMilestones() async {
+    final streak = await _milestoneService.recordActivityDay();
+    final milestone = await _milestoneService.checkMilestones();
+    if (milestone != null) {
+      await _milestoneService.markMilestoneShown(milestone);
+      pendingMilestoneNotifier.value = milestone;
+    }
+    // Defer the streak popup when a milestone unlocks so the celebration
+    // dialog owns the moment; it will fire on the next launch.
+    final snoozed = await _milestoneService.isStreakPopupSnoozed();
+    if (milestone == null && !snoozed && streak >= 1 && streakPopupNotifier.value == null) {
+      streakPopupNotifier.value = streak;
     }
   }
 

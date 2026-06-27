@@ -254,6 +254,53 @@ class FxSettings {
 }
 
 @immutable
+class ConvolverSettings {
+  final bool enabled;
+  final double mix; // 0..1 (wet amount)
+  final String? irPath; // stable path inside app docs dir, null = none loaded
+  final String? irDisplayName;
+
+  const ConvolverSettings({
+    this.enabled = false,
+    this.mix = 1.0,
+    this.irPath,
+    this.irDisplayName,
+  });
+
+  ConvolverSettings copyWith({
+    bool? enabled,
+    double? mix,
+    String? irPath,
+    String? irDisplayName,
+    bool clearIrPath = false,
+    bool clearIrDisplayName = false,
+  }) {
+    return ConvolverSettings(
+      enabled: enabled ?? this.enabled,
+      mix: mix ?? this.mix,
+      irPath: clearIrPath ? null : (irPath ?? this.irPath),
+      irDisplayName:
+          clearIrDisplayName ? null : (irDisplayName ?? this.irDisplayName),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'mix': mix,
+    'irPath': irPath,
+    'irDisplayName': irDisplayName,
+  };
+
+  factory ConvolverSettings.fromJson(Map<String, dynamic> json) =>
+      ConvolverSettings(
+        enabled: (json['enabled'] as bool?) ?? false,
+        mix: (json['mix'] as num?)?.toDouble() ?? 1.0,
+        irPath: json['irPath'] as String?,
+        irDisplayName: json['irDisplayName'] as String?,
+      );
+}
+
+@immutable
 class ParametricBand {
   final bool enabled;
   final double frequencyHz; // 20..20000
@@ -391,6 +438,7 @@ class EqualizerState {
   final CompressorSettings compressor;
   final LimiterSettings limiter;
   final FxSettings fx;
+  final ConvolverSettings convolver;
 
   const EqualizerState({
     this.enabled = true,
@@ -405,6 +453,7 @@ class EqualizerState {
     this.compressor = const CompressorSettings(),
     this.limiter = const LimiterSettings(),
     this.fx = const FxSettings(),
+    this.convolver = const ConvolverSettings(),
   });
 
   EqualizerState copyWith({
@@ -420,6 +469,7 @@ class EqualizerState {
     CompressorSettings? compressor,
     LimiterSettings? limiter,
     FxSettings? fx,
+    ConvolverSettings? convolver,
     bool clearActivePresetName = false,
   }) {
     return EqualizerState(
@@ -437,6 +487,7 @@ class EqualizerState {
       compressor: compressor ?? this.compressor,
       limiter: limiter ?? this.limiter,
       fx: fx ?? this.fx,
+      convolver: convolver ?? this.convolver,
     );
   }
 
@@ -492,6 +543,7 @@ class EqualizerState {
     'compressor': compressor.toJson(),
     'limiter': limiter.toJson(),
     'fx': fx.toJson(),
+    'convolver': convolver.toJson(),
   };
 
   factory EqualizerState.fromJson(Map<String, dynamic> json) {
@@ -513,6 +565,7 @@ class EqualizerState {
     final compJson = (json['compressor'] as Map<String, dynamic>?);
     final limJson = (json['limiter'] as Map<String, dynamic>?);
     final fxJson = (json['fx'] as Map<String, dynamic>?);
+    final convolverJson = (json['convolver'] as Map<String, dynamic>?);
 
     return EqualizerState(
       enabled: (json['enabled'] as bool?) ?? true,
@@ -541,6 +594,9 @@ class EqualizerState {
           ? LimiterSettings.fromJson(limJson)
           : const LimiterSettings(),
       fx: fxJson != null ? FxSettings.fromJson(fxJson) : const FxSettings(),
+      convolver: convolverJson != null
+          ? ConvolverSettings.fromJson(convolverJson)
+          : const ConvolverSettings(),
     );
   }
 }
@@ -595,6 +651,8 @@ class EqualizerNotifier extends Notifier<EqualizerState> {
   static const double fxFeedbackMax = 0.95;
   static const double fxWidthMin = 0.0;
   static const double fxWidthMax = 2.0;
+  static const double convolverMixMin = 0.0;
+  static const double convolverMixMax = 1.0;
   static const int maxParametricBands = 31;
 
   static const String _eqStateKey = 'eq_state_v1';
@@ -607,7 +665,13 @@ class EqualizerNotifier extends Notifier<EqualizerState> {
       if (saved != null) {
         state = saved;
       }
-      applyEqualizer(state).ignore();
+      await applyEqualizer(state);
+      final ir = state.convolver.irPath;
+      if (ir != null && ir.isNotEmpty) {
+        try {
+          await loadConvolverIr(ir);
+        } catch (_) {}
+      }
       ref.read(eqGraphRepaintControllerProvider).bump();
     });
     return initialState;
@@ -981,6 +1045,46 @@ class EqualizerNotifier extends Notifier<EqualizerState> {
     _syncToAudio();
   }
 
+  void setConvolverEnabled(bool enabled) {
+    state = state.copyWith(
+      convolver: state.convolver.copyWith(enabled: enabled),
+      clearActivePresetName: true,
+    );
+    _syncToAudio();
+  }
+
+  void setConvolverMix(double mix) {
+    final clamped = mix.clamp(convolverMixMin, convolverMixMax);
+    state = state.copyWith(
+      convolver: state.convolver.copyWith(mix: clamped),
+      clearActivePresetName: true,
+    );
+    _syncToAudio();
+  }
+
+  void setConvolverIr(String path, String displayName) {
+    state = state.copyWith(
+      convolver: state.convolver.copyWith(
+        irPath: path,
+        irDisplayName: displayName,
+      ),
+      clearActivePresetName: true,
+    );
+    _syncToAudio();
+  }
+
+  void clearConvolverIr() {
+    state = state.copyWith(
+      convolver: state.convolver.copyWith(
+        enabled: false,
+        clearIrPath: true,
+        clearIrDisplayName: true,
+      ),
+      clearActivePresetName: true,
+    );
+    _syncToAudio();
+  }
+
   void addParametricBand() {
     if (state.parametricBands.length >= maxParametricBands) {
       return;
@@ -1097,4 +1201,8 @@ final eqLimiterProvider = Provider<LimiterSettings>((ref) {
 
 final eqFxProvider = Provider<FxSettings>((ref) {
   return ref.watch(equalizerProvider.select((s) => s.fx));
+});
+
+final eqConvolverProvider = Provider<ConvolverSettings>((ref) {
+  return ref.watch(equalizerProvider.select((s) => s.convolver));
 });

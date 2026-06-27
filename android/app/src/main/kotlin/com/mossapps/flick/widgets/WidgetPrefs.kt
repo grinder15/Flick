@@ -97,4 +97,46 @@ internal object WidgetPrefs {
         }
     }
 
+    // --- Compact widget preferences ---
+
+    private const val KEY_COMPACT_BG_OPACITY = "flick_widget_compact_bg_opacity"
+    private const val KEY_COMPACT_SHOW_ALBUM_ART = "flick_widget_compact_show_album_art"
+    private const val KEY_COMPACT_SHOW_ARTIST = "flick_widget_compact_show_artist"
+    private const val KEY_COMPACT_ACCENT = "flick_widget_compact_accent"
+
+    fun getCompactBgOpacityAlpha(context: Context): Int {
+        val level = get(context).getInt(KEY_COMPACT_BG_OPACITY, 3)
+        return BG_OPACITY_MAP[level] ?: 0xC0
+    }
+
+    fun getCompactBackgroundDrawableRes(context: Context): Int {
+        val level = get(context).getInt(KEY_COMPACT_BG_OPACITY, 3)
+        return when (level) {
+            0 -> R.drawable.widget_bg_0
+            1 -> R.drawable.widget_bg_1
+            2 -> R.drawable.widget_bg_2
+            4 -> R.drawable.widget_bg_4
+            else -> R.drawable.widget_bg_3
+        }
+    }
+
+    fun getCompactShowAlbumArt(context: Context): Boolean =
+        get(context).getBoolean(KEY_COMPACT_SHOW_ALBUM_ART, true)
+
+    fun getCompactShowArtist(context: Context): Boolean =
+        get(context).getBoolean(KEY_COMPACT_SHOW_ARTIST, true)
+
+    fun getCompactAccentName(context: Context): String =
+        get(context).getString(KEY_COMPACT_ACCENT, "white") ?: "white"
+
+    fun getCompactAccentColor(context: Context): Int {
+        return when (getCompactAccentName(context)) {
+            "amber" -> 0xFFFFB300.toInt()
+            "blue" -> 0xFF64B5F6.toInt()
+            "green" -> 0xFF81C784.toInt()
+            "purple" -> 0xFFCE93D8.toInt()
+            else -> 0xFFFFFFFF.toInt()
+        }
+    }
+
 }

@@ -57,4 +57,6 @@ class AppColors {
   static const Color milestoneGold = Color(0xFFD4B265);
   static const Color milestoneSapphire = Color(0xFF8BB8FF);
   static const Color milestoneAmethyst = Color(0xFFC4A3FF);
+  // Capper for the top song tier (10k) — caps the six-rung gem ladder.
+  static const Color milestoneEmerald = Color(0xFF7FD3A0);
 }

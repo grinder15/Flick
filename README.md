@@ -25,8 +25,9 @@
 - **EQ Preset Management**: Import/export functionality for EQ presets in JSON and TXT formats with parametric band support
 - **31-Band Parametric EQ**: Full 1/3-octave ISO frequency equalizer (20 Hz–20 kHz) with horizontal band editors and detail panel
 - **Gapless Playback**: Seamless transitions between tracks without silence
-- **Crossfade Support**: Configurable crossfade between tracks
-- **Bluetooth Codec Info**: Reference display of supported Bluetooth audio codecs and current route
+- **Crossfade Support**: Rust-engine crossfade between tracks with configurable `CrossfadeCurve`; pending configuration is held in atomics and survives engine recreation
+- **Convolver (IR Reverb)**: Direct-time-domain convolution reverb from impulse-response WAV files, with dry/wet mix, integrated into the equalizer (`convolver_enable`, `convolver_mix`, `convolver_load_ir`, `convolver_clear`)
+- **Bluetooth Management**: Dedicated Bluetooth settings screen with A2DP codec info and battery level, low-latency mode (Rust Oboe), pause-on-disconnect, reconnect resume, and Android 12+ connect permission
 - **DSD Playback** (experimental): Native DSD, DoP, and PCM decimation output modes for DSF, DFF, and WavPack DSD files via custom Rust engine. USB direct native DSD with quirk-based byte ordering and multi-byte interleaved payload packing. I32 stream passthrough for DAPs.
 - **Audio Engine Selector**: Manual engine selection from the main menu, with auto-detection fallback
 
@@ -40,7 +41,7 @@
 - **USB Volume Control**: Dedicated volume popup with slider and mute for isochronous USB audio engines
 - **Scoring-Based Backend Selection**: Dynamic output strategy selection with compatibility scoring
 - **DAP Signature Registry**: Device detection via extensible signature registry (brand/models)
-- **DSD Quirks Table**: Per-device byte ordering overrides (endianness, bit reversal, subslot size) for native DSD compatibility (e.g., MOONDROP Dawn Pro)
+- **Unified Quirk Database**: Per-device DSD transport overrides (byte order, bit order, byte reverse, subslot size) driven from a single quirk DB and synced to the Rust engine before playback (e.g., MOONDROP Dawn Pro). 24-bit USB DoP uses corrected bits-per-frame; UAC2 alt-settings are probed for DSD/DoP capability before stream start
 - **Enabled by Default**: UAC2 feature and multi-byte DSD slots active by default
 
 ### Advanced Equalizer & Audio Effects
@@ -48,15 +49,18 @@
 - Real-time audio processing with EQ, dynamics, and spatial effects
 - Preset management with import/export functionality (JSON/TXT formats)
 - Spatial and time effects including balance, tempo, damp, filter, delay, size, mix, feedback, and width
+- **Convolution Reverb**: Direct-time-domain convolver loads impulse-response WAV files for IR reverb with dry/wet mix, exposed as a convolver section on the equalizer screen with persistent settings
 - Android-optimized audio processing via JustAudioProcessingController
 - **Visualizer Customization**: Five animation styles (Bars, Wave, Curved Wave, Mirrored, Dots), five frequency modes, three movement styles, and album-dominant-color preview in visualizer settings
 
 ### Library Management
 - MediaStore-based scanning with differential database sync (~34x faster than filesystem walk)
+- **Removable Storage Scanning**: SD card and USB drive folders scannable via Android SAF, with per-volume MediaStore support; `FolderEntity` carries `isRemovable`, `mediaStoreVolume`, and `volumeState`, an external status label on the folder card, inline USB status during deep scans, and graceful unmount handling with an instant SAF scan fallback
 - Background metadata extraction and MediaStore change observer for live updates
 - Metadata extraction (ID3 tags, Vorbis comments) using `lofty` with dedicated DSD parsers (`dsf-meta`, `dff-meta`) for DSF, DFF, and WavPack DSD files
 - Fast library queries via Isar database
 - Browse by songs, albums, artists, folders, playlists, favorites, and recently played
+- **Album List View**: Album browsing list mode with multi-selection actions and a queue-all-songs button
 - **Album Art Import**: Search and import album art from MusicBrainz/Cover Art Archive, iTunes, and Deezer
 - **Delete Songs**: Remove songs from library or delete files entirely
 - **Content URI Support**: Android SAF content URIs are staged to local cache for playback (supports ALAC/AIFF/M4A via WAV conversion)
@@ -66,7 +70,7 @@
 - **Folder Grid View**: Paginated grid of folder cards with infinite scroll when browsing by folder
 - **Swipe Actions**: Swipe left to queue, right to favorite on song cards (toggleable)
 - **Multi-Select**: Long-press to enter batch selection with queue/favorite bulk actions
-- **Metadata Editor**: Full tag editing (title, artist, album, year, genre, track number) via Rust backend with SAF file writing
+- **Metadata Editor**: Full tag editing (title, artist, album, year, genre, track number) via Rust backend with SAF file writing. Tag writes are verified with typed outcomes, metadata is validated before save, the original file is copied to a temp path for safe rollback, and write URI permission is persisted alongside read permission
 - **Album & Folder Sorting**: Sort albums and folders by title, artist, duration, track count with persistent preferences
 - **Artist Detail Redesign**: Riverpod-based screen with dynamic color theming from album art, full-bleed artist image background, tinted app bar, and cached artist metadata via `ArtistEntity` Isar collection
 - **Playlist Detail Redesign**: Dynamic color theming extracted from most-played song's album art, info chips (track count, total duration, dates), "Other Playlists" section, and playlist metadata helpers
@@ -86,13 +90,15 @@
 - **Song Sharing**: Share songs as album art, lyric, minimal, or solid color cards — save to gallery or share via apps
 - **Custom Player Action Buttons**: Configure left and right action button slots (rating, share, lyrics, shuffle, etc.)
 - **Milestone Tracking**: Achievement milestones for songs played (100/500/1000) and listening time (10/50 hours) with redesigned celebration cards (per-tier accent color, hero icon, "next milestone" hint) and an in-app collection view (Settings → Milestones) for re-viewing past achievements like a trophy case
+- **Day Streaks & New Tiers**: Consecutive-listening-day streak tracking with a flame-icon popup (and snooze), a unique-artist-count milestone, a new emerald tier, and category-grouped milestones with collapsible sections
 
 ### Home Screen Widget
-- **Mini Player Widget**: Native Android widget with album art, progress bar, and transport controls
+- **Mini Player Widget**: Native Android widget with album art, progress bar, and transport controls; semi-transparent scrim overlay whose visibility matches album art presence
+- **Compact Widget**: 2×2 `CompactWidgetProvider` widget with track text and transport controls, backed by its own compact-specific preferences tab
 - **Flagship Widget**: Larger card and split-layout widgets with theme support and customizable appearance
 - Works even when the app is killed
 - Customizable background opacity, accent color, and visible content via Settings > Widgets
-- Tabbed widget settings for managing multiple widget types
+- Tabbed widget settings with swipe gestures between tabs and animated transitions
 
 ### Flick Replay (Listening Recap)
 - Daily, weekly, monthly, and yearly listening recaps
@@ -260,6 +266,7 @@ flick_player/
 │   │   ├── lyrics_service.dart               # Lyrics loading, parsing, editing
 │   │   ├── online_lyrics_service.dart        # LRCLib.net lyrics search
 │   │   ├── widget_sync_service.dart          # Home screen widget state sync
+│   │   ├── bluetooth_service.dart            # Bluetooth device/codec management
 │   │   └── widget_intent_handler.dart        # Widget action dispatch
 │   └── widgets/                 # Reusable widgets (including deprecated UAC2 widgets)
 ├── rust/                         # Rust backend
@@ -275,8 +282,9 @@ flick_player/
 │       │   ├── resampler.rs      # Sample rate conversion
 │       │   ├── equalizer.rs      # 31-band parametric EQ
 │       │   ├── fx.rs             # Spatial and time effects
+│       │   ├── convolver/        # Direct-time-domain IR convolution reverb
 │       │   ├── dynamics.rs       # Compressor/limiter
-│       │   ├── crossfader.rs     # Crossfade support
+│       │   ├── crossfader.rs     # Crossfade engine (CrossfadeCurve)
 │       │   ├── source.rs         # Gapless playback queue
 │       │   └── strategy.rs       # Output strategy selection
 │       └── uac2/                 # USB Audio Class 2.0
@@ -381,6 +389,10 @@ The Rust backend communicates with Flutter via `flutter_rust_bridge`, providing:
 Documentation is available in the `docs/` directory:
 - `DOCUMENTATION.md`: Detailed architecture and design documentation
 - `CHANGELOG.md`: Consolidated changelog across all versions
+- `RELEASE_0.20.0-beta.2.md`: Release notes for 0.20.0-beta.2
+- `RELEASE_0.19.1-beta.2.md`: Release notes for 0.19.1-beta.2
+- `RELEASE_0.19.0-beta.1.md`: Release notes for 0.19.0-beta.1
+- `RELEASE_0.18.0-beta.1.md`: Release notes for 0.18.0-beta.1
 - `RELEASE_0.17.0-beta.1.md`: Release notes for 0.17.0-beta.1
 - `RELEASE_0.16.0-beta.1.md`: Release notes for 0.16.0-beta.1
 - `RELEASE_0.15.0-beta.1.md`: Release notes for 0.15.0-beta.1

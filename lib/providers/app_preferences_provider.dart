@@ -492,6 +492,18 @@ class AppPreferencesNotifier extends Notifier<AppPreferences> {
     state = state.copyWith(autoFocusSearch: value);
     await ref.read(appPreferencesServiceProvider).setAutoFocusSearch(value);
   }
+
+  Future<void> setRefreshRateMode(String value) async {
+    if (state.refreshRateMode == value) return;
+    state = state.copyWith(refreshRateMode: value);
+    await ref.read(appPreferencesServiceProvider).setRefreshRateMode(value);
+  }
+
+  Future<void> setVisualizerEnabled(bool value) async {
+    if (state.visualizerEnabled == value) return;
+    state = state.copyWith(visualizerEnabled: value);
+    await ref.read(appPreferencesServiceProvider).setVisualizerEnabled(value);
+  }
 }
 
 final appPreferencesProvider =

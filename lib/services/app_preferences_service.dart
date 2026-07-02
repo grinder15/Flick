@@ -64,6 +64,7 @@ class AppPreferences {
   final String btLdacBitrate;
   final bool btAbsoluteVolumeSync;
   final bool floatingPlayerEnabled;
+  final bool floatingIslandEnabled;
   final bool autoFocusSearch;
   final String searchPlaybackMode; // 'results', 'library', or 'queue'
 
@@ -131,6 +132,7 @@ class AppPreferences {
     this.btLdacBitrate = 'adaptive',
     this.btAbsoluteVolumeSync = false,
     this.floatingPlayerEnabled = false,
+    this.floatingIslandEnabled = true,
     this.autoFocusSearch = false,
     this.searchPlaybackMode = 'results',
   });
@@ -199,6 +201,7 @@ class AppPreferences {
     String? btLdacBitrate,
     bool? btAbsoluteVolumeSync,
     bool? floatingPlayerEnabled,
+    bool? floatingIslandEnabled,
     bool? autoFocusSearch,
     String? searchPlaybackMode,
   }) {
@@ -295,6 +298,8 @@ class AppPreferences {
           btAbsoluteVolumeSync ?? this.btAbsoluteVolumeSync,
       floatingPlayerEnabled:
           floatingPlayerEnabled ?? this.floatingPlayerEnabled,
+      floatingIslandEnabled:
+          floatingIslandEnabled ?? this.floatingIslandEnabled,
       autoFocusSearch: autoFocusSearch ?? this.autoFocusSearch,
       searchPlaybackMode:
           searchPlaybackMode ?? this.searchPlaybackMode,
@@ -371,6 +376,7 @@ class AppPreferencesService {
   static const _btLdacBitrateKey = 'app_bt_ldac_bitrate';
   static const _btAbsoluteVolumeSyncKey = 'app_bt_absolute_volume_sync';
   static const _floatingPlayerEnabledKey = 'app_floating_player_enabled';
+  static const _floatingIslandEnabledKey = 'app_floating_island_enabled';
   static const _autoFocusSearchKey = 'app_auto_focus_search';
   static const _searchPlaybackModeKey = 'app_search_playback_mode';
   static const _shuffleModeKey = 'playback_shuffle_mode';
@@ -470,6 +476,8 @@ class AppPreferencesService {
           prefs.getBool(_btAbsoluteVolumeSyncKey) ?? false,
       floatingPlayerEnabled:
           prefs.getBool(_floatingPlayerEnabledKey) ?? false,
+      floatingIslandEnabled:
+          prefs.getBool(_floatingIslandEnabledKey) ?? true,
       autoFocusSearch: prefs.getBool(_autoFocusSearchKey) ?? false,
       searchPlaybackMode:
           prefs.getString(_searchPlaybackModeKey) ?? 'results',
@@ -1088,6 +1096,16 @@ class AppPreferencesService {
   Future<void> setFloatingPlayerEnabled(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_floatingPlayerEnabledKey, value);
+  }
+
+  Future<bool> getFloatingIslandEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_floatingIslandEnabledKey) ?? true;
+  }
+
+  Future<void> setFloatingIslandEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_floatingIslandEnabledKey, value);
   }
 
   Future<bool> getAutoFocusSearch() async {

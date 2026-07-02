@@ -97,6 +97,20 @@ class PlaybackDisplaySettingsScreen extends ConsumerWidget {
                 },
               ),
               const SettingsDivider(),
+              ToggleSetting(
+                icon: LucideIcons.circleDot,
+                title: 'Floating Island',
+                subtitle: appPrefs.floatingIslandEnabled
+                    ? 'Show the floating mini-player pill on screens'
+                    : 'Hide the floating mini-player pill',
+                value: appPrefs.floatingIslandEnabled,
+                onChanged: (value) {
+                  ref
+                      .read(appPreferencesProvider.notifier)
+                      .setFloatingIslandEnabled(value);
+                },
+              ),
+              const SettingsDivider(),
               SliderSetting(
                 icon: LucideIcons.maximize,
                 title: 'Immersive Full View Timer',

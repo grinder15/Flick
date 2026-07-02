@@ -19,6 +19,9 @@ class EqPresetFileService {
 
   static final Map<String, ParametricBandType> _codeToBandType = {
     for (final entry in _bandTypeCodes.entries) entry.value: entry.key,
+    // AutoEq emits LSC/HSC for shelves; EqualizerAPO treats them as LS/HS.
+    'LSC': ParametricBandType.lowShelf,
+    'HSC': ParametricBandType.highShelf,
   };
 
   static final RegExp _preampLinePattern = RegExp(

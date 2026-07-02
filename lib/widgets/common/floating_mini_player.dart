@@ -212,6 +212,9 @@ class _FloatingMiniPlayerState extends ConsumerState<FloatingMiniPlayer>
     final currentSong = ref.watch(currentSongProvider);
     if (currentSong == null) return const SizedBox.shrink();
 
+    final appPrefs = ref.watch(appPreferencesProvider);
+    if (!appPrefs.floatingIslandEnabled) return const SizedBox.shrink();
+
     final topPadding = MediaQuery.of(context).padding.top;
     final screenSize = MediaQuery.of(context).size;
 

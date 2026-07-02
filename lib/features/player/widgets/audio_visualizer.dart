@@ -11,6 +11,7 @@ class AudioVisualizer extends StatefulWidget {
   final String frequencyMode;
   final String movementMode;
   final Color? albumColor;
+  final bool enabled;
 
   const AudioVisualizer({
     super.key,
@@ -19,6 +20,7 @@ class AudioVisualizer extends StatefulWidget {
     this.frequencyMode = 'full',
     this.movementMode = 'bouncy',
     this.albumColor,
+    this.enabled = true,
   });
 
   @override
@@ -60,7 +62,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
       duration: const Duration(seconds: 1),
     );
     _controller.addListener(_onFrame);
-    _controller.repeat();
+    if (widget.enabled && _isPlaying) {
+      _controller.repeat();
+    }
 
     widget.playerService.isPlayingNotifier.addListener(_onPlayingChanged);
     widget.playerService.positionNotifier.addListener(_onPositionChanged);
@@ -75,6 +79,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
   @override
   void didUpdateWidget(AudioVisualizer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.enabled != widget.enabled) {
+      _updateControllerState();
+    }
     if (oldWidget.playerService != widget.playerService) {
       oldWidget.playerService.isPlayingNotifier.removeListener(
         _onPlayingChanged,
@@ -289,6 +296,18 @@ class _AudioVisualizerState extends State<AudioVisualizer>
         _targetHeights[i] = _minHeight + _frand(i * 97) * 0.06;
       }
     }
+    _updateControllerState();
+  }
+
+  void _updateControllerState() {
+    if (!mounted) return;
+    if (!widget.enabled) {
+      if (_controller.isAnimating) _controller.stop();
+      return;
+    }
+    if (_isPlaying && !_controller.isAnimating) {
+      _controller.repeat();
+    }
   }
 
   void _onFrame() {
@@ -331,6 +350,19 @@ class _AudioVisualizerState extends State<AudioVisualizer>
     if (_isPlaying && _frameCount % 2 == 0) {
       final ms = widget.playerService.positionNotifier.value.inMilliseconds;
       _computeSimulatedTargets(ms);
+    }
+
+    if (!_isPlaying && !_useRealData && _controller.isAnimating) {
+      bool settled = true;
+      for (int i = 0; i < _barCount; i++) {
+        if ((_currentHeights[i] - _minHeight).abs() > 0.01) {
+          settled = false;
+          break;
+        }
+      }
+      if (settled) {
+        _controller.stop();
+      }
     }
   }
 
@@ -408,6 +440,9 @@ class _AudioVisualizerState extends State<AudioVisualizer>
 
   @override
   Widget build(BuildContext context) {
+    if (!widget.enabled) {
+      return const SizedBox.shrink();
+    }
     return RepaintBoundary(
       child: AnimatedBuilder(
         animation: _controller,

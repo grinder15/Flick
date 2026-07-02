@@ -824,6 +824,7 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
         frequencyMode: prefs.visualizerFrequencyMode,
         movementMode: prefs.visualizerMovementMode,
         albumColor: albumColor,
+        enabled: prefs.visualizerEnabled,
       );
     }
 
@@ -862,6 +863,7 @@ class _AudioInfoBottomSheetState extends ConsumerState<_AudioInfoBottomSheet> {
       frequencyMode: prefs.visualizerFrequencyMode,
       movementMode: prefs.visualizerMovementMode,
       albumColor: albumColor,
+      enabled: prefs.visualizerEnabled,
     );
   }
 

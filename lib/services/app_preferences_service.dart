@@ -64,8 +64,11 @@ class AppPreferences {
   final String btLdacBitrate;
   final bool btAbsoluteVolumeSync;
   final bool floatingPlayerEnabled;
+  final bool floatingIslandEnabled;
   final bool autoFocusSearch;
   final String searchPlaybackMode; // 'results', 'library', or 'queue'
+  final String refreshRateMode; // 'high', 'standard', 'adaptive'
+  final bool visualizerEnabled;
 
   const AppPreferences({
     this.animationsEnabled = true,
@@ -131,8 +134,11 @@ class AppPreferences {
     this.btLdacBitrate = 'adaptive',
     this.btAbsoluteVolumeSync = false,
     this.floatingPlayerEnabled = false,
+    this.floatingIslandEnabled = true,
     this.autoFocusSearch = false,
     this.searchPlaybackMode = 'results',
+    this.refreshRateMode = 'high',
+    this.visualizerEnabled = true,
   });
 
   AppPreferences copyWith({
@@ -199,8 +205,11 @@ class AppPreferences {
     String? btLdacBitrate,
     bool? btAbsoluteVolumeSync,
     bool? floatingPlayerEnabled,
+    bool? floatingIslandEnabled,
     bool? autoFocusSearch,
     String? searchPlaybackMode,
+    String? refreshRateMode,
+    bool? visualizerEnabled,
   }) {
     return AppPreferences(
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
@@ -295,9 +304,13 @@ class AppPreferences {
           btAbsoluteVolumeSync ?? this.btAbsoluteVolumeSync,
       floatingPlayerEnabled:
           floatingPlayerEnabled ?? this.floatingPlayerEnabled,
+      floatingIslandEnabled:
+          floatingIslandEnabled ?? this.floatingIslandEnabled,
       autoFocusSearch: autoFocusSearch ?? this.autoFocusSearch,
       searchPlaybackMode:
           searchPlaybackMode ?? this.searchPlaybackMode,
+      refreshRateMode: refreshRateMode ?? this.refreshRateMode,
+      visualizerEnabled: visualizerEnabled ?? this.visualizerEnabled,
     );
   }
 }
@@ -371,8 +384,11 @@ class AppPreferencesService {
   static const _btLdacBitrateKey = 'app_bt_ldac_bitrate';
   static const _btAbsoluteVolumeSyncKey = 'app_bt_absolute_volume_sync';
   static const _floatingPlayerEnabledKey = 'app_floating_player_enabled';
+  static const _floatingIslandEnabledKey = 'app_floating_island_enabled';
   static const _autoFocusSearchKey = 'app_auto_focus_search';
   static const _searchPlaybackModeKey = 'app_search_playback_mode';
+  static const _refreshRateModeKey = 'app_refresh_rate_mode';
+  static const _visualizerEnabledKey = 'visualizer_enabled';
   static const _shuffleModeKey = 'playback_shuffle_mode';
   static const _loopModeKey = 'playback_loop_mode';
   static const _advanceListOrderKey = 'playback_advance_list_order';
@@ -470,9 +486,13 @@ class AppPreferencesService {
           prefs.getBool(_btAbsoluteVolumeSyncKey) ?? false,
       floatingPlayerEnabled:
           prefs.getBool(_floatingPlayerEnabledKey) ?? false,
+      floatingIslandEnabled:
+          prefs.getBool(_floatingIslandEnabledKey) ?? true,
       autoFocusSearch: prefs.getBool(_autoFocusSearchKey) ?? false,
       searchPlaybackMode:
           prefs.getString(_searchPlaybackModeKey) ?? 'results',
+      refreshRateMode: prefs.getString(_refreshRateModeKey) ?? 'high',
+      visualizerEnabled: prefs.getBool(_visualizerEnabledKey) ?? true,
     );
   }
 
@@ -1090,6 +1110,16 @@ class AppPreferencesService {
     await prefs.setBool(_floatingPlayerEnabledKey, value);
   }
 
+  Future<bool> getFloatingIslandEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_floatingIslandEnabledKey) ?? true;
+  }
+
+  Future<void> setFloatingIslandEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_floatingIslandEnabledKey, value);
+  }
+
   Future<bool> getAutoFocusSearch() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(_autoFocusSearchKey) ?? false;
@@ -1108,5 +1138,25 @@ class AppPreferencesService {
   Future<void> setSearchPlaybackMode(String value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_searchPlaybackModeKey, value);
+  }
+
+  Future<String> getRefreshRateMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_refreshRateModeKey) ?? 'high';
+  }
+
+  Future<void> setRefreshRateMode(String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_refreshRateModeKey, value);
+  }
+
+  Future<bool> getVisualizerEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_visualizerEnabledKey) ?? true;
+  }
+
+  Future<void> setVisualizerEnabled(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_visualizerEnabledKey, value);
   }
 }

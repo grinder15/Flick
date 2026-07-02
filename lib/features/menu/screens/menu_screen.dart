@@ -21,6 +21,7 @@ import 'package:flick/features/playlists/screens/playlist_detail_screen.dart';
 import 'package:flick/features/playlists/screens/playlists_screen.dart';
 import 'package:flick/features/queue/screens/queue_screen.dart';
 import 'package:flick/features/recap/screens/listening_recap_screen.dart';
+import 'package:flick/features/recently_added/screens/recently_added_screen.dart';
 import 'package:flick/features/recently_played/screens/recently_played_screen.dart';
 import 'package:flick/features/songs/screens/songs_screen.dart';
 import 'package:flick/models/playlist.dart';
@@ -1407,6 +1408,14 @@ class _MenuScreenState extends ConsumerState<MenuScreen>
         gradient: const [Color(0xFF133858), Color(0xFF175F80)],
         artPath: homeData.recentTracks.firstOrNull?.albumArt,
         onTap: () => _navigateTo(context, const RecentlyPlayedScreen()),
+      ),
+      _QuickAccessItem(
+        title: 'Recently Added',
+        subtitle: 'Your latest library scans',
+        icon: LucideIcons.sparkles,
+        gradient: const [Color(0xFF3B1B6B), Color(0xFF6D28D9)],
+        artPath: null,
+        onTap: () => _navigateTo(context, const RecentlyAddedScreen()),
       ),
       _QuickAccessItem(
         title: 'Artists',

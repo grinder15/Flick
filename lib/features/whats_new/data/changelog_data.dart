@@ -44,6 +44,21 @@ class ChangelogSubsection {
 /// automatically surface the entry whose `version` equals `kAppVersion`.
 const List<ChangelogEntry> kChangelogEntries = [
   ChangelogEntry(
+    version: '0.21.0-beta.1',
+    date: '2026-07-02',
+    sections: [
+      ChangelogSection(
+        title: 'AutoEQ Headphone Matching',
+        bullets: [
+          '**Pick your headphone model** and Flick applies a measurement-based parametric EQ tuned to it.',
+          'Bundled catalog of **466 popular models** across 63 brands — works fully offline, including strong Chinese-IEM coverage (Moondrop, KZ, TRN, Simgot, 7Hz, Truthear and more).',
+          '**Online search** fetches parametric EQ for models not in the bundled catalog directly from the AutoEq project.',
+          'Open from the equalizer screen → Presets → AutoEQ headphones.',
+        ],
+      ),
+    ],
+  ),
+  ChangelogEntry(
     version: '0.20.0-beta.2',
     date: '2026-06-21',
     sections: [

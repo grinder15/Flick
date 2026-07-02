@@ -68,6 +68,21 @@ class SongRepository {
     return await _isar.songEntitys.count();
   }
 
+  /// Get a paginated slice of songs ordered by most recently added.
+  /// Backed by the indexed `dateAdded` field (efficient DB-level sort).
+  Future<List<Song>> getRecentlyAddedSongs({
+    int offset = 0,
+    int limit = 50,
+  }) async {
+    final entities = await _isar.songEntitys
+        .where()
+        .sortByDateAddedDesc()
+        .offset(offset)
+        .limit(limit)
+        .findAll();
+    return entities.map(_entityToSong).toList();
+  }
+
   /// Add or update a song. Matches on composite key (filePath, startOffsetMs).
   Future<void> upsertSong(SongEntity entity) async {
     await _isar.writeTxn(() async {

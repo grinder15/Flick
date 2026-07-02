@@ -101,6 +101,47 @@ class InterfaceSettingsScreen extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: AppConstants.spacingLg),
+          const SettingsSectionHeader('Refresh Rate'),
+          SettingsCard(
+            children: [
+              SelectionSetting(
+                icon: LucideIcons.smartphone,
+                title: 'Adaptive',
+                subtitle: 'Let the system decide — best battery life',
+                selected: appPreferences.refreshRateMode == 'adaptive',
+                onTap: () {
+                  ref
+                      .read(appPreferencesProvider.notifier)
+                      .setRefreshRateMode('adaptive');
+                },
+              ),
+              const SettingsDivider(),
+              SelectionSetting(
+                icon: LucideIcons.gauge,
+                title: 'Standard (60Hz)',
+                subtitle: 'Cap at 60Hz — balanced smoothness and battery',
+                selected: appPreferences.refreshRateMode == 'standard',
+                onTap: () {
+                  ref
+                      .read(appPreferencesProvider.notifier)
+                      .setRefreshRateMode('standard');
+                },
+              ),
+              const SettingsDivider(),
+              SelectionSetting(
+                icon: LucideIcons.zap,
+                title: 'High (120Hz)',
+                subtitle: 'Maximum smoothness — uses more battery',
+                selected: appPreferences.refreshRateMode == 'high',
+                onTap: () {
+                  ref
+                      .read(appPreferencesProvider.notifier)
+                      .setRefreshRateMode('high');
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.spacingLg),
           const SettingsSectionHeader('Search Playback'),
           SettingsCard(
             children: [
